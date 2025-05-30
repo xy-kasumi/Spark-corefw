@@ -4,46 +4,49 @@
 
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
-#define BLINK_PERIOD_MS 1000U
+static const struct gpio_dt_spec step0 =
+    GPIO_DT_SPEC_GET(DT_NODELABEL(step0), gpios);
 
-/* Get the LED device from device tree */
-#define LED_NODE DT_ALIAS(led0)
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED_NODE, gpios);
+static const struct gpio_dt_spec en0 =
+    GPIO_DT_SPEC_GET(DT_NODELABEL(en0), gpios);
 
-int main(void) {
-  int ret;
-  bool led_state = false;
+static const struct gpio_dt_spec dir0 =
+    GPIO_DT_SPEC_GET(DT_NODELABEL(dir0), gpios);
 
-  printk("Zephyr Simple GPIO Blink Application\n");
-
-  /* Check if LED GPIO is ready */
-  if (!gpio_is_ready_dt(&led)) {
+int main() {
+  if (!gpio_is_ready_dt(&step0)) {
     LOG_ERR("LED GPIO not ready");
     return 0;
   }
 
-  /* Configure LED GPIO as output */
-  ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
+  int ret = gpio_pin_configure_dt(&step0, GPIO_OUTPUT_INACTIVE);
   if (ret < 0) {
-    LOG_ERR("Could not configure LED GPIO (%d)", ret);
+    LOG_ERR("Could not configure step0 GPIO (%d)", ret);
     return 0;
   }
 
-  printk("LED on PC14 configured successfully\n");
-  printk("Starting blink loop - LED should toggle every %u ms\n",
-         BLINK_PERIOD_MS);
+  ret = gpio_pin_configure_dt(&dir0, GPIO_OUTPUT_INACTIVE);
+  if (ret < 0) {
+    LOG_ERR("Could not configure dir0 GPIO (%d)", ret);
+    return 0;
+  }
+
+  ret = gpio_pin_configure_dt(&en0, GPIO_OUTPUT_ACTIVE); // ACTIVE == 1 == disabled
+  if (ret < 0) {
+    LOG_ERR("Could not configure en0 GPIO (%d)", ret);
+    return 0;
+  }
+
+  printk("Starting main loop\n");
+
+  // gpio_pin_set_dt(&en0, false); // false == ENABLE Output
 
   while (1) {
-    /* Toggle LED state */
-    led_state = !led_state;
-    ret = gpio_pin_set_dt(&led, led_state);
-    if (ret < 0) {
-      LOG_ERR("Could not set LED (%d)", ret);
-    } else {
-      printk("LED %s\n", led_state ? "ON" : "OFF");
-    }
+    gpio_pin_set_dt(&step0, true);
+    k_sleep(K_USEC(10));
+	gpio_pin_set_dt(&step0, false);
 
-    k_sleep(K_MSEC(BLINK_PERIOD_MS));
+	k_sleep(K_MSEC(1));
   }
 
   return 0;

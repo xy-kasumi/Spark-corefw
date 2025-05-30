@@ -7,7 +7,7 @@
 
 / {
 	model = "Octopus Pro V1.1 Board";
-	compatible = "vendor,octopus-pro";
+	compatible = "btt,octopus-pro";
 
 	chosen {
 		zephyr,console = &usart2;
@@ -27,7 +27,43 @@
 			gpios = <&gpioc 14 GPIO_ACTIVE_HIGH>;
 			label = "Octopus Pro LED";
 		};
+
+		// TODO: Proper bindings file
+		step0: step0 {
+			gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
+			label = "STEP0";
+		};
+
+		dir0: dir0 {
+			gpios = <&gpiof 12 GPIO_ACTIVE_HIGH>;
+			label = "DIR0";
+		};
+
+		en0: en0 {
+			gpios = <&gpiof 14 GPIO_ACTIVE_HIGH>;
+			label = "EN0";
+		};
+
+		// PC4: UART
+
+		/*
+		diag0: diag0 {
+			gpios = <&gpiog 6 GPIO_ACTIVE_HIGH>;
+			label = "DIAG0";
+		};
+		 */
 	};
+
+	/*
+	motors {
+		compatible = "gpio";
+		motor0: motor_0 {
+			gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
+			label = ""
+		};
+
+	};
+	 */
 };
 
 &clk_hse {
@@ -86,6 +122,10 @@
 };
 
 &gpiod {
+	status = "okay";
+};
+
+&gpiof {
 	status = "okay";
 };
 
