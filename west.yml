@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2025 夕月霞
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+manifest:
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: main
+      import:
+        name-allowlist:
+          - cmsis_6
+          - hal_stm32
