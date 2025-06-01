@@ -3,14 +3,14 @@
 
 # Clock configuration
 CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=550000000
+CONFIG_SYS_CLOCK_TICKS_PER_SEC=50000
+CONFIG_COUNTER_TIMER_STM32=y
+CONFIG_RTC_STM32=n  # No RTC connected
 
 # Debug and SWD configuration
 CONFIG_DEBUG=y
 CONFIG_DEBUG_INFO=y
 CONFIG_DEBUG_OPTIMIZATIONS=y
-
-# Disable RTC to freeup blue LED (D37) - LSE disabled in device tree
-CONFIG_RTC_STM32=n
 
 # Enable UART console on all configurations for convenience. This is usually
 # done at board level upstream so that all samples output printed messages to

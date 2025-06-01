@@ -17,16 +17,8 @@
 		zephyr,dtcm = &dtcm;
 	};
 
-	aliases {
-		led0 = &led0;
-	};
-
 	leds {
 		compatible = "gpio-leds";
-		led0: led_0 {
-			gpios = <&gpioc 14 GPIO_ACTIVE_HIGH>;
-			label = "Octopus Pro LED";
-		};
 
 		// TODO: Proper bindings file
 		step0: step0 {
@@ -44,8 +36,11 @@
 			label = "EN0";
 		};
 
-		// PC4: UART
-
+		muart0: muart0 {
+			gpios = <&gpioc 4 GPIO_ACTIVE_HIGH>;
+			label = "MUART0";
+		};
+		
 		/*
 		diag0: diag0 {
 			gpios = <&gpiog 6 GPIO_ACTIVE_HIGH>;
@@ -53,17 +48,16 @@
 		};
 		 */
 	};
+};
 
-	/*
-	motors {
-		compatible = "gpio";
-		motor0: motor_0 {
-			gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
-			label = ""
-		};
 
+&timers2 {
+	status = "okay";
+	st,prescaler = <119>; // 120MHz (APB1 clock) -> 1MHz tick
+
+	sw_uart_cnt: counter {
+		status = "okay";
 	};
-	 */
 };
 
 &clk_hse {
