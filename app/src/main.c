@@ -1,5 +1,8 @@
 #include "tmc2209.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <zephyr/console/console.h>
 #include <zephyr/device.h>
@@ -12,6 +15,59 @@
 #include <zephyr/sys/printk.h>
 
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
+
+// Global console UART device pointer
+static const struct device* console_uart_dev;
+
+// Custom print utilities using uart_poll_out for immediate output
+void console_putc(char c) {
+  if (console_uart_dev && device_is_ready(console_uart_dev)) {
+    if (c == '\n') {
+      uart_poll_out(console_uart_dev, '\r');
+    }
+    uart_poll_out(console_uart_dev, c);
+  }
+}
+
+void console_puts(const char* str) {
+  while (*str) {
+    console_putc(*str++);
+  }
+}
+
+void console_printf(const char* fmt, ...) {
+  char buffer[256];
+  va_list args;
+
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+
+  console_puts(buffer);
+}
+
+void dump_tmc_regs() {
+  uint32_t res;
+
+  res = tmc_tx_regread(0x00);
+  console_printf("GCONF: 0x%08x\n", res);
+  k_sleep(K_MSEC(10));
+
+  res = tmc_tx_regread(0x06);
+  console_printf("IOIN: 0x%08x\n", res);
+  k_sleep(K_MSEC(10));
+
+  res = tmc_tx_regread(0x41);
+  console_printf("SG_RESULT: 0x%08x\n", res);
+  k_sleep(K_MSEC(10));
+
+  res = tmc_tx_regread(0x6c);
+  console_printf("CHOPCONF: 0x%08x\n", res);
+  k_sleep(K_MSEC(10));
+}
+
+
+
 
 static const struct gpio_dt_spec step0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(step0), gpios);
@@ -35,48 +91,43 @@ void handle_console_line(const char* line) {
     return;  // Empty line
   }
 
-  printk("Received command: %s\n", line);
+  console_printf("Received command: %s\n", line);
 
   // Add your custom command handlers here
   if (strcmp(line, "help") == 0) {
-    printk("Available commands:\n");
-    printk("  help - Show this help\n");
-    printk("  regs - Read TMC registers\n");
-    printk("  step <count> - Step motor <count> times\n");
+    console_puts("Available commands:\n");
+    console_puts("  help - Show this help\n");
+    console_puts("  regs - Read TMC registers\n");
+    console_puts("  step <count> - Step motor <count> times\n");
   } else if (strcmp(line, "regs") == 0) {
     dump_tmc_regs();
   } else if (strncmp(line, "step ", 5) == 0) {
     int steps = atoi(line + 5);
-    printk("Stepping %d times\n", steps);
+    console_printf("Stepping %d times\n", steps);
   } else {
-    printk("Unknown command: %s\n", line);
-    printk("Type 'help' for available commands\n");
+    console_printf("Unknown command: %s\n", line);
+    console_puts("Type 'help' for available commands\n");
   }
-
-  // Force immediate output by polling out directly
-  uart_poll_out(DEVICE_DT_GET(DT_CHOSEN(zephyr_console)), '\r');
-  uart_poll_out(DEVICE_DT_GET(DT_CHOSEN(zephyr_console)), '\n');
 }
 
 void console_thread() {
-  const struct device* uart_dev;
   char line_buffer[256];
   int buffer_pos = 0;
   unsigned char ch;
 
-  // Get the console UART device
-  uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
-  if (!device_is_ready(uart_dev)) {
+  // Get the console UART device and store globally
+  console_uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+  if (!device_is_ready(console_uart_dev)) {
     printk("Console UART device not ready\n");
     return;
   }
 
-  printk("\n=== Spark Console ===\n");
-  printk("Type 'help' for available commands\n");
+  console_puts("\n=== Spark Console ===\n");
+  console_puts("Type 'help' for available commands\n");
 
   while (1) {
     // Poll for incoming characters
-    if (uart_poll_in(uart_dev, &ch) == 0) {
+    if (uart_poll_in(console_uart_dev, &ch) == 0) {
       // Character received
 
       // Handle special characters
@@ -92,7 +143,7 @@ void console_thread() {
         if (buffer_pos > 0) {
           buffer_pos--;
           // Optionally send backspace sequence to terminal
-          // printk("\b \b");
+          // console_puts("\b \b");
         }
       } else if (ch >= 0x20 && ch <= 0x7E) {
         // Printable ASCII character
@@ -110,26 +161,6 @@ void console_thread() {
 }
 
 K_THREAD_DEFINE(console_tid, 1024, console_thread, NULL, NULL, NULL, 5, 0, 0);
-
-void dump_tmc_regs() {
-  uint32_t res;
-
-  res = tmc_tx_regread(0x00);
-  LOG_INF("GCONF: 0x%08x", res);
-  k_sleep(K_MSEC(10));
-
-  res = tmc_tx_regread(0x06);
-  LOG_INF("IOIN: 0x%08x", res);
-  k_sleep(K_MSEC(10));
-
-  res = tmc_tx_regread(0x41);
-  LOG_INF("SG_RESULT: 0x%08x", res);
-  k_sleep(K_MSEC(10));
-
-  res = tmc_tx_regread(0x6c);
-  LOG_INF("CHOPCONF: 0x%08x", res);
-  k_sleep(K_MSEC(10));
-}
 
 int main() {
   if (!gpio_is_ready_dt(&step0)) {
