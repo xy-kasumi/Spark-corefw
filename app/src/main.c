@@ -2,8 +2,11 @@
 
 #include <string.h>
 #include <zephyr/console/console.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/printk.h>
@@ -49,21 +52,64 @@ void handle_console_line(const char* line) {
     printk("Unknown command: %s\n", line);
     printk("Type 'help' for available commands\n");
   }
+
+  // Force immediate output by polling out directly
+  uart_poll_out(DEVICE_DT_GET(DT_CHOSEN(zephyr_console)), '\r');
+  uart_poll_out(DEVICE_DT_GET(DT_CHOSEN(zephyr_console)), '\n');
 }
 
 void console_thread() {
-  // console_init();
-  console_getline_init();
+  const struct device* uart_dev;
+  char line_buffer[256];
+  int buffer_pos = 0;
+  unsigned char ch;
+
+  // Get the console UART device
+  uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+  if (!device_is_ready(uart_dev)) {
+    printk("Console UART device not ready\n");
+    return;
+  }
 
   printk("\n=== Spark Console ===\n");
   printk("Type 'help' for available commands\n");
 
   while (1) {
-    handle_console_line(console_getline());
+    // Poll for incoming characters
+    if (uart_poll_in(uart_dev, &ch) == 0) {
+      // Character received
+
+      // Handle special characters
+      if (ch == '\r' || ch == '\n') {
+        // End of line - process the command
+        if (buffer_pos > 0) {
+          line_buffer[buffer_pos] = '\0';  // Null terminate
+          handle_console_line(line_buffer);
+          buffer_pos = 0;  // Reset buffer
+        }
+      } else if (ch == '\b' || ch == 0x7F) {
+        // Backspace or DEL - remove last character
+        if (buffer_pos > 0) {
+          buffer_pos--;
+          // Optionally send backspace sequence to terminal
+          // printk("\b \b");
+        }
+      } else if (ch >= 0x20 && ch <= 0x7E) {
+        // Printable ASCII character
+        if (buffer_pos < sizeof(line_buffer) - 1) {
+          line_buffer[buffer_pos++] = ch;
+          // No echo - this eliminates the echo behavior
+        }
+      }
+      // Ignore other control characters
+    } else {
+      // No character available, sleep briefly to avoid busy waiting
+      k_sleep(K_MSEC(1));
+    }
   }
 }
 
-K_THREAD_DEFINE(console_tid, 1024, console_thread, NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(console_tid, 1024, console_thread, NULL, NULL, NULL, 5, 0, 0);
 
 void dump_tmc_regs() {
   uint32_t res;
