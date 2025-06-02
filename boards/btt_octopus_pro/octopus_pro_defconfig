@@ -7,15 +7,6 @@ CONFIG_SYS_CLOCK_TICKS_PER_SEC=50000
 CONFIG_COUNTER_TIMER_STM32=y
 CONFIG_RTC_STM32=n  # No RTC connected
 
-# Debug and SWD configuration
-CONFIG_DEBUG=y
-CONFIG_DEBUG_INFO=y
-CONFIG_DEBUG_OPTIMIZATIONS=y
-
-# Enable UART console on all configurations for convenience. This is usually
-# done at board level upstream so that all samples output printed messages to
-# the configured #zephyr,console. In production boards, this may be enabled at
-# application level or in a debug configuration overlay.
+# Basic I/O
 CONFIG_SERIAL=y
-CONFIG_CONSOLE=y
-CONFIG_UART_CONSOLE=y
+CONFIG_GPIO=y
