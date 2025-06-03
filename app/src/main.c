@@ -36,6 +36,7 @@ void handle_set(const char* var, const char* val) {
 }
 
 // Handle a complete line received from serial console
+// TODO: Move line cleanup to comm.c, and only expose cleaned line to handler.
 void handle_console_line(const char* line) {
   // Trim whitespace
   while (*line == ' ' || *line == '\t')
@@ -77,6 +78,7 @@ void handle_console_line(const char* line) {
   }
 }
 
+// TODO: Move to comm.h / comm.c
 void console_thread() {
   char line_buffer[256];
   int buffer_pos = 0;

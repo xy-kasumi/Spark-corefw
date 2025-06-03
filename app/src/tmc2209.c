@@ -6,6 +6,7 @@
 #include <zephyr/drivers/counter.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/byteorder.h>
 
 #define REG_GCONF 0x00
 #define REG_IOIN 0x06
@@ -164,7 +165,7 @@ typedef struct __attribute__((packed)) {
   uint8_t node_addr;
   uint8_t reg_addr : 7;
   bool write : 1;  // must be 1
-  uint32_t value;  // big-endian
+  uint32_t value;  // big-endian: use sys_cpu_to_be32()
   uint8_t crc;
 } tmc_uart_request_write_datagram_t;
 
@@ -185,7 +186,7 @@ typedef struct __attribute__((packed)) {
   uint8_t master_addr;   // 0xff
   uint8_t reg_addr : 7;
   bool write_reserved : 1;  // 0
-  uint32_t value;           // big-endian
+  uint32_t value;           // big-endian: use sys_be32_to_cpu()
   uint8_t crc;
 } tmc_uart_reply_datagram_t;
 
@@ -247,11 +248,10 @@ uint32_t tmc_tx_regread(uint8_t addr) {
                    reply.crc);
   }
   if (reply.reg_addr != addr || reply.master_addr != 0xff) {
-    comm_print_err(
-        "Unexpected reply: got reg_addr=0x%02x, master_addr=0x%02x",
-        reply.reg_addr, reply.master_addr);
+    comm_print_err("Unexpected reply: got reg_addr=0x%02x, master_addr=0x%02x",
+                   reply.reg_addr, reply.master_addr);
   }
-  return reply.value;
+  return sys_be32_to_cpu(reply.value);
 }
 
 // Blocking write of a register.
@@ -261,7 +261,7 @@ void tmc_tx_regwrite(uint8_t addr, uint32_t value) {
       .node_addr = 0,
       .write = true,
       .reg_addr = addr,
-      .value = value,
+      .value = sys_cpu_to_be32(value),
   };
   request.crc = tmc_uart_crc((uint8_t*)&request, sizeof(request) - 1);
   tmc_uart_write((uint8_t*)&request, sizeof(request));
