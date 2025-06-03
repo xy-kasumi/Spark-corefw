@@ -13,6 +13,9 @@ void comm_print_ack();
 void comm_print_err(const char* fmt, ...);
 void comm_print_info(const char* fmt, ...);
 
+// Blocking read of one command from console
+char* comm_read_command();
+
 // Future stream support
 // void comm_print_stream_rem(uint32_t count);
 // void comm_print_stream_seq(uint32_t seq, const char* fmt, ...);

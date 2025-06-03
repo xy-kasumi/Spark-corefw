@@ -54,11 +54,43 @@ typedef enum {
 } uart_state_t;
 uart_state_t tmc_uart_state = UART_IDLE;
 
+// 8-byte structure for write request datagram.
+typedef struct __attribute__((packed)) {
+  uint8_t sync : 4;      // must be 0b0101 = 0x5
+  uint8_t reserved : 4;  // 0 recommended
+  uint8_t node_addr;
+  uint8_t reg_addr : 7;
+  bool write : 1;  // must be 1
+  uint32_t value;  // big-endian: use sys_cpu_to_be32()
+  uint8_t crc;
+} tmc_uart_request_write_datagram_t;
+
+// 4-byte structure for read request datagram.
+typedef struct __attribute__((packed)) {
+  uint8_t sync : 4;      // must be 0b0101 = 0x5
+  uint8_t reserved : 4;  // 0 recommended
+  uint8_t node_addr;
+  uint8_t reg_addr : 7;
+  bool write : 1;  // must be 0
+  uint8_t crc;
+} tmc_uart_request_read_datagram_t;
+
+// 8-byte structure for reply datagram.
+typedef struct __attribute__((packed)) {
+  uint8_t sync : 4;      // must be 0b0101 = 0x5
+  uint8_t reserved : 4;  // 0
+  uint8_t master_addr;   // 0xff
+  uint8_t reg_addr : 7;
+  bool write_reserved : 1;  // 0
+  uint32_t value;           // big-endian: use sys_be32_to_cpu()
+  uint8_t crc;
+} tmc_uart_reply_datagram_t;
+
 // Called twice at every baud to do software bit-banging UART with START/STOP
 // bits. Twice, beause we want to phase-lock. send: phase % 2 == 0. read: phase
 // % 2 == 1. (phase == 0 timing acquired by START bit detection)
 // tmc_uart_current_bit: 0=START, 1-8=DATA, 9=STOP
-void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
+static void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
   if (tmc_uart_state == UART_IDLE) {
     return;
   }
@@ -127,7 +159,7 @@ void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
   }
 }
 
-void tmc_uart_write(uint8_t* data, size_t size) {
+static void tmc_uart_write(uint8_t* data, size_t size) {
   if (size > TMC_UART_BUFFER_SIZE) {
     comm_print_err("Data size exceeds buffer size");
     return;
@@ -143,7 +175,7 @@ void tmc_uart_write(uint8_t* data, size_t size) {
   tmc_uart_state = UART_SEND;
 }
 
-void tmc_uart_read(size_t size) {
+static void tmc_uart_read(size_t size) {
   if (size > TMC_UART_BUFFER_SIZE) {
     comm_print_err("Data size exceeds buffer size");
     return;
@@ -158,39 +190,7 @@ void tmc_uart_read(size_t size) {
   tmc_uart_state = UART_RECEIVE;
 }
 
-// 8-byte structure for write request datagram.
-typedef struct __attribute__((packed)) {
-  uint8_t sync : 4;      // must be 0b0101 = 0x5
-  uint8_t reserved : 4;  // 0 recommended
-  uint8_t node_addr;
-  uint8_t reg_addr : 7;
-  bool write : 1;  // must be 1
-  uint32_t value;  // big-endian: use sys_cpu_to_be32()
-  uint8_t crc;
-} tmc_uart_request_write_datagram_t;
-
-// 4-byte structure for read request datagram.
-typedef struct __attribute__((packed)) {
-  uint8_t sync : 4;      // must be 0b0101 = 0x5
-  uint8_t reserved : 4;  // 0 recommended
-  uint8_t node_addr;
-  uint8_t reg_addr : 7;
-  bool write : 1;  // must be 0
-  uint8_t crc;
-} tmc_uart_request_read_datagram_t;
-
-// 8-byte structure for reply datagram.
-typedef struct __attribute__((packed)) {
-  uint8_t sync : 4;      // must be 0b0101 = 0x5
-  uint8_t reserved : 4;  // 0
-  uint8_t master_addr;   // 0xff
-  uint8_t reg_addr : 7;
-  bool write_reserved : 1;  // 0
-  uint32_t value;           // big-endian: use sys_be32_to_cpu()
-  uint8_t crc;
-} tmc_uart_reply_datagram_t;
-
-uint8_t tmc_uart_crc(uint8_t* data, size_t size) {
+static uint8_t tmc_uart_crc(uint8_t* data, size_t size) {
   uint8_t crc = 0;
   for (int i = 0; i < size; i++) {
     uint8_t b = data[i];
@@ -333,17 +333,17 @@ void tmc_init() {
     comm_print_err("step0 GPIO not ready");
     return;
   }
-  
+
   if (!gpio_is_ready_dt(&dir0)) {
     comm_print_err("dir0 GPIO not ready");
     return;
   }
-  
+
   if (!gpio_is_ready_dt(&en0)) {
     comm_print_err("en0 GPIO not ready");
     return;
   }
-  
+
   if (!gpio_is_ready_dt(&muart0)) {
     comm_print_err("muart0 GPIO not ready");
     return;
@@ -387,6 +387,6 @@ void tmc_init() {
     comm_print_err("Could not set counter top value (%d)", ret);
     return;
   }
-  
+
   comm_print("TMC2209 initialized");
 }
