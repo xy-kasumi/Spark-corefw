@@ -7,6 +7,15 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 
+#define REG_GCONF 0x00
+#define REG_IOIN 0x06
+#define REG_IHOLD_IRUN 0x10
+#define REG_TCOOLTHRS 0x14
+#define REG_SGTHRS 0x40
+#define REG_SG_RESULT 0x41
+#define REG_COOLCONF 0x42
+#define REG_CHOPCONF 0x6C
+
 static const struct gpio_dt_spec step0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(step0), gpios);
 
@@ -257,6 +266,32 @@ void tmc_tx_regwrite(uint8_t addr, uint32_t value) {
   request.crc = tmc_uart_crc((uint8_t*)&request, sizeof(request) - 1);
   tmc_uart_write((uint8_t*)&request, sizeof(request));
   k_event_wait(&tmc_uart_evt, TMC_UART_EVT_DONE, false, K_FOREVER);
+}
+
+void dump_tmc_regs() {
+  comm_print("GCONF: 0x%08x\n", tmc_tx_regread(REG_GCONF));
+  k_sleep(K_MSEC(10));
+
+  comm_print("IOIN: 0x%08x\n", tmc_tx_regread(REG_IOIN));
+  k_sleep(K_MSEC(10));
+
+  comm_print("IHOLD_IRUN: 0x%08x\n", tmc_tx_regread(REG_IHOLD_IRUN));
+  k_sleep(K_MSEC(10));
+
+  comm_print("TCOOLTHRS: 0x%08x\n", tmc_tx_regread(REG_TCOOLTHRS));
+  k_sleep(K_MSEC(10));
+
+  comm_print("SGTHRS: 0x%08x\n", tmc_tx_regread(REG_SGTHRS));
+  k_sleep(K_MSEC(10));
+
+  comm_print("SG_RESULT: 0x%08x\n", tmc_tx_regread(REG_SG_RESULT));
+  k_sleep(K_MSEC(10));
+
+  comm_print("COOLCONF: 0x%08x\n", tmc_tx_regread(REG_COOLCONF));
+  k_sleep(K_MSEC(10));
+
+  comm_print("CHOPCONF: 0x%08x\n", tmc_tx_regread(REG_CHOPCONF));
+  k_sleep(K_MSEC(10));
 }
 
 void tmc_init() {

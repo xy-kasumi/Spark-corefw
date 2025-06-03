@@ -13,26 +13,6 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
-void dump_tmc_regs() {
-  uint32_t res;
-
-  res = tmc_tx_regread(0x00);
-  comm_print("GCONF: 0x%08x\n", res);
-  k_sleep(K_MSEC(10));
-
-  res = tmc_tx_regread(0x06);
-  comm_print("IOIN: 0x%08x\n", res);
-  k_sleep(K_MSEC(10));
-
-  res = tmc_tx_regread(0x41);
-  comm_print("SG_RESULT: 0x%08x\n", res);
-  k_sleep(K_MSEC(10));
-
-  res = tmc_tx_regread(0x6c);
-  comm_print("CHOPCONF: 0x%08x\n", res);
-  k_sleep(K_MSEC(10));
-}
-
 static const struct gpio_dt_spec step0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(step0), gpios);
 
@@ -44,6 +24,16 @@ static const struct gpio_dt_spec dir0 =
 
 static const struct gpio_dt_spec muart0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(muart0), gpios);
+
+// Handle set command: "set var val"
+void handle_set(const char* var, const char* val) {
+  if (strcmp(var, "mot0.curr") == 0) {
+    // TODO: do bunch of TMC calls.
+
+  } else {
+    comm_print("unknown variable %s\n", var);
+  }
+}
 
 // Handle a complete line received from serial console
 void handle_console_line(const char* line) {
@@ -62,11 +52,25 @@ void handle_console_line(const char* line) {
     comm_print("help - Show this help\n");
     comm_print("regs - Read TMC registers\n");
     comm_print("step <count> - Step motor <count> times\n");
+    comm_print("set <var> <val> - Set variable to value\n");
   } else if (strcmp(line, "regs") == 0) {
     dump_tmc_regs();
   } else if (strncmp(line, "step ", 5) == 0) {
     int steps = atoi(line + 5);
     comm_print("Stepping %d times\n", steps);
+  } else if (strncmp(line, "set ", 4) == 0) {
+    // Parse "set var val"
+    const char* rest = line + 4;  // Skip "set "
+    char* space = strchr(rest, ' ');
+    if (space != NULL) {
+      *space = '\0';  // Temporarily null-terminate var
+      const char* var = rest;
+      const char* val = space + 1;
+      handle_set(var, val);
+      *space = ' ';  // Restore original string
+    } else {
+      comm_print_err("Usage: set <var> <val>\n");
+    }
   } else {
     comm_print_err("Unknown command: %s\n", line);
     comm_print("Type 'help' for available commands\n");
