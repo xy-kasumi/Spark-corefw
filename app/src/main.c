@@ -61,6 +61,10 @@ int main() {
   // initialize hardware
   tmc_init();
 
+  // apply default settings
+  tmc_set_microstep(32);
+  tmc_set_current(30, 0);
+
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");
   while (1) {
