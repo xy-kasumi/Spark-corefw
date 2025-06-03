@@ -31,6 +31,9 @@ void comm_print(const char* fmt, ...) {
   va_start(args, fmt);
   comm_raw_vprintf(fmt, args);
   va_end(args);
+  
+  // Auto-add newline
+  comm_raw_puts("\n");
 }
 
 void comm_print_ack() {
@@ -54,6 +57,9 @@ void comm_print_err(const char* fmt, ...) {
   va_start(args, fmt);
   comm_raw_vprintf(fmt, args);
   va_end(args);
+  
+  // Auto-add newline
+  comm_raw_puts("\n");
 }
 
 void comm_print_info(const char* fmt, ...) {
@@ -73,4 +79,7 @@ void comm_print_info(const char* fmt, ...) {
   va_start(args, fmt);
   comm_raw_vprintf(fmt, args);
   va_end(args);
+  
+  // Auto-add newline
+  comm_raw_puts("\n");
 }

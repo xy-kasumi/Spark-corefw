@@ -31,7 +31,7 @@ void handle_set(const char* var, const char* val) {
     // TODO: do bunch of TMC calls.
 
   } else {
-    comm_print("unknown variable %s\n", var);
+    comm_print("unknown variable %s", var);
   }
 }
 
@@ -45,19 +45,19 @@ void handle_console_line(const char* line) {
     return;  // Empty line
   }
 
-  comm_print("Received command: %s\n", line);
+  comm_print("Received command: %s", line);
 
   // Add your custom command handlers here
   if (strcmp(line, "help") == 0) {
-    comm_print("help - Show this help\n");
-    comm_print("regs - Read TMC registers\n");
-    comm_print("step <count> - Step motor <count> times\n");
-    comm_print("set <var> <val> - Set variable to value\n");
+    comm_print("help - Show this help");
+    comm_print("regs - Read TMC registers");
+    comm_print("step <count> - Step motor <count> times");
+    comm_print("set <var> <val> - Set variable to value");
   } else if (strcmp(line, "regs") == 0) {
     dump_tmc_regs();
   } else if (strncmp(line, "step ", 5) == 0) {
     int steps = atoi(line + 5);
-    comm_print("Stepping %d times\n", steps);
+    comm_print("Stepping %d times", steps);
   } else if (strncmp(line, "set ", 4) == 0) {
     // Parse "set var val"
     const char* rest = line + 4;  // Skip "set "
@@ -69,11 +69,11 @@ void handle_console_line(const char* line) {
       handle_set(var, val);
       *space = ' ';  // Restore original string
     } else {
-      comm_print_err("Usage: set <var> <val>\n");
+      comm_print_err("Usage: set <var> <val>");
     }
   } else {
-    comm_print_err("Unknown command: %s\n", line);
-    comm_print("Type 'help' for available commands\n");
+    comm_print_err("Unknown command: %s", line);
+    comm_print("Type 'help' for available commands");
   }
 }
 
@@ -93,7 +93,7 @@ void console_thread() {
   // Initialize communication subsystem
   comm_init();
 
-  comm_print("Spark corefw: Type 'help' for commands\n");
+  comm_print("Spark corefw: Type 'help' for commands");
 
   while (1) {
     // Poll for incoming characters
@@ -113,7 +113,7 @@ void console_thread() {
         if (buffer_pos > 0) {
           buffer_pos--;
           // Optionally send backspace sequence to terminal
-          // console_puts("\b \b");
+          // comm_raw_puts("\b \b");
         }
       } else if (ch >= 0x20 && ch <= 0x7E) {
         // Printable ASCII character
@@ -134,26 +134,26 @@ K_THREAD_DEFINE(console_tid, 1024, console_thread, NULL, NULL, NULL, 5, 0, 0);
 
 int main() {
   if (!gpio_is_ready_dt(&step0)) {
-    comm_print_err("LED GPIO not ready\n");
+    comm_print_err("LED GPIO not ready");
     return 0;
   }
 
   int ret = gpio_pin_configure_dt(&step0, GPIO_OUTPUT_INACTIVE);
   if (ret < 0) {
-    comm_print_err("Could not configure step0 GPIO (%d)\n", ret);
+    comm_print_err("Could not configure step0 GPIO (%d)", ret);
     return 0;
   }
 
   ret = gpio_pin_configure_dt(&dir0, GPIO_OUTPUT_INACTIVE);
   if (ret < 0) {
-    comm_print_err("Could not configure dir0 GPIO (%d)\n", ret);
+    comm_print_err("Could not configure dir0 GPIO (%d)", ret);
     return 0;
   }
 
   ret = gpio_pin_configure_dt(&en0,
                               GPIO_OUTPUT_ACTIVE);  // ACTIVE == 1 == disabled
   if (ret < 0) {
-    comm_print_err("Could not configure en0 GPIO (%d)\n", ret);
+    comm_print_err("Could not configure en0 GPIO (%d)", ret);
     return 0;
   }
 
@@ -162,12 +162,12 @@ int main() {
   // time). Otherwise changing to GPIO_INPUT and reading didn't work.
   ret = gpio_pin_configure_dt(&muart0, GPIO_OUTPUT_ACTIVE | GPIO_OPEN_DRAIN);
   if (ret < 0) {
-    comm_print_err("Could not configure muart0 GPIO (%d)\n", ret);
+    comm_print_err("Could not configure muart0 GPIO (%d)", ret);
     return 0;
   }
 
   tmc_init();
-  comm_print("Starting main loop\n");
+  comm_print("Starting main loop");
   k_sleep(K_FOREVER);
 
   while (true) {
