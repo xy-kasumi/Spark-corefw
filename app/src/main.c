@@ -11,6 +11,8 @@ static void handle_set(const char* var, const char* val) {
     tmc_set_microstep(atoi(val));
   } else if (strcmp(var, "mot0.current") == 0) {
     tmc_set_current(atoi(val), 0);
+  } else if (strcmp(var, "mot0.thresh") == 0) {
+    tmc_set_stallguard_threshold(atoi(val));
   } else {
     comm_print("unknown variable %s", var);
   }
@@ -31,9 +33,14 @@ static void handle_console_command(const char* command) {
     comm_print_ack("");
 
     tmc_energize(true);
-    for (int i = 0; i < 200 * 32; i++) {  // single rotation at 32 microsteps
+    for (int i = 0; i < 5 * 200 * 32; i++) {  // 5 rotations at 32 microsteps
       tmc_step(false);
       k_sleep(K_MSEC(1));
+      
+      if (tmc_stalled()) {
+        comm_print("Stall detected at step %d", i);
+        break;
+      }
     }
     tmc_energize(false);
   } else if (strncmp(command, "set ", 4) == 0) {
@@ -64,6 +71,7 @@ int main() {
   // apply default settings
   tmc_set_microstep(32);
   tmc_set_current(30, 0);
+  tmc_set_stallguard_threshold(10);
 
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");

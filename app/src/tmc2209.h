@@ -26,3 +26,9 @@ void tmc_energize(bool enable);
 
 // Queue a single step (true=forward, false=backward).
 void tmc_step(bool dir);
+
+// Check if motor is stalled (reads diag0 pin).
+bool tmc_stalled();
+
+// Set StallGuard threshold (0-255: 0=most sensitive, 255=least sensitive).
+void tmc_set_stallguard_threshold(uint8_t threshold);

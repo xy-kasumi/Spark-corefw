@@ -41,12 +41,10 @@
 			label = "MUART0";
 		};
 		
-		/*
 		diag0: diag0 {
 			gpios = <&gpiog 6 GPIO_ACTIVE_HIGH>;
 			label = "DIAG0";
 		};
-		 */
 	};
 };
 
@@ -120,6 +118,10 @@
 };
 
 &gpiof {
+	status = "okay";
+};
+
+&gpiog {
 	status = "okay";
 };
 

@@ -29,6 +29,9 @@ static const struct gpio_dt_spec dir0 =
 static const struct gpio_dt_spec muart0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(muart0), gpios);
 
+static const struct gpio_dt_spec diag0 =
+    GPIO_DT_SPEC_GET(DT_NODELABEL(diag0), gpios);
+
 static const struct device* sw_uart_cnt =
     DEVICE_DT_GET(DT_NODELABEL(sw_uart_cnt));
 
@@ -177,18 +180,18 @@ static void tmc_step_tick() {
           current_direction = dir;
           gpio_pin_set_dt(&dir0, dir);
         }
-        
+
         // Start step pulse (HIGH)
         gpio_pin_set_dt(&step0, true);
         step_state = STEP_PULSE_HIGH;
       }
       break;
-      
+
     case STEP_PULSE_HIGH:
       // End step pulse (LOW)
       gpio_pin_set_dt(&step0, false);
       step_state = STEP_PULSE_LOW;
-      
+
       // Consume one step
       if (remaining_steps > 0) {
         remaining_steps--;
@@ -196,7 +199,7 @@ static void tmc_step_tick() {
         remaining_steps++;
       }
       break;
-      
+
     case STEP_PULSE_LOW:
       // Wait one tick before allowing next step
       step_state = STEP_IDLE;
@@ -387,6 +390,17 @@ void tmc_step(bool dir) {
   }
 }
 
+// Check if motor is stalled (reads diag0 pin)
+bool tmc_stalled() {
+  return gpio_pin_get_dt(&diag0);
+}
+
+// Set StallGuard threshold (0-255: 0=most sensitive, 255=least sensitive)
+void tmc_set_stallguard_threshold(uint8_t threshold) {
+  tmc_tx_regwrite(REG_SGTHRS, threshold);
+  comm_print("StallGuard threshold set to %d", threshold);
+}
+
 void tmc_init() {
   // Initialize TMC GPIO pins
   if (!gpio_is_ready_dt(&step0)) {
@@ -406,6 +420,11 @@ void tmc_init() {
 
   if (!gpio_is_ready_dt(&muart0)) {
     comm_print_err("muart0 GPIO not ready");
+    return;
+  }
+
+  if (!gpio_is_ready_dt(&diag0)) {
+    comm_print_err("diag0 GPIO not ready");
     return;
   }
 
@@ -433,12 +452,19 @@ void tmc_init() {
     return;
   }
 
+  ret = gpio_pin_configure_dt(&diag0, GPIO_INPUT);
+  if (ret < 0) {
+    comm_print_err("Could not configure diag0 GPIO (%d)", ret);
+    return;
+  }
+
   // Initialize TMC counter for UART and step generation
   struct counter_top_cfg top_cfg = {
       .callback = tmc_tick_handler,
       .user_data = NULL,
-      .ticks = counter_us_to_ticks(sw_uart_cnt,
-                                   30),  // 30us ISR -> UART bit-banging + step pulse generation
+      .ticks = counter_us_to_ticks(
+          sw_uart_cnt,
+          30),  // 30us ISR -> UART bit-banging + step pulse generation
   };
 
   counter_start(sw_uart_cnt);
