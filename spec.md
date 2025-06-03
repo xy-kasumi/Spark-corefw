@@ -63,8 +63,7 @@ input =
   command |
   ":" nat-number (* seq_num *) " " command |
   "::" |
-  "!" |
-  "!!"
+  "!"
 
 examples:
 :1 G1 X1
@@ -126,11 +125,7 @@ Host can
 	* `SOFT_CANCEL`: Cancel execution by `!`
 		* cancels current command's execution and end `EXEC` state.
 		* No effect when done in `IDLE`
-	* `HARD_CANCEL`: Cancel execution by `!!`
-		* effects of `!` + de-energize everything
-			* almost certainly results in position loss
-			* might result in work damage
-		* basically same as FW version of emergency stop
+    * commands are supposed to cancel within 100ms of request.
 * In IDLE
 	* Start interactive command
 	* Start stream commands

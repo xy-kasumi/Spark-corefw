@@ -1,4 +1,5 @@
 #include "comm.h"
+#include "system.h"
 #include "tmc2209.h"
 
 #include <stdlib.h>
@@ -47,8 +48,6 @@ static void cmd_regs(char* args) {
 
 // Command: steptest
 static void cmd_steptest(char* args) {
-  comm_print_ack("");
-
   tmc_energize(true);
   for (int i = 0; i < 5 * 200 * 32; i++) {  // 5 rotations at 32 microsteps
     tmc_step(false);
@@ -64,7 +63,7 @@ static void cmd_steptest(char* args) {
 
 // Command: set <var> <val>
 static void cmd_set(char* args) {
-  if (!args || *args == '\0') {
+  if (!args) {
     comm_print_err("Usage: set <var> <val>");
     return;
   }
@@ -91,15 +90,12 @@ static void cmd_set(char* args) {
 }
 
 static void handle_console_command(char* command) {
-  comm_print("Received command: %s", command);
+  g_machine_state = STATE_EXEC_INTERACTIVE;
+  comm_print_ack();
 
   // Destructive parse: split command and arguments
   char* cmd = command;
   char* args = split_at(command, ' ');
-
-  if (!cmd || *cmd == '\0') {
-    return;  // Empty command
-  }
 
   // Dispatch to command handler
   if (strcmp(cmd, "help") == 0) {
@@ -111,15 +107,20 @@ static void handle_console_command(char* command) {
   } else if (strcmp(cmd, "set") == 0) {
     cmd_set(args);
   } else {
-    comm_print_err("Unknown command: %s", cmd);
-    comm_print("Type 'help' for available commands");
+    comm_print_err("unknown command: %s; type 'help' for available commands",
+                   cmd);
   }
+
+  g_machine_state = STATE_IDLE;
+  comm_print("ready");
 }
 
 int main() {
+  // init core
+  state_machine_init();
   comm_init();
 
-  // initialize hardware
+  // init peripherals
   tmc_init();
 
   // apply default settings

@@ -12,32 +12,26 @@ static char command_buffer[256];
 
 void comm_init() {
   comm_raw_init();
-  state_machine_init();
 }
 
 void comm_print(const char* fmt, ...) {
-  machine_state_t state = state_machine_get_state();
-
-  // Add prefix based on state
-  switch (state) {
+  switch (state_machine_get_state()) {
     case STATE_IDLE:
       comm_raw_puts("I ");
       break;
     case STATE_EXEC_INTERACTIVE:
-      comm_raw_puts(">");
+      comm_raw_puts("> ");
       break;
     case STATE_EXEC_STREAM:
-      comm_raw_puts("@");
+      comm_raw_puts("@ ");
       break;
   }
 
-  // Output the message
   va_list args;
   va_start(args, fmt);
   comm_raw_vprintf(fmt, args);
   va_end(args);
 
-  // Auto-add newline
   comm_raw_puts("\n");
 }
 
