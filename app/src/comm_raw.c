@@ -1,4 +1,4 @@
-#include "console_utils.h"
+#include "comm_raw.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -9,11 +9,11 @@
 // Global console UART device pointer
 static const struct device* console_uart_dev;
 
-void console_utils_init() {
+void comm_raw_init() {
   console_uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 }
 
-void console_putc(char c) {
+void comm_raw_putc(char c) {
   if (console_uart_dev && device_is_ready(console_uart_dev)) {
     if (c == '\n') {
       uart_poll_out(console_uart_dev, '\r');
@@ -22,19 +22,21 @@ void console_putc(char c) {
   }
 }
 
-void console_puts(const char* str) {
+void comm_raw_puts(const char* str) {
   while (*str) {
-    console_putc(*str++);
+    comm_raw_putc(*str++);
   }
 }
 
-void console_printf(const char* fmt, ...) {
-  char buffer[256];
+void comm_raw_printf(const char* fmt, ...) {
   va_list args;
-
   va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  comm_raw_vprintf(fmt, args);
   va_end(args);
+}
 
-  console_puts(buffer);
+void comm_raw_vprintf(const char* fmt, va_list args) {
+  char buffer[256];
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  comm_raw_puts(buffer);
 }

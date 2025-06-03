@@ -1,11 +1,11 @@
 #include "tmc2209.h"
-#include "console_utils.h"
+
+#include "comm.h"
 
 #include <string.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
 
 static const struct gpio_dt_spec step0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(step0), gpios);
@@ -119,7 +119,7 @@ void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
 
 void tmc_uart_write(uint8_t* data, size_t size) {
   if (size > TMC_UART_BUFFER_SIZE) {
-    console_printf("ERROR: Data size exceeds buffer size\n");
+    comm_print_err("Data size exceeds buffer size\n");
     return;
   }
   gpio_pin_configure_dt(&muart0,
@@ -135,7 +135,7 @@ void tmc_uart_write(uint8_t* data, size_t size) {
 
 void tmc_uart_read(size_t size) {
   if (size > TMC_UART_BUFFER_SIZE) {
-    console_printf("ERROR: Data size exceeds buffer size\n");
+    comm_print_err("Data size exceeds buffer size\n");
     return;
   }
   gpio_pin_configure_dt(&muart0, GPIO_INPUT);
@@ -208,13 +208,13 @@ uint32_t tmc_tx_regread(uint8_t addr) {
   k_event_clear(&tmc_uart_evt, TMC_UART_EVT_DONE);
   tmc_uart_write((uint8_t*)&request, sizeof(request));
   if (!k_event_wait(&tmc_uart_evt, TMC_UART_EVT_DONE, false, K_MSEC(15))) {
-    console_printf("ERROR: Write got stuck (firmware bug)\n");
+    comm_print_err("Write got stuck (firmware bug)\n");
     return 0;
   }
 
   int res = gpio_pin_configure_dt(&muart0, GPIO_INPUT);
   if (res < 0) {
-    console_printf("ERROR: Could not configure muart0 GPIO as input (%d)\n", res);
+    comm_print_err("Could not configure muart0 GPIO as input (%d)\n", res);
     return 0xffffffff;  // default value if error.
   }
 
@@ -222,7 +222,7 @@ uint32_t tmc_tx_regread(uint8_t addr) {
   k_event_clear(&tmc_uart_evt, TMC_UART_EVT_DONE);
   tmc_uart_read(sizeof(reply));
   if (!k_event_wait(&tmc_uart_evt, TMC_UART_EVT_DONE, false, K_MSEC(15))) {
-    console_printf("ERROR: Read got stuck (could be hardware issue)\n");
+    comm_print_err("Read got stuck (could be hardware issue)\n");
     return 0;
   }
   memcpy(&reply, tmc_uart_buffer, sizeof(reply));
@@ -234,11 +234,13 @@ uint32_t tmc_tx_regread(uint8_t addr) {
 
   uint8_t expected_crc = tmc_uart_crc((uint8_t*)&reply, sizeof(reply) - 1);
   if (reply.crc != expected_crc) {
-    console_printf("ERROR: CRC error: expected 0x%02x, got 0x%02x\n", expected_crc, reply.crc);
+    comm_print_err("CRC error: expected 0x%02x, got 0x%02x\n", expected_crc,
+                   reply.crc);
   }
   if (reply.reg_addr != addr || reply.master_addr != 0xff) {
-    console_printf("ERROR: Unexpected reply: got reg_addr=0x%02x, master_addr=0x%02x\n",
-            reply.reg_addr, reply.master_addr);
+    comm_print_err(
+        "Unexpected reply: got reg_addr=0x%02x, master_addr=0x%02x\n",
+        reply.reg_addr, reply.master_addr);
   }
   return reply.value;
 }
@@ -268,6 +270,6 @@ void tmc_init() {
   counter_start(sw_uart_cnt);
   int ret = counter_set_top_value(sw_uart_cnt, &top_cfg);
   if (ret < 0) {
-    console_printf("ERROR: Could not set counter top value (%d)\n", ret);
+    comm_print_err("Could not set counter top value (%d)\n", ret);
   }
 }
