@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 // Initialize tmc driver handling.
@@ -19,3 +20,6 @@ void tmc_set_microstep(int microstep);
 
 // Set TMC motor current (run: 0-100%, hold: 0-100%).
 void tmc_set_current(int run_percent, int hold_percent);
+
+// Enable/disable TMC motor (true=energized, false=disabled).
+void tmc_energize(bool enable);

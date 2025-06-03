@@ -313,6 +313,12 @@ void tmc_set_current(int run_percent, int hold_percent) {
   comm_print("Current set: run=%d%% hold=%d%%", run_percent, hold_percent);
 }
 
+// Enable/disable TMC motor (true=energized, false=disabled)
+void tmc_energize(bool enable) {
+  gpio_pin_set_dt(&en0, !enable);
+  comm_print("Motor %s", enable ? "energized" : "disabled");
+}
+
 void tmc_dump_regs() {
   // Note: write-only registers are not listed here.
   comm_print("GCONF: 0x%08x", tmc_tx_regread(REG_GCONF));
@@ -322,6 +328,52 @@ void tmc_dump_regs() {
 }
 
 void tmc_init() {
+  // Initialize TMC GPIO pins
+  if (!gpio_is_ready_dt(&step0)) {
+    comm_print_err("step0 GPIO not ready");
+    return;
+  }
+  
+  if (!gpio_is_ready_dt(&dir0)) {
+    comm_print_err("dir0 GPIO not ready");
+    return;
+  }
+  
+  if (!gpio_is_ready_dt(&en0)) {
+    comm_print_err("en0 GPIO not ready");
+    return;
+  }
+  
+  if (!gpio_is_ready_dt(&muart0)) {
+    comm_print_err("muart0 GPIO not ready");
+    return;
+  }
+
+  int ret = gpio_pin_configure_dt(&step0, GPIO_OUTPUT_INACTIVE);
+  if (ret < 0) {
+    comm_print_err("Could not configure step0 GPIO (%d)", ret);
+    return;
+  }
+
+  ret = gpio_pin_configure_dt(&dir0, GPIO_OUTPUT_INACTIVE);
+  if (ret < 0) {
+    comm_print_err("Could not configure dir0 GPIO (%d)", ret);
+    return;
+  }
+
+  ret = gpio_pin_configure_dt(&en0, GPIO_OUTPUT_ACTIVE);  // ACTIVE = disabled
+  if (ret < 0) {
+    comm_print_err("Could not configure en0 GPIO (%d)", ret);
+    return;
+  }
+
+  ret = gpio_pin_configure_dt(&muart0, GPIO_OUTPUT_ACTIVE | GPIO_OPEN_DRAIN);
+  if (ret < 0) {
+    comm_print_err("Could not configure muart0 GPIO (%d)", ret);
+    return;
+  }
+
+  // Initialize TMC UART counter
   struct counter_top_cfg top_cfg = {
       .callback = tmc_uart_tick_handler,
       .user_data = NULL,
@@ -330,8 +382,11 @@ void tmc_init() {
   };
 
   counter_start(sw_uart_cnt);
-  int ret = counter_set_top_value(sw_uart_cnt, &top_cfg);
+  ret = counter_set_top_value(sw_uart_cnt, &top_cfg);
   if (ret < 0) {
     comm_print_err("Could not set counter top value (%d)", ret);
+    return;
   }
+  
+  comm_print("TMC2209 initialized");
 }
