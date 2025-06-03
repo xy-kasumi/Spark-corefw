@@ -1,3 +1,4 @@
+#include "console_utils.h"
 #include "tmc2209.h"
 
 #include <stdarg.h>
@@ -15,36 +16,6 @@
 #include <zephyr/sys/printk.h>
 
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
-
-// Global console UART device pointer
-static const struct device* console_uart_dev;
-
-// Custom print utilities using uart_poll_out for immediate output
-void console_putc(char c) {
-  if (console_uart_dev && device_is_ready(console_uart_dev)) {
-    if (c == '\n') {
-      uart_poll_out(console_uart_dev, '\r');
-    }
-    uart_poll_out(console_uart_dev, c);
-  }
-}
-
-void console_puts(const char* str) {
-  while (*str) {
-    console_putc(*str++);
-  }
-}
-
-void console_printf(const char* fmt, ...) {
-  char buffer[256];
-  va_list args;
-
-  va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
-  va_end(args);
-
-  console_puts(buffer);
-}
 
 void dump_tmc_regs() {
   uint32_t res;
@@ -65,9 +36,6 @@ void dump_tmc_regs() {
   console_printf("CHOPCONF: 0x%08x\n", res);
   k_sleep(K_MSEC(10));
 }
-
-
-
 
 static const struct gpio_dt_spec step0 =
     GPIO_DT_SPEC_GET(DT_NODELABEL(step0), gpios);
@@ -95,18 +63,18 @@ void handle_console_line(const char* line) {
 
   // Add your custom command handlers here
   if (strcmp(line, "help") == 0) {
-    console_puts("Available commands:\n");
-    console_puts("  help - Show this help\n");
-    console_puts("  regs - Read TMC registers\n");
-    console_puts("  step <count> - Step motor <count> times\n");
+    console_puts("I Available commands:\n");
+    console_puts("I help - Show this help\n");
+    console_puts("I regs - Read TMC registers\n");
+    console_puts("I step <count> - Step motor <count> times\n");
   } else if (strcmp(line, "regs") == 0) {
     dump_tmc_regs();
   } else if (strncmp(line, "step ", 5) == 0) {
     int steps = atoi(line + 5);
-    console_printf("Stepping %d times\n", steps);
+    console_printf("I Stepping %d times\n", steps);
   } else {
-    console_printf("Unknown command: %s\n", line);
-    console_puts("Type 'help' for available commands\n");
+    console_printf("I Unknown command: %s\n", line);
+    console_puts("I Type 'help' for available commands\n");
   }
 }
 
@@ -115,8 +83,12 @@ void console_thread() {
   int buffer_pos = 0;
   unsigned char ch;
 
-  // Get the console UART device and store globally
-  console_uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+  // Initialize console utilities
+  console_utils_init();
+
+  // Get the console UART device for polling input
+  const struct device* console_uart_dev =
+      DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
   if (!device_is_ready(console_uart_dev)) {
     printk("Console UART device not ready\n");
     return;
