@@ -39,6 +39,7 @@ static void cmd_help(char* args) {
   comm_print("regs - Read TMC registers");
   comm_print("steptest - Step motor test");
   comm_print("set <var> <val> - Set variable to value");
+  comm_print("! - Cancel current operation");
 }
 
 // Command: regs
@@ -49,7 +50,14 @@ static void cmd_regs(char* args) {
 // Command: steptest
 static void cmd_steptest(char* args) {
   tmc_energize(true);
+
   for (int i = 0; i < 5 * 200 * 32; i++) {  // 5 rotations at 32 microsteps
+    // Check for cancel request
+    if (g_cancel_requested) {
+      comm_print_info("Steptest cancelled at step %d", i);
+      break;
+    }
+
     tmc_step(false);
     k_sleep(K_MSEC(1));
 
@@ -58,6 +66,7 @@ static void cmd_steptest(char* args) {
       break;
     }
   }
+
   tmc_energize(false);
 }
 
@@ -111,6 +120,8 @@ static void handle_console_command(char* command) {
                    cmd);
   }
 
+  // Clear cancel flag and return to IDLE
+  g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
   comm_print("ready");
 }
@@ -130,11 +141,14 @@ int main() {
 
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");
+
   while (1) {
-    char* command = comm_read_command();
-    if (command) {
-      handle_console_command(command);
-    }
+    // Wait for command from input thread
+    char command[256];
+    comm_get_next_command(command);
+
+    // Execute the command
+    handle_console_command(command);
   }
 
   return 0;

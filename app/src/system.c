@@ -3,8 +3,12 @@
 // Global state variable
 machine_state_t g_machine_state = STATE_IDLE;
 
+// Cancel request flag
+volatile bool g_cancel_requested = false;
+
 void state_machine_init() {
   g_machine_state = STATE_IDLE;
+  g_cancel_requested = false;
 }
 
 machine_state_t state_machine_get_state() {

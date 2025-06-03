@@ -10,6 +10,14 @@
 // Static buffer for command reading
 static char command_buffer[256];
 
+// Command message for thread communication
+typedef struct {
+  char cmd[256];
+} cmd_msg_t;
+
+// Single-entry message queue for commands
+K_MSGQ_DEFINE(cmd_queue, sizeof(cmd_msg_t), 1, 4);
+
 void comm_init() {
   comm_raw_init();
 }
@@ -129,3 +137,45 @@ char* comm_read_command() {
     }
   }
 }
+
+void comm_get_next_command(char* buffer) {
+  cmd_msg_t msg;
+  k_msgq_get(&cmd_queue, &msg, K_FOREVER);
+  strcpy(buffer, msg.cmd);
+}
+
+// Input thread function
+static void input_thread_fn(void* p1, void* p2, void* p3) {
+  while (1) {
+    char* cmd = comm_read_command();
+
+    // Special handling for "!" - always process immediately
+    if (strcmp(cmd, "!") == 0) {
+      g_cancel_requested = true;
+      continue;
+    }
+
+    // In EXEC_INTERACTIVE, silently reject other commands
+    if (g_machine_state != STATE_IDLE) {
+      continue;
+    }
+
+    // Queue command for main thread
+    cmd_msg_t msg;
+    strncpy(msg.cmd, cmd, sizeof(msg.cmd) - 1);
+    msg.cmd[sizeof(msg.cmd) - 1] = '\0';
+
+    k_msgq_put(&cmd_queue, &msg, K_FOREVER);
+  }
+}
+
+// Define input thread with higher priority than main
+K_THREAD_DEFINE(input_thread,
+                2048,
+                input_thread_fn,
+                NULL,
+                NULL,
+                NULL,
+                5,  // Higher priority than main (7)
+                0,
+                0);

@@ -16,6 +16,10 @@ void comm_print_info(const char* fmt, ...);
 // Blocking read of one command from console
 char* comm_read_command();
 
+// Get next command from input thread (blocking)
+// Buffer must be at least 256 bytes
+void comm_get_next_command(char* buffer);
+
 // Future stream support
 // void comm_print_stream_rem(uint32_t count);
 // void comm_print_stream_seq(uint32_t seq, const char* fmt, ...);
