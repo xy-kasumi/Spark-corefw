@@ -7,3 +7,4 @@ void comm_raw_putc(char c);
 void comm_raw_puts(const char* str);
 void comm_raw_printf(const char* fmt, ...);
 void comm_raw_vprintf(const char* fmt, va_list args);
+int comm_raw_poll_in(unsigned char* ch);
