@@ -27,9 +27,10 @@ static const struct gpio_dt_spec muart0 =
 
 // Handle set command: "set var val"
 void handle_set(const char* var, const char* val) {
-  if (strcmp(var, "mot0.curr") == 0) {
-    // TODO: do bunch of TMC calls.
-
+  if (strcmp(var, "mot0.microstep") == 0) {
+    set_tmc_microstep(atoi(val));
+  } else if (strcmp(var, "mot0.curr") == 0) {
+    set_tmc_current(atoi(val), 0);
   } else {
     comm_print("unknown variable %s", var);
   }
