@@ -28,9 +28,9 @@ static const struct gpio_dt_spec muart0 =
 // Handle set command: "set var val"
 void handle_set(const char* var, const char* val) {
   if (strcmp(var, "mot0.microstep") == 0) {
-    set_tmc_microstep(atoi(val));
+    tmc_set_microstep(atoi(val));
   } else if (strcmp(var, "mot0.curr") == 0) {
-    set_tmc_current(atoi(val), 0);
+    tmc_set_current(atoi(val), 0);
   } else {
     comm_print("unknown variable %s", var);
   }
@@ -56,7 +56,7 @@ void handle_console_line(const char* line) {
     comm_print("step <count> - Step motor <count> times");
     comm_print("set <var> <val> - Set variable to value");
   } else if (strcmp(line, "regs") == 0) {
-    dump_tmc_regs();
+    tmc_dump_regs();
   } else if (strncmp(line, "step ", 5) == 0) {
     int steps = atoi(line + 5);
     comm_print("Stepping %d times", steps);
@@ -174,7 +174,7 @@ int main() {
   k_sleep(K_FOREVER);
 
   while (true) {
-    dump_tmc_regs();
+    tmc_dump_regs();
     k_sleep(K_MSEC(5000));
   }
 

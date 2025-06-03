@@ -266,7 +266,7 @@ void tmc_tx_regwrite(uint8_t addr, uint32_t value) {
 }
 
 // Set TMC microstep resolution (1, 2, 4, 8, 16, 32, 64, 128, 256)
-void set_tmc_microstep(int microstep) {
+void tmc_set_microstep(int microstep) {
   if (microstep < 1 || microstep > 256 || (microstep & (microstep - 1)) != 0) {
     comm_print_err("Invalid microstep: %d (must be 1,2,4,8,16,32,64,128,256)",
                    microstep);
@@ -291,7 +291,7 @@ void set_tmc_microstep(int microstep) {
 }
 
 // Set TMC motor current (run: 0-100%, hold: 0-100%)
-void set_tmc_current(int run_percent, int hold_percent) {
+void tmc_set_current(int run_percent, int hold_percent) {
   if (run_percent < 0 || run_percent > 100 || hold_percent < 0 ||
       hold_percent > 100) {
     comm_print_err("Invalid current: run=%d%% hold=%d%% (both must be 0-100%%)",
@@ -313,7 +313,7 @@ void set_tmc_current(int run_percent, int hold_percent) {
   comm_print("Current set: run=%d%% hold=%d%%", run_percent, hold_percent);
 }
 
-void dump_tmc_regs() {
+void tmc_dump_regs() {
   // Note: write-only registers are not listed here.
   comm_print("GCONF: 0x%08x", tmc_tx_regread(REG_GCONF));
   comm_print("IOIN: 0x%08x", tmc_tx_regread(REG_IOIN));
