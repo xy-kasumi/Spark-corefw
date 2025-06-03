@@ -54,6 +54,16 @@ typedef enum {
 } uart_state_t;
 uart_state_t tmc_uart_state = UART_IDLE;
 
+// Step generation state
+static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
+static bool current_direction = false;    // false=backward, true=forward
+typedef enum {
+  STEP_IDLE,        // No stepping in progress
+  STEP_PULSE_HIGH,  // Step pin is HIGH (1 tick)
+  STEP_PULSE_LOW,   // Step pin is LOW, waiting before next step (1 tick)
+} step_state_t;
+static step_state_t step_state = STEP_IDLE;
+
 // 8-byte structure for write request datagram.
 typedef struct __attribute__((packed)) {
   uint8_t sync : 4;      // must be 0b0101 = 0x5
@@ -86,11 +96,8 @@ typedef struct __attribute__((packed)) {
   uint8_t crc;
 } tmc_uart_reply_datagram_t;
 
-// Called twice at every baud to do software bit-banging UART with START/STOP
-// bits. Twice, beause we want to phase-lock. send: phase % 2 == 0. read: phase
-// % 2 == 1. (phase == 0 timing acquired by START bit detection)
-// tmc_uart_current_bit: 0=START, 1-8=DATA, 9=STOP
-static void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
+// Handle UART bit-banging state machine (called every 30us)
+static void tmc_uart_tick() {
   if (tmc_uart_state == UART_IDLE) {
     return;
   }
@@ -157,6 +164,50 @@ static void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
     }
     tmc_uart_phase = (tmc_uart_phase + 1) % 3;
   }
+}
+
+// Handle step pulse generation state machine (called every 30us)
+static void tmc_step_tick() {
+  switch (step_state) {
+    case STEP_IDLE:
+      if (remaining_steps != 0) {
+        // Start new step: set direction and begin pulse
+        bool dir = (remaining_steps > 0);
+        if (dir != current_direction) {
+          current_direction = dir;
+          gpio_pin_set_dt(&dir0, dir);
+        }
+        
+        // Start step pulse (HIGH)
+        gpio_pin_set_dt(&step0, true);
+        step_state = STEP_PULSE_HIGH;
+      }
+      break;
+      
+    case STEP_PULSE_HIGH:
+      // End step pulse (LOW)
+      gpio_pin_set_dt(&step0, false);
+      step_state = STEP_PULSE_LOW;
+      
+      // Consume one step
+      if (remaining_steps > 0) {
+        remaining_steps--;
+      } else {
+        remaining_steps++;
+      }
+      break;
+      
+    case STEP_PULSE_LOW:
+      // Wait one tick before allowing next step
+      step_state = STEP_IDLE;
+      break;
+  }
+}
+
+// Main ISR handler: manages both UART and step generation (called every 30us)
+static void tmc_tick_handler(const struct device* dev, void* user_data) {
+  tmc_uart_tick();
+  tmc_step_tick();
 }
 
 static void tmc_uart_write(uint8_t* data, size_t size) {
@@ -327,6 +378,15 @@ void tmc_dump_regs() {
   comm_print("CHOPCONF: 0x%08x", tmc_tx_regread(REG_CHOPCONF));
 }
 
+// Queue a single step (true=forward, false=backward)
+void tmc_step(bool dir) {
+  if (dir) {
+    remaining_steps++;
+  } else {
+    remaining_steps--;
+  }
+}
+
 void tmc_init() {
   // Initialize TMC GPIO pins
   if (!gpio_is_ready_dt(&step0)) {
@@ -373,12 +433,12 @@ void tmc_init() {
     return;
   }
 
-  // Initialize TMC UART counter
+  // Initialize TMC counter for UART and step generation
   struct counter_top_cfg top_cfg = {
-      .callback = tmc_uart_tick_handler,
+      .callback = tmc_tick_handler,
       .user_data = NULL,
       .ticks = counter_us_to_ticks(sw_uart_cnt,
-                                   30),  // 30us ISR -> 90us period -> 11.1kbaud
+                                   30),  // 30us ISR -> UART bit-banging + step pulse generation
   };
 
   counter_start(sw_uart_cnt);

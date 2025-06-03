@@ -3,12 +3,13 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <zephyr/kernel.h>
 
 // Handle set command: "set var val"
 static void handle_set(const char* var, const char* val) {
   if (strcmp(var, "mot0.microstep") == 0) {
     tmc_set_microstep(atoi(val));
-  } else if (strcmp(var, "mot0.curr") == 0) {
+  } else if (strcmp(var, "mot0.current") == 0) {
     tmc_set_current(atoi(val), 0);
   } else {
     comm_print("unknown variable %s", var);
@@ -22,13 +23,19 @@ static void handle_console_command(const char* command) {
   if (strcmp(command, "help") == 0) {
     comm_print("help - Show this help");
     comm_print("regs - Read TMC registers");
-    comm_print("step <count> - Step motor <count> times");
+    comm_print("steptest - Step motor test");
     comm_print("set <var> <val> - Set variable to value");
   } else if (strcmp(command, "regs") == 0) {
     tmc_dump_regs();
-  } else if (strncmp(command, "step ", 5) == 0) {
-    int steps = atoi(command + 5);
-    comm_print("Stepping %d times", steps);
+  } else if (strcmp(command, "steptest") == 0) {
+    comm_print_ack("");
+
+    tmc_energize(true);
+    for (int i = 0; i < 200 * 32; i++) {  // single rotation at 32 microsteps
+      tmc_step(false);
+      k_sleep(K_MSEC(1));
+    }
+    tmc_energize(false);
   } else if (strncmp(command, "set ", 4) == 0) {
     // Parse "set var val"
     const char* rest = command + 4;  // Skip "set "
