@@ -1,6 +1,7 @@
+#include <drivers/tmc_driver.h>
+
 #include "comm.h"
 #include "system.h"
-#include <drivers/tmc_driver.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -222,12 +223,12 @@ int main() {
   comm_init();
 
   // init peripherals
-  int ret = tmc_init();
-  if (ret < 0) {
-    comm_print_err("TMC init failed: %d", ret);
-    return ret;
-  }
-  comm_print("TMC2209 initialized");
+  // int ret = tmc_init();  // Now handled by device model during boot
+  // if (ret < 0) {
+  //   comm_print_err("TMC init failed: %d", ret);
+  //   return ret;
+  // }
+  comm_print("TMC2209 initialized via device model");
 
   // Initialize step generation counter
   struct counter_top_cfg step_top_cfg = {
@@ -237,7 +238,7 @@ int main() {
   };
 
   counter_start(step_gen_cnt);
-  ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
+  int ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
   if (ret < 0) {
     comm_print_err("Step generation timer init failed: %d", ret);
     return ret;

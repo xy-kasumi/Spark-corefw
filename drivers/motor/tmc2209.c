@@ -1,11 +1,58 @@
+#define DT_DRV_COMPAT adi_tmc2209_uart
+
 #include <drivers/tmc_driver.h>
 #include "uart1wire.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
+
+// Forward declarations for Zephyr device model
+struct tmc2209_config;
+struct tmc2209_data;
+
+// Zephyr device model structures (new infrastructure)
+struct tmc2209_config {
+  struct gpio_dt_spec step_gpio;
+  struct gpio_dt_spec dir_gpio;
+  struct gpio_dt_spec enable_gpio;
+  struct gpio_dt_spec uart_gpio;
+  struct gpio_dt_spec diag_gpio;
+  const struct device* uart_timer;
+};
+
+struct tmc2209_data {
+  bool initialized;
+  // Runtime state will go here
+};
+
+// Device driver API function prototypes (new infrastructure)
+static int tmc2209_init(const struct device* dev);
+
+// Device driver registration (new infrastructure)
+#define TMC2209_DEVICE_INIT(inst)                                       \
+  static struct tmc2209_data tmc2209_data_##inst = {                    \
+      .initialized = false,                                             \
+  };                                                                    \
+  static const struct tmc2209_config tmc2209_config_##inst = {          \
+      .step_gpio = GPIO_DT_SPEC_INST_GET(inst, step_gpios),             \
+      .dir_gpio = GPIO_DT_SPEC_INST_GET(inst, dir_gpios),               \
+      .enable_gpio = GPIO_DT_SPEC_INST_GET(inst, enable_gpios),         \
+      .uart_gpio = GPIO_DT_SPEC_INST_GET(inst, uart_gpios),             \
+      .diag_gpio = GPIO_DT_SPEC_INST_GET(inst, diag_gpios),             \
+      .uart_timer = DEVICE_DT_GET(DT_INST_PHANDLE(inst, uart_timer)),   \
+  };                                                                    \
+  DEVICE_DT_INST_DEFINE(inst, tmc2209_init, NULL, &tmc2209_data_##inst, \
+                        &tmc2209_config_##inst, POST_KERNEL,            \
+                        CONFIG_KERNEL_INIT_PRIORITY_DEVICE, NULL);
+
+DT_INST_FOREACH_STATUS_OKAY(TMC2209_DEVICE_INIT)
+
+// Legacy static globals (existing code - keep unchanged)
 
 #define REG_GCONF 0x00
 #define REG_IOIN 0x06
@@ -240,6 +287,67 @@ int tmc_set_tcoolthrs(int value) {
   return tmc_tx_regwrite(REG_TCOOLTHRS, (uint32_t)value);
 }
 
+// Zephyr device model initialization (new infrastructure)
+static int tmc2209_init(const struct device* dev) {
+  const struct tmc2209_config* config = dev->config;
+  struct tmc2209_data* data = dev->data;
+
+  // Initialize GPIO pins
+  if (!gpio_is_ready_dt(&config->step_gpio)) {
+    return -ENODEV;
+  }
+  if (!gpio_is_ready_dt(&config->dir_gpio)) {
+    return -ENODEV;
+  }
+  if (!gpio_is_ready_dt(&config->enable_gpio)) {
+    return -ENODEV;
+  }
+  if (!gpio_is_ready_dt(&config->uart_gpio)) {
+    return -ENODEV;
+  }
+  if (!gpio_is_ready_dt(&config->diag_gpio)) {
+    return -ENODEV;
+  }
+
+  // Configure GPIO pins
+  int ret = gpio_pin_configure_dt(&config->step_gpio, GPIO_OUTPUT_INACTIVE);
+  if (ret < 0) {
+    return ret;
+  }
+
+  ret = gpio_pin_configure_dt(&config->dir_gpio, GPIO_OUTPUT_INACTIVE);
+  if (ret < 0) {
+    return ret;
+  }
+
+  ret = gpio_pin_configure_dt(&config->enable_gpio,
+                              GPIO_OUTPUT_ACTIVE);  // ACTIVE = disabled
+  if (ret < 0) {
+    return ret;
+  }
+
+  ret = gpio_pin_configure_dt(&config->uart_gpio,
+                              GPIO_OUTPUT_ACTIVE | GPIO_OPEN_DRAIN);
+  if (ret < 0) {
+    return ret;
+  }
+
+  ret = gpio_pin_configure_dt(&config->diag_gpio, GPIO_INPUT);
+  if (ret < 0) {
+    return ret;
+  }
+
+  // Initialize uart1wire with the timer from this device
+  ret = uart1wire_init(config->uart_timer);
+  if (ret < 0) {
+    return ret;
+  }
+
+  data->initialized = true;
+  return 0;
+}
+
+// Legacy initialization function (existing code - keep unchanged)
 int tmc_init() {
   // Initialize TMC GPIO pins
   if (!gpio_is_ready_dt(&step0)) {

@@ -1,0 +1,36 @@
+# TMC2209 stepper motor driver device tree binding (UART interface)
+
+description: Trinamic TMC2209 Stepper Motor Driver with UART interface
+
+compatible: "adi,tmc2209-uart"
+
+properties:
+  step-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO pin for step signal
+
+  dir-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO pin for direction signal
+
+  enable-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO pin for motor enable (active low)
+
+  uart-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO pin for single-wire UART communication
+
+  diag-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO pin for diagnostic/stall detection
+
+  uart-timer:
+    type: phandle
+    required: true
+    description: Timer device for UART bit-banging (shared across multiple TMC devices)
