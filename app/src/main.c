@@ -44,7 +44,13 @@ static void cmd_help(char* args) {
 
 // Command: regs
 static void cmd_regs(char* args) {
-  tmc_dump_regs();
+  char buf[256];
+  int ret = tmc_dump_regs(buf, sizeof(buf));
+  if (ret < 0) {
+    comm_print_err("Failed to dump registers: %d", ret);
+  } else {
+    comm_print("%s", buf);
+  }
 }
 
 // Command: steptest
@@ -93,14 +99,23 @@ static void cmd_set(char* args) {
   }
 
   // Handle different variables
+  int ret = 0;
   if (strcmp(var, "mot0.microstep") == 0) {
-    tmc_set_microstep(atoi(val));
+    ret = tmc_set_microstep(atoi(val));
+    if (ret == 0) comm_print("Microstep set to %s", val);
   } else if (strcmp(var, "mot0.current") == 0) {
-    tmc_set_current(atoi(val), 0);
+    ret = tmc_set_current(atoi(val), 0);
+    if (ret == 0) comm_print("Current set to %s%%", val);
   } else if (strcmp(var, "mot0.thresh") == 0) {
-    tmc_set_stallguard_threshold(atoi(val));
+    ret = tmc_set_stallguard_threshold(atoi(val));
+    if (ret == 0) comm_print("StallGuard threshold set to %s", val);
   } else {
     comm_print("unknown variable %s", var);
+    return;
+  }
+  
+  if (ret < 0) {
+    comm_print_err("Failed to set %s: error %d", var, ret);
   }
 }
 
@@ -138,14 +153,42 @@ int main() {
   comm_init();
 
   // init peripherals
-  tmc_init();
+  int ret = tmc_init();
+  if (ret < 0) {
+    comm_print_err("TMC init failed: %d", ret);
+    return ret;
+  }
+  comm_print("TMC2209 initialized");
 
   // apply default settings
-  tmc_set_microstep(32);
-  tmc_set_current(30, 0);
-  tmc_set_stallguard_threshold(2);
-  tmc_set_tcoolthrs(750000);  // make this bigger to make stallguard work at
-                              // lower speed (might be noisier)
+  ret = tmc_set_microstep(32);
+  if (ret < 0) {
+    comm_print_err("Failed to set microstep: %d", ret);
+  } else {
+    comm_print("Microstep set to 32");
+  }
+  
+  ret = tmc_set_current(30, 0);
+  if (ret < 0) {
+    comm_print_err("Failed to set current: %d", ret);
+  } else {
+    comm_print("Current set: run=30%% hold=0%%");
+  }
+  
+  ret = tmc_set_stallguard_threshold(2);
+  if (ret < 0) {
+    comm_print_err("Failed to set stallguard threshold: %d", ret);
+  } else {
+    comm_print("StallGuard threshold set to 2");
+  }
+  
+  ret = tmc_set_tcoolthrs(750000);  // make this bigger to make stallguard work at
+                                   // lower speed (might be noisier)
+  if (ret < 0) {
+    comm_print_err("Failed to set TCOOLTHRS: %d", ret);
+  } else {
+    comm_print("TCOOLTHRS set to 750000");
+  }
 
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");
