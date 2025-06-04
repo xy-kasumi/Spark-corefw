@@ -15,15 +15,21 @@
 
 #define UART1WIRE_BUFFER_SIZE 8
 
-// Initialize uart1wire with GPIO pin and timer
-int uart1wire_init(const struct gpio_dt_spec* gpio, const struct device* timer);
+// Initialize uart1wire with shared timer (call once)
+int uart1wire_init(const struct device* timer);
 
-// Write data over uart1wire (blocking)
-// data: Buffer to transmit, size: Number of bytes (max UART1WIRE_BUFFER_SIZE)
-// Returns: 0 on success, negative error code on failure
-int uart1wire_write(const uint8_t* data, size_t size);
+// Write data over uart1wire (blocking, serialized access)
+// gpio: GPIO pin for this device, data: Buffer to transmit, size: Number of
+// bytes (max UART1WIRE_BUFFER_SIZE) Returns: 0 on success, -EBUSY if another
+// operation ongoing, negative error code on failure
+int uart1wire_write(const struct gpio_dt_spec* gpio,
+                    const uint8_t* data,
+                    size_t size);
 
-// Read data over uart1wire (blocking)
-// buffer: Buffer to store received data, size: Number of bytes (max
-// UART1WIRE_BUFFER_SIZE) Returns: 0 on success, negative error code on failure
-int uart1wire_read(uint8_t* buffer, size_t size);
+// Read data over uart1wire (blocking, serialized access)
+// gpio: GPIO pin for this device, buffer: Buffer to store received data, size:
+// Number of bytes (max UART1WIRE_BUFFER_SIZE) Returns: 0 on success, -EBUSY if
+// another operation ongoing, negative error code on failure
+int uart1wire_read(const struct gpio_dt_spec* gpio,
+                   uint8_t* buffer,
+                   size_t size);

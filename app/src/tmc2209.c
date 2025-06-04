@@ -91,12 +91,12 @@ uint32_t tmc_tx_regread(uint8_t addr) {
       .reg_addr = addr,
   };
   request.crc = tmc_uart_crc((uint8_t*)&request, sizeof(request) - 1);
-  if (uart1wire_write((uint8_t*)&request, sizeof(request)) < 0) {
+  if (uart1wire_write(&muart0, (uint8_t*)&request, sizeof(request)) < 0) {
     return 0;  // comm error
   }
 
   tmc_uart_reply_datagram_t reply;
-  if (uart1wire_read((uint8_t*)&reply, sizeof(reply)) < 0) {
+  if (uart1wire_read(&muart0, (uint8_t*)&reply, sizeof(reply)) < 0) {
     return 0;  // comm error
   }
   uint8_t expected_crc = tmc_uart_crc((uint8_t*)&reply, sizeof(reply) - 1);
@@ -120,9 +120,9 @@ int tmc_tx_regwrite(uint8_t addr, uint32_t value) {
       .value = sys_cpu_to_be32(value),
   };
   request.crc = tmc_uart_crc((uint8_t*)&request, sizeof(request) - 1);
-  int ret = uart1wire_write((uint8_t*)&request, sizeof(request));
+  int ret = uart1wire_write(&muart0, (uint8_t*)&request, sizeof(request));
   if (ret < 0) {
-    return 0;  // comm error
+    return ret;
   }
   k_sleep(K_MSEC(10));  // ensure bus returns to idle
   return 0;
@@ -288,7 +288,7 @@ int tmc_init() {
   }
 
   // Initialize uart1wire
-  ret = uart1wire_init(&muart0, sw_uart_cnt);
+  ret = uart1wire_init(sw_uart_cnt);
   if (ret < 0) {
     return ret;
   }

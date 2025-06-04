@@ -11,16 +11,18 @@ K_EVENT_DEFINE(uart1wire_evt);
 static uint8_t uart1wire_buffer[UART1WIRE_BUFFER_SIZE];
 static uint8_t uart1wire_phase = 0;
 
-static const struct gpio_dt_spec* uart1wire_gpio;
+static const struct gpio_dt_spec* current_gpio;  // GPIO for current operation
 static const struct device* uart1wire_timer;
+static bool uart1wire_busy = false;  // Serialization flag
 
 // state == IDLE: don't care
 // state == TX: need to send these bytes. 0 if sending done.
 // state == RX: need to receive these bytes. 0 if receiving done.
 // Each byte now has START + 8 data bits + STOP = 10 bits total
-static int uart1wire_buffer_size;         // Total number of bytes to send/receive
+static int uart1wire_buffer_size;  // Total number of bytes to send/receive
 static int uart1wire_current_byte_index;  // Current byte index (0 to size-1)
-static int uart1wire_current_bit;  // Internal bit counter: 0=START, 1-8=DATA, 9,10=STOP
+static int uart1wire_current_bit;  // Internal bit counter: 0=START, 1-8=DATA,
+                                   // 9,10=STOP
 typedef enum {
   UART_IDLE,
   UART_SEND,
@@ -51,7 +53,7 @@ static void uart1wire_tick() {
         set = true;
       }
 
-      gpio_pin_set_dt(uart1wire_gpio, set);
+      gpio_pin_set_dt(current_gpio, set);
       uart1wire_current_bit++;
 
       // Check if we finished current byte (START + 8 data + STOP = 10 bits)
@@ -67,15 +69,15 @@ static void uart1wire_tick() {
     uart1wire_phase = (uart1wire_phase + 1) % 3;
   } else if (uart1wire_state == UART_RECEIVE) {
     // Wait for START bit (falling edge: 1 -> 0)
-    if (!gpio_pin_get_dt(uart1wire_gpio)) {
+    if (!gpio_pin_get_dt(current_gpio)) {
       uart1wire_state = UART_RECEIVE_SYNCED;
       uart1wire_phase = 1;  // falling edge = phase 0. Next ISR will be phase 1.
-                           // (good for sampling)
+                            // (good for sampling)
       uart1wire_current_bit = 0;  // We're now at START bit
     }
   } else {  // UART_RECEIVE_SYNCED
     if (uart1wire_phase == 1) {
-      bool set = gpio_pin_get_dt(uart1wire_gpio);
+      bool set = gpio_pin_get_dt(current_gpio);
 
       if (uart1wire_current_bit >= 1 && uart1wire_current_bit <= 8) {
         // Data bits (1-8): store in buffer
@@ -104,12 +106,21 @@ static void uart1wire_tick_handler(const struct device* dev, void* user_data) {
   uart1wire_tick();
 }
 
-int uart1wire_write(const uint8_t* data, size_t size) {
+int uart1wire_write(const struct gpio_dt_spec* gpio,
+                    const uint8_t* data,
+                    size_t size) {
   if (size > UART1WIRE_BUFFER_SIZE) {
     return -EINVAL;
   }
-  gpio_pin_configure_dt(uart1wire_gpio,
-                        GPIO_OUTPUT_ACTIVE | GPIO_OPEN_DRAIN);  // idle=H.
+
+  if (uart1wire_busy) {
+    return -EBUSY;
+  }
+
+  uart1wire_busy = true;
+  current_gpio = gpio;
+
+  gpio_pin_configure_dt(gpio, GPIO_OUTPUT_ACTIVE | GPIO_OPEN_DRAIN);  // idle=H.
 
   memcpy(uart1wire_buffer, data, size);
   uart1wire_buffer_size = size;
@@ -117,19 +128,32 @@ int uart1wire_write(const uint8_t* data, size_t size) {
   uart1wire_current_bit = 0;
   uart1wire_phase = 0;
   uart1wire_state = UART_SEND;
-  
+
   k_event_clear(&uart1wire_evt, UART1WIRE_EVT_DONE);
+  int ret = 0;
   if (!k_event_wait(&uart1wire_evt, UART1WIRE_EVT_DONE, false, K_MSEC(15))) {
-    return -ETIMEDOUT;
+    ret = -ETIMEDOUT;
   }
-  return 0;
+
+  uart1wire_busy = false;
+  return ret;
 }
 
-int uart1wire_read(uint8_t* buffer, size_t size) {
+int uart1wire_read(const struct gpio_dt_spec* gpio,
+                   uint8_t* buffer,
+                   size_t size) {
   if (size > UART1WIRE_BUFFER_SIZE) {
     return -EINVAL;
   }
-  gpio_pin_configure_dt(uart1wire_gpio, GPIO_INPUT);
+
+  if (uart1wire_busy) {
+    return -EBUSY;
+  }
+
+  uart1wire_busy = true;
+  current_gpio = gpio;
+
+  gpio_pin_configure_dt(gpio, GPIO_INPUT);
 
   memset(uart1wire_buffer, 0, size);
   uart1wire_buffer_size = size;
@@ -137,21 +161,22 @@ int uart1wire_read(uint8_t* buffer, size_t size) {
   uart1wire_current_bit = 0;
   uart1wire_phase = 0;
   uart1wire_state = UART_RECEIVE;
-  
+
   k_event_clear(&uart1wire_evt, UART1WIRE_EVT_DONE);
+  int ret = 0;
   if (!k_event_wait(&uart1wire_evt, UART1WIRE_EVT_DONE, false, K_MSEC(15))) {
-    return -ETIMEDOUT;
+    ret = -ETIMEDOUT;
+  } else {
+    memcpy(buffer, uart1wire_buffer, size);
   }
-  
-  memcpy(buffer, uart1wire_buffer, size);
-  return 0;
+
+  uart1wire_busy = false;
+  return ret;
 }
 
-
-int uart1wire_init(const struct gpio_dt_spec* gpio, const struct device* timer) {
-  uart1wire_gpio = gpio;
+int uart1wire_init(const struct device* timer) {
   uart1wire_timer = timer;
-  
+
   // Initialize UART counter for bit-banging
   struct counter_top_cfg uart_top_cfg = {
       .callback = uart1wire_tick_handler,
@@ -163,6 +188,6 @@ int uart1wire_init(const struct gpio_dt_spec* gpio, const struct device* timer) 
   if (ret < 0) {
     return ret;
   }
-  
+
   return 0;
 }
