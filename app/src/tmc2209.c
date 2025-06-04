@@ -34,6 +34,9 @@ static const struct gpio_dt_spec diag0 =
 static const struct device* sw_uart_cnt =
     DEVICE_DT_GET(DT_NODELABEL(sw_uart_cnt));
 
+static const struct device* step_gen_cnt =
+    DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
+
 #define TMC_UART_BUFFER_SIZE 8
 
 #define TMC_UART_EVT_DONE BIT(0)
@@ -206,9 +209,13 @@ static void tmc_step_tick() {
   }
 }
 
-// Main ISR handler: manages both UART and step generation (called every 30us)
-static void tmc_tick_handler(const struct device* dev, void* user_data) {
+// UART ISR handler: manages UART bit-banging (called every 30us)
+static void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
   tmc_uart_tick();
+}
+
+// Step generation ISR handler: manages step pulses (called every 30us)
+static void tmc_step_tick_handler(const struct device* dev, void* user_data) {
   tmc_step_tick();
 }
 
@@ -483,17 +490,28 @@ int tmc_init() {
     return ret;
   }
 
-  // Initialize TMC counter for UART and step generation
-  struct counter_top_cfg top_cfg = {
-      .callback = tmc_tick_handler,
-      .user_data = NULL,
-      .ticks = counter_us_to_ticks(
-          sw_uart_cnt,
-          30),  // 30us ISR -> UART bit-banging + step pulse generation
+  // Initialize UART counter for bit-banging
+  struct counter_top_cfg uart_top_cfg = {
+      .callback = tmc_uart_tick_handler,
+      .ticks = counter_us_to_ticks(sw_uart_cnt,
+                                   30),  // 30us ISR -> UART bit-banging
   };
 
   counter_start(sw_uart_cnt);
-  ret = counter_set_top_value(sw_uart_cnt, &top_cfg);
+  ret = counter_set_top_value(sw_uart_cnt, &uart_top_cfg);
+  if (ret < 0) {
+    return ret;
+  }
+
+  // Initialize step generation counter
+  struct counter_top_cfg step_top_cfg = {
+      .callback = tmc_step_tick_handler,
+      .ticks = counter_us_to_ticks(step_gen_cnt,
+                                   30),  // 30us ISR -> step pulse generation
+  };
+
+  counter_start(step_gen_cnt);
+  ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
   if (ret < 0) {
     return ret;
   }

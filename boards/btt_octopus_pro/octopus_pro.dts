@@ -58,6 +58,15 @@
 	};
 };
 
+&timers3 {
+	status = "okay";
+	st,prescaler = <119>; // 120MHz (APB1 clock) -> 1MHz tick
+
+	step_gen_cnt: counter {
+		status = "okay";
+	};
+};
+
 &clk_hse {
 	clock-frequency = <DT_FREQ_M(25)>;
 	status = "okay";
