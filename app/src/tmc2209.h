@@ -30,5 +30,13 @@ void tmc_step(bool dir);
 // Check if motor is stalled (reads diag0 pin).
 bool tmc_stalled();
 
-// Set StallGuard threshold (0-255: 0=most sensitive, 255=least sensitive).
+// Set StallGuard threshold (0-255: 0=least sensitive, 255=most sensitive).
 void tmc_set_stallguard_threshold(uint8_t threshold);
+
+// Read StallGuard result (SG_RESULT register, returns 0-510).
+// 0=highest load.
+int tmc_sgresult();
+
+// Set TCOOLTHRS register (1 to 2^20-1).
+// Lower threshold = StallGuard enabled at higher velocities.
+void tmc_set_tcoolthrs(int value);

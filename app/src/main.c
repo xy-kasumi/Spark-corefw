@@ -51,15 +51,21 @@ static void cmd_regs(char* args) {
 static void cmd_steptest(char* args) {
   tmc_energize(true);
 
-  for (int i = 0; i < 5 * 200 * 32; i++) {  // 5 rotations at 32 microsteps
+  for (int i = 0; i < 2 * 200 * 32; i++) {  // 2 rotations at 32 microsteps
     // Check for cancel request
     if (g_cancel_requested) {
       comm_print_info("Steptest cancelled at step %d", i);
       break;
     }
 
-    tmc_step(false);
-    k_sleep(K_MSEC(1));
+    tmc_step(true);
+    k_sleep(K_USEC(500));
+
+    // Print SG_RESULT every 100 steps (50ms intervals at 500us/step)
+    if (i % 100 == 0) {
+      int sg_result = tmc_sgresult();
+      comm_print("SG:%d", sg_result);
+    }
 
     if (tmc_stalled()) {
       comm_print("Stall detected at step %d", i);
@@ -137,7 +143,9 @@ int main() {
   // apply default settings
   tmc_set_microstep(32);
   tmc_set_current(30, 0);
-  tmc_set_stallguard_threshold(10);
+  tmc_set_stallguard_threshold(2);
+  tmc_set_tcoolthrs(750000);  // make this bigger to make stallguard work at
+                              // lower speed (might be noisier)
 
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");

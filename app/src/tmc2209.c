@@ -401,6 +401,23 @@ void tmc_set_stallguard_threshold(uint8_t threshold) {
   comm_print("StallGuard threshold set to %d", threshold);
 }
 
+// Read StallGuard result (SG_RESULT register)
+int tmc_sgresult() {
+  uint32_t result = tmc_tx_regread(REG_SG_RESULT);
+  return (int)(result & 0x3FF);  // SG_RESULT is 10-bit value in bits [9:0]
+}
+
+// Set TCOOLTHRS register (1 to 2^20-1)
+void tmc_set_tcoolthrs(int value) {
+  if (value < 1 || value > ((1 << 20) - 1)) {
+    comm_print_err("Invalid TCOOLTHRS value: %d (must be 1 to %d)", value, ((1 << 20) - 1));
+    return;
+  }
+  
+  tmc_tx_regwrite(REG_TCOOLTHRS, (uint32_t)value);
+  comm_print("TCOOLTHRS set to %d", value);
+}
+
 void tmc_init() {
   // Initialize TMC GPIO pins
   if (!gpio_is_ready_dt(&step0)) {
