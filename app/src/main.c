@@ -1,6 +1,6 @@
 #include "comm.h"
 #include "system.h"
-#include "tmc2209.h"
+#include <drivers/tmc_driver.h>
 
 #include <stdlib.h>
 #include <string.h>

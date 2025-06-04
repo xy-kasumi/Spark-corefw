@@ -1,0 +1,3 @@
+# Spark driver configuration
+
+rsource "motor/Kconfig"

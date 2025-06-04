@@ -1,0 +1,8 @@
+# Motor driver configuration
+
+config TMC2209_MOTOR_DRIVER
+	bool "TMC2209 Stepper Motor Driver"
+	default y
+	help
+	  Enable TMC2209 stepper motor driver with UART communication
+	  and StallGuard load detection capabilities.
