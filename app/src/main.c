@@ -4,7 +4,73 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <zephyr/drivers/counter.h>
 #include <zephyr/kernel.h>
+
+// Step generation management
+static const struct device* step_gen_cnt =
+    DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
+
+static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
+static bool current_direction = false;    // false=backward, true=forward
+typedef enum {
+  STEP_IDLE,        // No stepping in progress
+  STEP_PULSE_HIGH,  // Step pin is HIGH (1 tick)
+  STEP_PULSE_LOW,   // Step pin is LOW, waiting before next step (1 tick)
+} step_state_t;
+static step_state_t step_state = STEP_IDLE;
+
+// Handle step pulse generation state machine (called every 30us)
+static void main_step_tick() {
+  switch (step_state) {
+    case STEP_IDLE:
+      if (remaining_steps != 0) {
+        // Start new step: set direction and begin pulse
+        bool dir = (remaining_steps > 0);
+        if (dir != current_direction) {
+          current_direction = dir;
+          tmc_set_dir(dir);
+        }
+
+        // Start step pulse (HIGH)
+        tmc_set_step(true);
+        step_state = STEP_PULSE_HIGH;
+      }
+      break;
+
+    case STEP_PULSE_HIGH:
+      // End step pulse (LOW)
+      tmc_set_step(false);
+      step_state = STEP_PULSE_LOW;
+
+      // Consume one step
+      if (remaining_steps > 0) {
+        remaining_steps--;
+      } else {
+        remaining_steps++;
+      }
+      break;
+
+    case STEP_PULSE_LOW:
+      // Wait one tick before allowing next step
+      step_state = STEP_IDLE;
+      break;
+  }
+}
+
+// Step generation ISR handler: manages step pulses (called every 30us)
+static void main_step_tick_handler(const struct device* dev, void* user_data) {
+  main_step_tick();
+}
+
+// Queue a single step (true=forward, false=backward)
+void queue_step(bool dir) {
+  if (dir) {
+    remaining_steps++;
+  } else {
+    remaining_steps--;
+  }
+}
 
 // Destructive string parsing helper
 // Splits string at first delimiter, null-terminates first part
@@ -64,7 +130,7 @@ static void cmd_steptest(char* args) {
       break;
     }
 
-    tmc_step(true);
+    queue_step(true);
     k_sleep(K_USEC(250));
 
     // Print SG_RESULT every 100 steps (50ms intervals at 500us/step)
@@ -102,18 +168,21 @@ static void cmd_set(char* args) {
   int ret = 0;
   if (strcmp(var, "mot0.microstep") == 0) {
     ret = tmc_set_microstep(atoi(val));
-    if (ret == 0) comm_print("Microstep set to %s", val);
+    if (ret == 0)
+      comm_print("Microstep set to %s", val);
   } else if (strcmp(var, "mot0.current") == 0) {
     ret = tmc_set_current(atoi(val), 0);
-    if (ret == 0) comm_print("Current set to %s%%", val);
+    if (ret == 0)
+      comm_print("Current set to %s%%", val);
   } else if (strcmp(var, "mot0.thresh") == 0) {
     ret = tmc_set_stallguard_threshold(atoi(val));
-    if (ret == 0) comm_print("StallGuard threshold set to %s", val);
+    if (ret == 0)
+      comm_print("StallGuard threshold set to %s", val);
   } else {
     comm_print("unknown variable %s", var);
     return;
   }
-  
+
   if (ret < 0) {
     comm_print_err("Failed to set %s: error %d", var, ret);
   }
@@ -160,6 +229,21 @@ int main() {
   }
   comm_print("TMC2209 initialized");
 
+  // Initialize step generation counter
+  struct counter_top_cfg step_top_cfg = {
+      .callback = main_step_tick_handler,
+      .ticks = counter_us_to_ticks(step_gen_cnt,
+                                   30),  // 30us ISR -> step pulse generation
+  };
+
+  counter_start(step_gen_cnt);
+  ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
+  if (ret < 0) {
+    comm_print_err("Step generation timer init failed: %d", ret);
+    return ret;
+  }
+  comm_print("Step generation initialized");
+
   // apply default settings
   ret = tmc_set_microstep(32);
   if (ret < 0) {
@@ -167,23 +251,23 @@ int main() {
   } else {
     comm_print("Microstep set to 32");
   }
-  
+
   ret = tmc_set_current(30, 0);
   if (ret < 0) {
     comm_print_err("Failed to set current: %d", ret);
   } else {
     comm_print("Current set: run=30%% hold=0%%");
   }
-  
+
   ret = tmc_set_stallguard_threshold(2);
   if (ret < 0) {
     comm_print_err("Failed to set stallguard threshold: %d", ret);
   } else {
     comm_print("StallGuard threshold set to 2");
   }
-  
-  ret = tmc_set_tcoolthrs(750000);  // make this bigger to make stallguard work at
-                                   // lower speed (might be noisier)
+
+  ret = tmc_set_tcoolthrs(750000);  // make this bigger to make stallguard work
+                                    // at lower speed (might be noisier)
   if (ret < 0) {
     comm_print_err("Failed to set TCOOLTHRS: %d", ret);
   } else {

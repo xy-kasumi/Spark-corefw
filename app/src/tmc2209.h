@@ -25,8 +25,11 @@ int tmc_set_current(int run_percent, int hold_percent);
 // Enable/disable TMC motor (true=energized, false=disabled).
 void tmc_energize(bool enable);
 
-// Queue a single step (true=forward, false=backward).
-void tmc_step(bool dir);
+// Set step pin state (true=HIGH, false=LOW).
+void tmc_set_step(bool step);
+
+// Set direction pin state (true=HIGH, false=LOW).
+void tmc_set_dir(bool dir);
 
 // Check if motor is stalled (reads diag0 pin).
 bool tmc_stalled();

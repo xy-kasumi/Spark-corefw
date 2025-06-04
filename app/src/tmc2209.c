@@ -34,9 +34,6 @@ static const struct gpio_dt_spec diag0 =
 static const struct device* sw_uart_cnt =
     DEVICE_DT_GET(DT_NODELABEL(sw_uart_cnt));
 
-static const struct device* step_gen_cnt =
-    DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
-
 #define TMC_UART_BUFFER_SIZE 8
 
 #define TMC_UART_EVT_DONE BIT(0)
@@ -58,16 +55,6 @@ typedef enum {
   UART_RECEIVE_SYNCED,
 } uart_state_t;
 uart_state_t tmc_uart_state = UART_IDLE;
-
-// Step generation state
-static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
-static bool current_direction = false;    // false=backward, true=forward
-typedef enum {
-  STEP_IDLE,        // No stepping in progress
-  STEP_PULSE_HIGH,  // Step pin is HIGH (1 tick)
-  STEP_PULSE_LOW,   // Step pin is LOW, waiting before next step (1 tick)
-} step_state_t;
-static step_state_t step_state = STEP_IDLE;
 
 // 8-byte structure for write request datagram.
 typedef struct __attribute__((packed)) {
@@ -171,52 +158,9 @@ static void tmc_uart_tick() {
   }
 }
 
-// Handle step pulse generation state machine (called every 30us)
-static void tmc_step_tick() {
-  switch (step_state) {
-    case STEP_IDLE:
-      if (remaining_steps != 0) {
-        // Start new step: set direction and begin pulse
-        bool dir = (remaining_steps > 0);
-        if (dir != current_direction) {
-          current_direction = dir;
-          gpio_pin_set_dt(&dir0, dir);
-        }
-
-        // Start step pulse (HIGH)
-        gpio_pin_set_dt(&step0, true);
-        step_state = STEP_PULSE_HIGH;
-      }
-      break;
-
-    case STEP_PULSE_HIGH:
-      // End step pulse (LOW)
-      gpio_pin_set_dt(&step0, false);
-      step_state = STEP_PULSE_LOW;
-
-      // Consume one step
-      if (remaining_steps > 0) {
-        remaining_steps--;
-      } else {
-        remaining_steps++;
-      }
-      break;
-
-    case STEP_PULSE_LOW:
-      // Wait one tick before allowing next step
-      step_state = STEP_IDLE;
-      break;
-  }
-}
-
 // UART ISR handler: manages UART bit-banging (called every 30us)
 static void tmc_uart_tick_handler(const struct device* dev, void* user_data) {
   tmc_uart_tick();
-}
-
-// Step generation ISR handler: manages step pulses (called every 30us)
-static void tmc_step_tick_handler(const struct device* dev, void* user_data) {
-  tmc_step_tick();
 }
 
 static int tmc_uart_write(uint8_t* data, size_t size) {
@@ -409,13 +353,14 @@ int tmc_dump_regs(char* buf, size_t buf_size) {
   return 0;
 }
 
-// Queue a single step (true=forward, false=backward)
-void tmc_step(bool dir) {
-  if (dir) {
-    remaining_steps++;
-  } else {
-    remaining_steps--;
-  }
+// Set step pin state (true=HIGH, false=LOW)
+void tmc_set_step(bool step) {
+  gpio_pin_set_dt(&step0, step);
+}
+
+// Set direction pin state (true=HIGH, false=LOW)
+void tmc_set_dir(bool dir) {
+  gpio_pin_set_dt(&dir0, dir);
 }
 
 // Check if motor is stalled (reads diag0 pin)
@@ -499,19 +444,6 @@ int tmc_init() {
 
   counter_start(sw_uart_cnt);
   ret = counter_set_top_value(sw_uart_cnt, &uart_top_cfg);
-  if (ret < 0) {
-    return ret;
-  }
-
-  // Initialize step generation counter
-  struct counter_top_cfg step_top_cfg = {
-      .callback = tmc_step_tick_handler,
-      .ticks = counter_us_to_ticks(step_gen_cnt,
-                                   30),  // 30us ISR -> step pulse generation
-  };
-
-  counter_start(step_gen_cnt);
-  ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
   if (ret < 0) {
     return ret;
   }
