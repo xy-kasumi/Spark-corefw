@@ -171,7 +171,7 @@ static int tmc2209_init(const struct device* dev) {
 
 // Device-based API implementations (new infrastructure)
 
-uint32_t tmc_dev_regread(const struct device* dev, uint8_t addr) {
+uint32_t tmc_regread(const struct device* dev, uint8_t addr) {
   const struct tmc2209_config* config = dev->config;
 
   tmc_uart_request_read_datagram_t request = {
@@ -201,7 +201,7 @@ uint32_t tmc_dev_regread(const struct device* dev, uint8_t addr) {
   return sys_be32_to_cpu(reply.value);
 }
 
-int tmc_dev_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
+int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
   const struct tmc2209_config* config = dev->config;
 
   tmc_uart_request_write_datagram_t request = {
@@ -221,15 +221,15 @@ int tmc_dev_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
   return 0;
 }
 
-int tmc_dev_set_microstep(const struct device* dev, int microstep) {
+int tmc_set_microstep(const struct device* dev, int microstep) {
   if (microstep < 1 || microstep > 256 || (microstep & (microstep - 1)) != 0) {
     return -EINVAL;
   }
 
   // Enable MRES from register in GCONF
-  uint32_t gconf = tmc_dev_regread(dev, REG_GCONF);
+  uint32_t gconf = tmc_regread(dev, REG_GCONF);
   gconf |= (1u << 7);  // mstep_reg_select = 1
-  int ret = tmc_dev_regwrite(dev, REG_GCONF, gconf);
+  int ret = tmc_regwrite(dev, REG_GCONF, gconf);
   if (ret < 0) {
     return ret;
   }
@@ -238,10 +238,10 @@ int tmc_dev_set_microstep(const struct device* dev, int microstep) {
   uint8_t mres_bits = 8 - (uint8_t)__builtin_ctz(microstep);
 
   // Update CHOPCONF register
-  uint32_t chopconf = tmc_dev_regread(dev, REG_CHOPCONF);
+  uint32_t chopconf = tmc_regread(dev, REG_CHOPCONF);
   chopconf &= 0xF0FFFFFF;                   // Clear MRES[27:24]
   chopconf |= ((uint32_t)mres_bits << 24);  // Set new MRES
-  ret = tmc_dev_regwrite(dev, REG_CHOPCONF, chopconf);
+  ret = tmc_regwrite(dev, REG_CHOPCONF, chopconf);
   if (ret < 0) {
     return ret;
   }
@@ -249,7 +249,7 @@ int tmc_dev_set_microstep(const struct device* dev, int microstep) {
   return 0;
 }
 
-int tmc_dev_set_current(const struct device* dev,
+int tmc_set_current(const struct device* dev,
                         int run_percent,
                         int hold_percent) {
   if (run_percent < 0 || run_percent > 100 || hold_percent < 0 ||
@@ -266,7 +266,7 @@ int tmc_dev_set_current(const struct device* dev,
 
   uint32_t reg = ((uint32_t)ihold_delay << 16) | ((uint32_t)irun_bits << 8) |
                  ((uint32_t)ihold_bits);
-  int ret = tmc_dev_regwrite(dev, REG_IHOLD_IRUN, reg);
+  int ret = tmc_regwrite(dev, REG_IHOLD_IRUN, reg);
   if (ret < 0) {
     return ret;
   }
@@ -274,45 +274,45 @@ int tmc_dev_set_current(const struct device* dev,
   return 0;
 }
 
-void tmc_dev_energize(const struct device* dev, bool enable) {
+void tmc_energize(const struct device* dev, bool enable) {
   const struct tmc2209_config* config = dev->config;
   gpio_pin_set_dt(&config->enable_gpio, !enable);
 }
 
-void tmc_dev_set_step(const struct device* dev, bool step) {
+void tmc_set_step(const struct device* dev, bool step) {
   const struct tmc2209_config* config = dev->config;
   gpio_pin_set_dt(&config->step_gpio, step);
 }
 
-void tmc_dev_set_dir(const struct device* dev, bool dir) {
+void tmc_set_dir(const struct device* dev, bool dir) {
   const struct tmc2209_config* config = dev->config;
   gpio_pin_set_dt(&config->dir_gpio, dir);
 }
 
-bool tmc_dev_stalled(const struct device* dev) {
+bool tmc_stalled(const struct device* dev) {
   const struct tmc2209_config* config = dev->config;
   return gpio_pin_get_dt(&config->diag_gpio);
 }
 
-int tmc_dev_set_stallguard_threshold(const struct device* dev,
+int tmc_set_stallguard_threshold(const struct device* dev,
                                      uint8_t threshold) {
-  return tmc_dev_regwrite(dev, REG_SGTHRS, threshold);
+  return tmc_regwrite(dev, REG_SGTHRS, threshold);
 }
 
-int tmc_dev_sgresult(const struct device* dev) {
-  uint32_t result = tmc_dev_regread(dev, REG_SG_RESULT);
+int tmc_sgresult(const struct device* dev) {
+  uint32_t result = tmc_regread(dev, REG_SG_RESULT);
   return (int)(result & 0x3FF);  // SG_RESULT is 10-bit value in bits [9:0]
 }
 
-int tmc_dev_set_tcoolthrs(const struct device* dev, int value) {
+int tmc_set_tcoolthrs(const struct device* dev, int value) {
   if (value < 1 || value > ((1 << 20) - 1)) {
     return -EINVAL;
   }
 
-  return tmc_dev_regwrite(dev, REG_TCOOLTHRS, (uint32_t)value);
+  return tmc_regwrite(dev, REG_TCOOLTHRS, (uint32_t)value);
 }
 
-int tmc_dev_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
+int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
   if (!buf || buf_size == 0) {
     return -EINVAL;
   }
@@ -321,8 +321,8 @@ int tmc_dev_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
   int ret = snprintf(
       buf, buf_size,
       "GCONF:0x%08x IOIN:0x%08x SG_RESULT:0x%08x CHOPCONF:0x%08x",
-      tmc_dev_regread(dev, REG_GCONF), tmc_dev_regread(dev, REG_IOIN),
-      tmc_dev_regread(dev, REG_SG_RESULT), tmc_dev_regread(dev, REG_CHOPCONF));
+      tmc_regread(dev, REG_GCONF), tmc_regread(dev, REG_IOIN),
+      tmc_regread(dev, REG_SG_RESULT), tmc_regread(dev, REG_CHOPCONF));
 
   if (ret >= buf_size) {
     return -ENOSPC;  // Buffer too small

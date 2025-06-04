@@ -23,7 +23,7 @@
  * @param addr Register address
  * @return Register value, 0 on communication error
  */
-uint32_t tmc_dev_regread(const struct device* dev, uint8_t addr);
+uint32_t tmc_regread(const struct device* dev, uint8_t addr);
 
 /**
  * @brief Write TMC register to device
@@ -32,7 +32,7 @@ uint32_t tmc_dev_regread(const struct device* dev, uint8_t addr);
  * @param value Register value
  * @return 0 on success, negative error code on failure
  */
-int tmc_dev_regwrite(const struct device* dev, uint8_t addr, uint32_t value);
+int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value);
 
 /**
  * @brief Set TMC microstep resolution for device
@@ -41,7 +41,7 @@ int tmc_dev_regwrite(const struct device* dev, uint8_t addr, uint32_t value);
  * @return 0 on success, -EINVAL for invalid parameter, negative error code on
  * failure
  */
-int tmc_dev_set_microstep(const struct device* dev, int microstep);
+int tmc_set_microstep(const struct device* dev, int microstep);
 
 /**
  * @brief Set TMC motor current for device
@@ -51,37 +51,37 @@ int tmc_dev_set_microstep(const struct device* dev, int microstep);
  * @return 0 on success, -EINVAL for invalid parameters, negative error code on
  * failure
  */
-int tmc_dev_set_current(const struct device* dev,
-                        int run_percent,
-                        int hold_percent);
+int tmc_set_current(const struct device* dev,
+                    int run_percent,
+                    int hold_percent);
 
 /**
  * @brief Enable/disable TMC motor
  * @param dev TMC device instance
  * @param enable true=energized, false=disabled
  */
-void tmc_dev_energize(const struct device* dev, bool enable);
+void tmc_energize(const struct device* dev, bool enable);
 
 /**
  * @brief Set step pin state
  * @param dev TMC device instance
  * @param step true=HIGH, false=LOW
  */
-void tmc_dev_set_step(const struct device* dev, bool step);
+void tmc_set_step(const struct device* dev, bool step);
 
 /**
  * @brief Set direction pin state
  * @param dev TMC device instance
  * @param dir true=HIGH, false=LOW
  */
-void tmc_dev_set_dir(const struct device* dev, bool dir);
+void tmc_set_dir(const struct device* dev, bool dir);
 
 /**
  * @brief Check if motor is stalled
  * @param dev TMC device instance
  * @return true if stall detected via diag pin
  */
-bool tmc_dev_stalled(const struct device* dev);
+bool tmc_stalled(const struct device* dev);
 
 /**
  * @brief Set StallGuard threshold
@@ -90,15 +90,14 @@ bool tmc_dev_stalled(const struct device* dev);
  * sensitive)
  * @return 0 on success, negative error code on failure
  */
-int tmc_dev_set_stallguard_threshold(const struct device* dev,
-                                     uint8_t threshold);
+int tmc_set_stallguard_threshold(const struct device* dev, uint8_t threshold);
 
 /**
  * @brief Read StallGuard result
  * @param dev TMC device instance
  * @return Load measurement (0-510: 0=highest load), negative on error
  */
-int tmc_dev_sgresult(const struct device* dev);
+int tmc_sgresult(const struct device* dev);
 
 /**
  * @brief Set TCOOLTHRS register
@@ -107,7 +106,7 @@ int tmc_dev_sgresult(const struct device* dev);
  * @return 0 on success, -EINVAL for invalid parameter, negative error code on
  * failure
  */
-int tmc_dev_set_tcoolthrs(const struct device* dev, int value);
+int tmc_set_tcoolthrs(const struct device* dev, int value);
 
 /**
  * @brief Dump TMC registers to buffer for debugging
@@ -117,4 +116,4 @@ int tmc_dev_set_tcoolthrs(const struct device* dev, int value);
  * @return 0 on success, -EINVAL for invalid parameters, -ENOSPC if buffer too
  * small
  */
-int tmc_dev_dump_regs(const struct device* dev, char* buf, size_t buf_size);
+int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size);
