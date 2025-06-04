@@ -15,7 +15,9 @@
 
 #define UART1WIRE_BUFFER_SIZE 8
 
-// Initialize uart1wire with shared timer (call once)
+// Initialize uart1wire with shared timer (call once per timer)
+// Multiple calls with same timer are safe (returns 0)
+// Returns -EINVAL if different timer is used (timer mismatch)
 int uart1wire_init(const struct device* timer);
 
 // Write data over uart1wire (blocking, serialized access)

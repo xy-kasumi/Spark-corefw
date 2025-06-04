@@ -176,6 +176,15 @@ int uart1wire_read(const struct gpio_dt_spec* gpio,
 }
 
 int uart1wire_init(const struct device* timer_dev) {
+  // Verify timer compatibility for multi-device support
+  if (timer != NULL) {
+    if (timer != timer_dev) {
+      return -EINVAL;  // Timer mismatch - different devices using different
+                       // timers
+    }
+    return 0;  // Already initialized with same timer - no action needed
+  }
+
   timer = timer_dev;
 
   // Initialize UART counter for bit-banging
