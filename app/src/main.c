@@ -59,7 +59,7 @@ static void cmd_steptest(char* args) {
     }
 
     tmc_step(true);
-    k_sleep(K_USEC(500));
+    k_sleep(K_USEC(250));
 
     // Print SG_RESULT every 100 steps (50ms intervals at 500us/step)
     if (i % 100 == 0) {
