@@ -12,6 +12,9 @@
 static const struct device* step_gen_cnt =
     DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
 
+// Motor device
+static const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
+
 static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
 static bool current_direction = false;    // false=backward, true=forward
 typedef enum {
@@ -30,18 +33,18 @@ static void main_step_tick() {
         bool dir = (remaining_steps > 0);
         if (dir != current_direction) {
           current_direction = dir;
-          tmc_set_dir(dir);
+          tmc_dev_set_dir(motor0, dir);
         }
 
         // Start step pulse (HIGH)
-        tmc_set_step(true);
+        tmc_dev_set_step(motor0, true);
         step_state = STEP_PULSE_HIGH;
       }
       break;
 
     case STEP_PULSE_HIGH:
       // End step pulse (LOW)
-      tmc_set_step(false);
+      tmc_dev_set_step(motor0, false);
       step_state = STEP_PULSE_LOW;
 
       // Consume one step
@@ -112,7 +115,7 @@ static void cmd_help(char* args) {
 // Command: regs
 static void cmd_regs(char* args) {
   char buf[256];
-  int ret = tmc_dump_regs(buf, sizeof(buf));
+  int ret = tmc_dev_dump_regs(motor0, buf, sizeof(buf));
   if (ret < 0) {
     comm_print_err("Failed to dump registers: %d", ret);
   } else {
@@ -122,7 +125,7 @@ static void cmd_regs(char* args) {
 
 // Command: steptest
 static void cmd_steptest(char* args) {
-  tmc_energize(true);
+  tmc_dev_energize(motor0, true);
 
   for (int i = 0; i < 2 * 200 * 32; i++) {  // 2 rotations at 32 microsteps
     // Check for cancel request
@@ -136,17 +139,17 @@ static void cmd_steptest(char* args) {
 
     // Print SG_RESULT every 100 steps (50ms intervals at 500us/step)
     if (i % 100 == 0) {
-      int sg_result = tmc_sgresult();
+      int sg_result = tmc_dev_sgresult(motor0);
       comm_print("SG:%d", sg_result);
     }
 
-    if (tmc_stalled()) {
+    if (tmc_dev_stalled(motor0)) {
       comm_print("Stall detected at step %d", i);
       break;
     }
   }
 
-  tmc_energize(false);
+  tmc_dev_energize(motor0, false);
 }
 
 // Command: set <var> <val>
@@ -168,15 +171,15 @@ static void cmd_set(char* args) {
   // Handle different variables
   int ret = 0;
   if (strcmp(var, "mot0.microstep") == 0) {
-    ret = tmc_set_microstep(atoi(val));
+    ret = tmc_dev_set_microstep(motor0, atoi(val));
     if (ret == 0)
       comm_print("Microstep set to %s", val);
   } else if (strcmp(var, "mot0.current") == 0) {
-    ret = tmc_set_current(atoi(val), 0);
+    ret = tmc_dev_set_current(motor0, atoi(val), 0);
     if (ret == 0)
       comm_print("Current set to %s%%", val);
   } else if (strcmp(var, "mot0.thresh") == 0) {
-    ret = tmc_set_stallguard_threshold(atoi(val));
+    ret = tmc_dev_set_stallguard_threshold(motor0, atoi(val));
     if (ret == 0)
       comm_print("StallGuard threshold set to %s", val);
   } else {
@@ -223,11 +226,11 @@ int main() {
   comm_init();
 
   // init peripherals
-  // int ret = tmc_init();  // Now handled by device model during boot
-  // if (ret < 0) {
-  //   comm_print_err("TMC init failed: %d", ret);
-  //   return ret;
-  // }
+  // Check motor device readiness
+  if (!device_is_ready(motor0)) {
+    comm_print_err("Motor device not ready");
+    return -ENODEV;
+  }
   comm_print("TMC2209 initialized via device model");
 
   // Initialize step generation counter
@@ -246,29 +249,30 @@ int main() {
   comm_print("Step generation initialized");
 
   // apply default settings
-  ret = tmc_set_microstep(32);
+  ret = tmc_dev_set_microstep(motor0, 32);
   if (ret < 0) {
     comm_print_err("Failed to set microstep: %d", ret);
   } else {
     comm_print("Microstep set to 32");
   }
 
-  ret = tmc_set_current(30, 0);
+  ret = tmc_dev_set_current(motor0, 30, 0);
   if (ret < 0) {
     comm_print_err("Failed to set current: %d", ret);
   } else {
     comm_print("Current set: run=30%% hold=0%%");
   }
 
-  ret = tmc_set_stallguard_threshold(2);
+  ret = tmc_dev_set_stallguard_threshold(motor0, 2);
   if (ret < 0) {
     comm_print_err("Failed to set stallguard threshold: %d", ret);
   } else {
     comm_print("StallGuard threshold set to 2");
   }
 
-  ret = tmc_set_tcoolthrs(750000);  // make this bigger to make stallguard work
-                                    // at lower speed (might be noisier)
+  ret = tmc_dev_set_tcoolthrs(
+      motor0, 750000);  // make this bigger to make stallguard work
+                        // at lower speed (might be noisier)
   if (ret < 0) {
     comm_print_err("Failed to set TCOOLTHRS: %d", ret);
   } else {
