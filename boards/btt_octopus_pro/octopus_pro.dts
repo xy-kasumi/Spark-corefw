@@ -21,7 +21,7 @@
 		compatible = "adi,tmc2209-uart";
 		step-gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
 		dir-gpios = <&gpiof 12 GPIO_ACTIVE_HIGH>;
-		enable-gpios = <&gpiof 14 GPIO_ACTIVE_HIGH>;
+		enable-gpios = <&gpiof 14 GPIO_ACTIVE_LOW>;
 		uart-gpios = <&gpioc 4 GPIO_ACTIVE_HIGH>;
 		diag-gpios = <&gpiog 6 GPIO_ACTIVE_HIGH>;
 		uart-timer = <&sw_uart_cnt>;

@@ -142,8 +142,7 @@ static int tmc2209_init(const struct device* dev) {
     return ret;
   }
 
-  ret = gpio_pin_configure_dt(&config->enable_gpio,
-                              GPIO_OUTPUT_ACTIVE);  // ACTIVE = disabled
+  ret = gpio_pin_configure_dt(&config->enable_gpio, GPIO_OUTPUT_INACTIVE);
   if (ret < 0) {
     return ret;
   }
@@ -250,8 +249,8 @@ int tmc_set_microstep(const struct device* dev, int microstep) {
 }
 
 int tmc_set_current(const struct device* dev,
-                        int run_percent,
-                        int hold_percent) {
+                    int run_percent,
+                    int hold_percent) {
   if (run_percent < 0 || run_percent > 100 || hold_percent < 0 ||
       hold_percent > 100) {
     return -EINVAL;
@@ -276,7 +275,7 @@ int tmc_set_current(const struct device* dev,
 
 void tmc_energize(const struct device* dev, bool enable) {
   const struct tmc2209_config* config = dev->config;
-  gpio_pin_set_dt(&config->enable_gpio, !enable);
+  gpio_pin_set_dt(&config->enable_gpio, enable);
 }
 
 void tmc_set_step(const struct device* dev, bool step) {
@@ -294,8 +293,7 @@ bool tmc_stalled(const struct device* dev) {
   return gpio_pin_get_dt(&config->diag_gpio);
 }
 
-int tmc_set_stallguard_threshold(const struct device* dev,
-                                     uint8_t threshold) {
+int tmc_set_stallguard_threshold(const struct device* dev, uint8_t threshold) {
   return tmc_regwrite(dev, REG_SGTHRS, threshold);
 }
 
@@ -318,11 +316,11 @@ int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
   }
 
   // Note: write-only registers are not listed here.
-  int ret = snprintf(
-      buf, buf_size,
-      "GCONF:0x%08x IOIN:0x%08x SG_RESULT:0x%08x CHOPCONF:0x%08x",
-      tmc_regread(dev, REG_GCONF), tmc_regread(dev, REG_IOIN),
-      tmc_regread(dev, REG_SG_RESULT), tmc_regread(dev, REG_CHOPCONF));
+  int ret =
+      snprintf(buf, buf_size,
+               "GCONF:0x%08x IOIN:0x%08x SG_RESULT:0x%08x CHOPCONF:0x%08x",
+               tmc_regread(dev, REG_GCONF), tmc_regread(dev, REG_IOIN),
+               tmc_regread(dev, REG_SG_RESULT), tmc_regread(dev, REG_CHOPCONF));
 
   if (ret >= buf_size) {
     return -ENOSPC;  // Buffer too small
