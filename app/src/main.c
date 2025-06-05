@@ -12,8 +12,10 @@
 static const struct device* step_gen_cnt =
     DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
 
-// Motor device
+// Motor devices
 static const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
+static const struct device* motor1 = DEVICE_DT_GET(DT_NODELABEL(motor1));
+static const struct device* motor2 = DEVICE_DT_GET(DT_NODELABEL(motor2));
 
 static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
 static bool current_direction = false;    // false=backward, true=forward
@@ -115,11 +117,16 @@ static void cmd_help(char* args) {
 // Command: regs
 static void cmd_regs(char* args) {
   char buf[256];
-  int ret = tmc_dump_regs(motor0, buf, sizeof(buf));
-  if (ret < 0) {
-    comm_print_err("Failed to dump registers: %d", ret);
-  } else {
-    comm_print("%s", buf);
+  const struct device* motors[] = {motor0, motor1, motor2};
+  const char* names[] = {"mot0", "mot1", "mot2"};
+
+  for (int i = 0; i < 3; i++) {
+    int ret = tmc_dump_regs(motors[i], buf, sizeof(buf));
+    if (ret < 0) {
+      comm_print("%s: error %d", names[i], ret);
+    } else {
+      comm_print("%s: %s", names[i], buf);
+    }
   }
 }
 
@@ -226,12 +233,18 @@ int main() {
   comm_init();
 
   // init peripherals
-  // Check motor device readiness
   if (!device_is_ready(motor0)) {
-    comm_print_err("Motor device not ready");
+    comm_print_err("Motor0 device not ready");
     return -ENODEV;
   }
-  comm_print("TMC2209 initialized via device model");
+  if (!device_is_ready(motor1)) {
+    comm_print_err("Motor1 device not ready");
+    return -ENODEV;
+  }
+  if (!device_is_ready(motor2)) {
+    comm_print_err("Motor2 device not ready");
+    return -ENODEV;
+  }
 
   // Initialize step generation counter
   struct counter_top_cfg step_top_cfg = {

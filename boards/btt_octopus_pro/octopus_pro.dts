@@ -26,6 +26,26 @@
 		diag-gpios = <&gpiog 6 GPIO_ACTIVE_HIGH>;
 		uart-timer = <&sw_uart_cnt>;
 	};
+
+	motor1: motor1 {
+		compatible = "adi,tmc2209-uart";
+		step-gpios = <&gpiog 0 GPIO_ACTIVE_HIGH>;
+		dir-gpios = <&gpiog 1 GPIO_ACTIVE_HIGH>;
+		enable-gpios = <&gpiof 15 GPIO_ACTIVE_LOW>;
+		uart-gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
+		diag-gpios = <&gpiog 9 GPIO_ACTIVE_HIGH>;
+		uart-timer = <&sw_uart_cnt>;
+	};
+
+	motor2: motor2 {
+		compatible = "adi,tmc2209-uart";
+		step-gpios = <&gpiof 11 GPIO_ACTIVE_HIGH>;
+		dir-gpios = <&gpiog 3 GPIO_ACTIVE_HIGH>;
+		enable-gpios = <&gpiog 5 GPIO_ACTIVE_LOW>;
+		uart-gpios = <&gpioc 6 GPIO_ACTIVE_HIGH>;
+		diag-gpios = <&gpiog 10 GPIO_ACTIVE_HIGH>;
+		uart-timer = <&sw_uart_cnt>;
+	};
 };
 
 
