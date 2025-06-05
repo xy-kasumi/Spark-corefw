@@ -1,3 +1,9 @@
+/**
+ * Raw serial communcation.
+ * 99% of the app code should use comm.h instead.
+ * We need this (instead of using CONSOLE functionality),
+ * because we wanted to disable console echo.
+ */
 #pragma once
 
 #include <stdarg.h>

@@ -1,5 +1,6 @@
-#include <drivers/tmc_driver.h>
 #include "uart1wire.h"
+
+#include <drivers/tmc_driver.h>
 
 #include <stdio.h>
 #include <string.h>

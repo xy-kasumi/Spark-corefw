@@ -1,23 +1,29 @@
+/**
+ * Semi-structured serial printing functions for the app.
+ * As soon as serial is initialized, spark MUST use these functions.
+ * Don't use printk(), LOG_*() etc.
+ * Host of spark board depends on structured I/O.
+ */
 #pragma once
 
-// Protocol-aware communication functions
-
-// Initialize communication subsystem
+/** Initialize communication subsystem */
 void comm_init();
 
-// Auto-prefix based on current machine state
+/** Auto-prefix based on current machine state */
 void comm_print(const char* fmt, ...);
 
-// Specific message types (override auto-prefix)
+/** Specific message types (override auto-prefix) */
 void comm_print_ack();
 void comm_print_err(const char* fmt, ...);
 void comm_print_info(const char* fmt, ...);
 
-// Blocking read of one command from console
+/** Blocking read of one command from console */
 char* comm_read_command();
 
-// Get next command from input thread (blocking)
-// Buffer must be at least 256 bytes
+/**
+ * Get next command from input thread (blocking)
+ * Buffer must be at least 256 bytes
+ */
 void comm_get_next_command(char* buffer);
 
 // Future stream support

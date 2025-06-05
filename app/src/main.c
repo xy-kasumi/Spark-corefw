@@ -1,24 +1,27 @@
-#include <drivers/tmc_driver.h>
-
+// Application entry point for spark core firmware.
+// Main command loop is executed here.
 #include "comm.h"
 #include "system.h"
+
+#include <drivers/tmc_driver.h>
 
 #include <stdlib.h>
 #include <string.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/kernel.h>
 
-// Step generation management
+// Hardware devices
 static const struct device* step_gen_cnt =
     DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
-
-// Motor devices
 static const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
 static const struct device* motor1 = DEVICE_DT_GET(DT_NODELABEL(motor1));
 static const struct device* motor2 = DEVICE_DT_GET(DT_NODELABEL(motor2));
 
+// Step generation state
 static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
 static bool current_direction = false;    // false=backward, true=forward
+
+// Step pulse generation state machine
 typedef enum {
   STEP_IDLE,        // No stepping in progress
   STEP_PULSE_HIGH,  // Step pin is HIGH (1 tick)
