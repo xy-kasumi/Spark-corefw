@@ -8,7 +8,6 @@
 
 #include <drivers/tmc_driver.h>
 
-#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zephyr/drivers/counter.h>
@@ -83,35 +82,6 @@ void queue_step(bool dir) {
   } else {
     remaining_steps--;
   }
-}
-
-/**
- * Parse string to float with validation.
- * @param str String to parse
- * @param value Output float value
- * @return true if valid float, false otherwise
- */
-static bool parse_float(const char* str, float* value) {
-  if (!str || !value) {
-    return false;
-  }
-
-  char* endptr;
-  errno = 0;
-  float result = strtof(str, &endptr);
-
-  // Check for conversion errors
-  if (errno != 0) {
-    return false;  // Overflow or other error
-  }
-
-  // Check if entire string was consumed
-  if (endptr == str || *endptr != '\0') {
-    return false;  // No digits found or extra characters
-  }
-
-  *value = result;
-  return true;
 }
 
 // Command: help
@@ -314,13 +284,21 @@ int main() {
   settings_apply_all();
   comm_print("Default settings applied");
 
-  ret = tmc_set_tcoolthrs(motor0,
-                          750000);  // make this bigger to make stallguard work
-                                    // at lower speed (might be noisier)
+  // TODO: move somewhere
+  // make stallguard work at low speeds
+  // make this bigger to make stallguard work
+  // at lower speed (might be noisier)
+  ret = tmc_set_tcoolthrs(motor0, 750000);
   if (ret < 0) {
-    comm_print_err("Failed to set TCOOLTHRS: %d", ret);
-  } else {
-    comm_print("TCOOLTHRS set to 750000");
+    comm_print_err("Failed to set TCOOLTHRS");
+  }
+  ret = tmc_set_tcoolthrs(motor1, 750000);
+  if (ret < 0) {
+    comm_print_err("Failed to set TCOOLTHRS");
+  }
+  ret = tmc_set_tcoolthrs(motor2, 750000);
+  if (ret < 0) {
+    comm_print_err("Failed to set TCOOLTHRS");
   }
 
   // main command processing loop

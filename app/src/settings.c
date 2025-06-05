@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "strutil.h"
 
 #include <drivers/tmc_driver.h>
 
@@ -11,11 +12,11 @@ typedef struct {
   float value;
 } setting_entry_t;
 
-// Settings array with current cmd_set supported keys
+// Settings array with all 3 motors
 static setting_entry_t settings[] = {
-    {"mot0.microstep", 32.0f},
-    {"mot0.current", 30.0f},
-    {"mot0.thresh", 2.0f},
+    {"m.0.microstep", 32.0f}, {"m.0.current", 30.0f}, {"m.0.thresh", 2.0f},
+    {"m.1.microstep", 32.0f}, {"m.1.current", 30.0f}, {"m.1.thresh", 2.0f},
+    {"m.2.microstep", 32.0f}, {"m.2.current", 30.0f}, {"m.2.thresh", 2.0f},
 };
 
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
@@ -30,21 +31,68 @@ static int find_setting_index(const char* key) {
   return -1;
 }
 
-// Apply function - direct port of cmd_set logic
-static bool apply_setting(const char* key, float value) {
-  int ret = 0;
+// Motor-specific setting application under "m."
+static bool apply_motor(char* mut_key, float value) {
+  // Parse: {motor_num}.{key}
+  char* rest = split_at(mut_key, '.');
+  if (!rest) {
+    // invalid key format.
+    return false;
+  }
 
-  if (strcmp(key, "mot0.microstep") == 0) {
-    ret = tmc_set_microstep(motor0, (int)value);
-  } else if (strcmp(key, "mot0.current") == 0) {
-    ret = tmc_set_current(motor0, (int)value, 0);
-  } else if (strcmp(key, "mot0.thresh") == 0) {
-    ret = tmc_set_stallguard_threshold(motor0, (int)value);
+  // Get motor device
+  int motor_num;
+  if (!parse_int(mut_key, &motor_num)) {
+    return false;  // Invalid motor number
+  }
+
+  const struct device* motor;
+  switch (motor_num) {
+    case 0:
+      motor = motor0;
+      break;
+    case 1:
+      motor = motor1;
+      break;
+    case 2:
+      motor = motor2;
+      break;
+    default:
+      return false;
+  }
+
+  // Apply setting
+  int ret = 0;
+  if (strcmp(rest, "microstep") == 0) {
+    ret = tmc_set_microstep(motor, (int)value);
+  } else if (strcmp(rest, "current") == 0) {
+    ret = tmc_set_current(motor, (int)value, 0);
+  } else if (strcmp(rest, "thresh") == 0) {
+    ret = tmc_set_stallguard_threshold(motor, (int)value);
   } else {
     return false;
   }
 
   return ret == 0;
+}
+
+// Hierarchical apply dispatcher
+static bool apply_setting(const char* key, float value) {
+  // Make mutable copy for parsing
+  char mut_key[64];
+  strncpy(mut_key, key, sizeof(mut_key) - 1);
+  mut_key[sizeof(mut_key) - 1] = '\0';
+
+  char* rest = split_at(mut_key, '.');
+  if (!rest) {
+    // invalid key format.
+    return false;
+  }
+
+  if (strcmp(mut_key, "m") == 0) {
+    return apply_motor(rest, value);
+  }
+  return false;
 }
 
 // Public API
