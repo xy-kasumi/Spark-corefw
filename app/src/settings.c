@@ -1,6 +1,6 @@
 #include "settings.h"
-#include "strutil.h"
 #include "motor.h"
+#include "strutil.h"
 
 #include <drivers/tmc_driver.h>
 

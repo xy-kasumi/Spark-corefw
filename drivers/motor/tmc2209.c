@@ -317,11 +317,11 @@ int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
   }
 
   // Note: write-only registers are not listed here.
-  int ret =
-      snprintf(buf, buf_size,
-               "TMC2209 GCONF:0x%08x IOIN:0x%08x SG_RESULT:0x%08x CHOPCONF:0x%08x",
-               tmc_regread(dev, REG_GCONF), tmc_regread(dev, REG_IOIN),
-               tmc_regread(dev, REG_SG_RESULT), tmc_regread(dev, REG_CHOPCONF));
+  int ret = snprintf(
+      buf, buf_size,
+      "TMC2209 GCONF:0x%08x IOIN:0x%08x SG_RESULT:0x%08x CHOPCONF:0x%08x",
+      tmc_regread(dev, REG_GCONF), tmc_regread(dev, REG_IOIN),
+      tmc_regread(dev, REG_SG_RESULT), tmc_regread(dev, REG_CHOPCONF));
 
   if (ret >= buf_size) {
     return -ENOSPC;  // Buffer too small
