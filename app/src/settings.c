@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "strutil.h"
+#include "motor.h"
 
 #include <drivers/tmc_driver.h>
 
@@ -46,19 +47,9 @@ static bool apply_motor(char* mut_key, float value) {
     return false;  // Invalid motor number
   }
 
-  const struct device* motor;
-  switch (motor_num) {
-    case 0:
-      motor = motor0;
-      break;
-    case 1:
-      motor = motor1;
-      break;
-    case 2:
-      motor = motor2;
-      break;
-    default:
-      return false;
+  const struct device* motor = motor_get_device(motor_num);
+  if (!motor) {
+    return false;  // Invalid motor number
   }
 
   // Apply setting

@@ -3,12 +3,6 @@
 #pragma once
 
 #include <stdbool.h>
-#include <zephyr/device.h>
-
-// External motor devices (defined in main.c)
-extern const struct device* motor0;
-extern const struct device* motor1;
-extern const struct device* motor2;
 
 /** Set a setting value. Returns true on success. */
 bool settings_set(const char* key, float value);
