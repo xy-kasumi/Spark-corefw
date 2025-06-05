@@ -1,0 +1,3 @@
+tests:
+  spark.app.gcode_parser:
+    tags: gcode parser unit_test
