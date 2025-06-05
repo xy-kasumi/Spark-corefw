@@ -8,6 +8,7 @@
 
 #include <drivers/tmc_driver.h>
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zephyr/drivers/counter.h>
@@ -82,6 +83,35 @@ void queue_step(bool dir) {
   } else {
     remaining_steps--;
   }
+}
+
+/**
+ * Parse string to float with validation.
+ * @param str String to parse
+ * @param value Output float value
+ * @return true if valid float, false otherwise
+ */
+static bool parse_float(const char* str, float* value) {
+  if (!str || !value) {
+    return false;
+  }
+
+  char* endptr;
+  errno = 0;
+  float result = strtof(str, &endptr);
+
+  // Check for conversion errors
+  if (errno != 0) {
+    return false;  // Overflow or other error
+  }
+
+  // Check if entire string was consumed
+  if (endptr == str || *endptr != '\0') {
+    return false;  // No digits found or extra characters
+  }
+
+  *value = result;
+  return true;
 }
 
 // Command: help
@@ -168,7 +198,14 @@ static void cmd_set(char* args) {
     return;
   }
 
-  if (!settings_set(key, value)) {
+  // Parse and validate float value
+  float float_value;
+  if (!parse_float(value, &float_value)) {
+    comm_print_err("Invalid number: %s", value);
+    return;
+  }
+
+  if (!settings_set(key, float_value)) {
     comm_print_err("Failed to set %s", key);
   }
 }
@@ -192,7 +229,7 @@ static void cmd_get(char* args) {
         break;
       }
     }
-    
+
     if (key_exists) {
       float value = settings_get(args);
       comm_print("%.1f", (double)value);

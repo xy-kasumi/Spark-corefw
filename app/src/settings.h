@@ -10,8 +10,8 @@ extern const struct device* motor0;
 extern const struct device* motor1;
 extern const struct device* motor2;
 
-/** Set a setting value from string. Returns true on success. */
-bool settings_set(const char* key, const char* value_str);
+/** Set a setting value. Returns true on success. */
+bool settings_set(const char* key, float value);
 
 /** Get a setting value. Returns 0.0f if key not found. */
 float settings_get(const char* key);

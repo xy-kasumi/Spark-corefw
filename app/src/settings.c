@@ -1,5 +1,3 @@
-// Settings system implementation.
-
 #include "settings.h"
 
 #include <drivers/tmc_driver.h>
@@ -15,9 +13,9 @@ typedef struct {
 
 // Settings array with current cmd_set supported keys
 static setting_entry_t settings[] = {
-  {"mot0.microstep", 32.0f},
-  {"mot0.current", 30.0f}, 
-  {"mot0.thresh", 2.0f},
+    {"mot0.microstep", 32.0f},
+    {"mot0.current", 30.0f},
+    {"mot0.thresh", 2.0f},
 };
 
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
@@ -35,7 +33,7 @@ static int find_setting_index(const char* key) {
 // Apply function - direct port of cmd_set logic
 static bool apply_setting(const char* key, float value) {
   int ret = 0;
-  
+
   if (strcmp(key, "mot0.microstep") == 0) {
     ret = tmc_set_microstep(motor0, (int)value);
   } else if (strcmp(key, "mot0.current") == 0) {
@@ -45,20 +43,18 @@ static bool apply_setting(const char* key, float value) {
   } else {
     return false;
   }
-  
+
   return ret == 0;
 }
 
 // Public API
-bool settings_set(const char* key, const char* value_str) {
-  float value = atof(value_str);
-  
+bool settings_set(const char* key, float value) {
   // Check if key exists
   int index = find_setting_index(key);
   if (index < 0) {
     return false;  // Key not found
   }
-  
+
   // Try to apply
   if (apply_setting(key, value)) {
     // Update dict on success
