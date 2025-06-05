@@ -1,6 +1,8 @@
 // Application entry point for spark core firmware.
 // Main command loop is executed here.
 #include "comm.h"
+#include "gcode.h"
+#include "strutil.h"
 #include "system.h"
 
 #include <drivers/tmc_driver.h>
@@ -81,32 +83,6 @@ void queue_step(bool dir) {
   }
 }
 
-// Destructive string parsing helper
-// Splits string at first delimiter, null-terminates first part
-// Returns pointer to rest of string (after delimiter) or NULL
-static char* split_at(char* str, char delim) {
-  if (!str)
-    return NULL;
-
-  // Skip leading delimiters
-  while (*str == delim)
-    str++;
-  if (*str == '\0')
-    return NULL;
-
-  // Find delimiter
-  char* p = strchr(str, delim);
-  if (p) {
-    *p = '\0';  // Terminate first part
-    p++;
-    // Skip delimiters after split
-    while (*p == delim)
-      p++;
-    return (*p == '\0') ? NULL : p;
-  }
-
-  return NULL;  // No delimiter found
-}
 
 // Command: help
 static void cmd_help(char* args) {
@@ -162,6 +138,20 @@ static void cmd_steptest(char* args) {
   tmc_energize(motor0, false);
 }
 
+// Command: gcode
+static void cmd_gcode(char* full_command) {
+  gcode_parsed_t parsed;
+  if (parse_gcode(full_command, &parsed)) {
+    comm_print("G%d parsed: X=%s Y=%s Z=%s",
+               parsed.command,
+               parsed.has_x ? "yes" : "no",
+               parsed.has_y ? "yes" : "no",
+               parsed.has_z ? "yes" : "no");
+  } else {
+    comm_print_err("Failed to parse G-code: %s", full_command);
+  }
+}
+
 // Command: set <var> <val>
 static void cmd_set(char* args) {
   if (!args) {
@@ -170,8 +160,9 @@ static void cmd_set(char* args) {
   }
 
   // Destructive parse: split var and val
-  char* var = args;
-  char* val = split_at(args, ' ');
+  char* parse_ptr = args;
+  char* var = split_front(&parse_ptr, ' ');
+  char* val = parse_ptr;
 
   if (!val) {
     comm_print_err("Usage: set <var> <val>");
@@ -206,9 +197,16 @@ static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
   comm_print_ack();
 
+  // Check for G-code before destructive parsing
+  if (command[0] == 'G') {
+    cmd_gcode(command);  // Pass full command for G-code parsing
+    goto cleanup;
+  }
+
   // Destructive parse: split command and arguments
-  char* cmd = command;
-  char* args = split_at(command, ' ');
+  char* parse_ptr = command;
+  char* cmd = split_front(&parse_ptr, ' ');
+  char* args = parse_ptr;  // Remaining string after command
 
   // Dispatch to command handler
   if (strcmp(cmd, "help") == 0) {
@@ -224,6 +222,7 @@ static void handle_console_command(char* command) {
                    cmd);
   }
 
+cleanup:
   // Clear cancel flag and return to IDLE
   g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
