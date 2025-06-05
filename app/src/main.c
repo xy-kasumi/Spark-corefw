@@ -89,9 +89,9 @@ static void cmd_help(char* args) {
   comm_print("help - Show this help");
   comm_print("regs - Read TMC registers");
   comm_print("steptest - Step motor test");
-  comm_print("set <var> <val> - Set variable to value");
+  comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
-  comm_print("get <var> - Get specific variable value");
+  comm_print("get <key> - Get specific variable value");
   comm_print("! - Cancel current operation");
 }
 
@@ -152,29 +152,28 @@ static void cmd_gcode(char* full_command) {
   }
 }
 
-// Command: set <var> <val>
+// Command: set <key> <value>
 static void cmd_set(char* args) {
   if (!args) {
-    comm_print_err("Usage: set <var> <val>");
+    comm_print_err("Usage: set <key> <value>");
     return;
   }
 
-  // Destructive parse: split var and val
-  char* parse_ptr = args;
-  char* var = split_front(&parse_ptr, ' ');
-  char* val = parse_ptr;
+  // Destructive parse: split key and value
+  char* key = args;
+  char* value = split_at(key, ' ');
 
-  if (!val) {
-    comm_print_err("Usage: set <var> <val>");
+  if (!value) {
+    comm_print_err("Usage: set <key> <value>");
     return;
   }
 
-  if (!settings_set(var, val)) {
-    comm_print_err("Failed to set %s", var);
+  if (!settings_set(key, value)) {
+    comm_print_err("Failed to set %s", key);
   }
 }
 
-// Command: get [var]
+// Command: get [key]
 static void cmd_get(char* args) {
   if (!args || strlen(args) == 0) {
     // List all settings
@@ -198,7 +197,7 @@ static void cmd_get(char* args) {
       float value = settings_get(args);
       comm_print("%.1f", (double)value);
     } else {
-      comm_print_err("Unknown variable %s", args);
+      comm_print_err("Unknown key %s", args);
     }
   }
 }
@@ -214,9 +213,8 @@ static void handle_console_command(char* command) {
   }
 
   // Destructive parse: split command and arguments
-  char* parse_ptr = command;
-  char* cmd = split_front(&parse_ptr, ' ');
-  char* args = parse_ptr;  // Remaining string after command
+  char* cmd = command;
+  char* args = split_at(cmd, ' ');
 
   // Dispatch to command handler
   if (strcmp(cmd, "help") == 0) {

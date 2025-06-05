@@ -1,11 +1,10 @@
 #pragma once
 
 /**
- * Destructive string parsing helper
- * Splits string at first delimiter, null-terminates first part
- * Updates str pointer to point to rest of string (after delimiter)
- * @param str Pointer to string pointer - will be updated to point to remainder
+ * Destuctively splits string at first delimiter, by overwriting 0 to str.
+ * 
+ * @param str string pointer. after the call, it will point the first part.
  * @param delim Delimiter character to split on
- * @return Pointer to first part (before delimiter) or NULL if no more tokens
+ * @return NULL if no delimiter found. Otherwise returns pointer to the second part of the string.
  */
-char* split_front(char** str, char delim);
+char* split_at(char* str, char delim);

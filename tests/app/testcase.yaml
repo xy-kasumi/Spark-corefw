@@ -1,3 +1,5 @@
 tests:
-  spark.app.gcode_parser:
-    tags: gcode parser unit_test
+  spark.app.gcode:
+    tags: unit_test
+  spark.app.strutil:
+    tags: unit_test

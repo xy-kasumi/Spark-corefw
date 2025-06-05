@@ -8,6 +8,7 @@ target_sources(app PRIVATE
     ../../app/src/gcode.c
     ../../app/src/strutil.c
     src/gcode_test.c
+    src/strutil_test.c
 )
 
 # Include directories
