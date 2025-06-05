@@ -2,6 +2,7 @@
 // Main command loop is executed here.
 #include "comm.h"
 #include "gcode.h"
+#include "motion.h"
 #include "motor.h"
 #include "settings.h"
 #include "strutil.h"
@@ -25,12 +26,32 @@ static void cmd_help(char* args) {
 // Command: gcode
 static void cmd_gcode(char* full_command) {
   gcode_parsed_t parsed;
-  if (parse_gcode(full_command, &parsed)) {
-    comm_print("G%d parsed: X=%s Y=%s Z=%s", parsed.command,
-               parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
-               parsed.has_z ? "yes" : "no");
-  } else {
+  if (!parse_gcode(full_command, &parsed)) {
     comm_print_err("Failed to parse G-code: %s", full_command);
+    return;
+  }
+  comm_print("G%d parsed: X=%s Y=%s Z=%s", parsed.command,
+             parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
+             parsed.has_z ? "yes" : "no");
+
+  pos_phys_t p = motion_get_current_pos();
+  if (parsed.has_x) {
+    p.x = parsed.x;
+  }
+  if (parsed.has_y) {
+    p.y = parsed.y;
+  }
+  if (parsed.has_z) {
+    p.z = parsed.z;
+  }
+  motion_enqueue_move(p);
+  while (true) {
+    motion_state_t state = motion_get_current_state();
+    if (state == MOTION_STATE_STOPPED) {
+      comm_print("Motion completed");
+      break;
+    }
+    k_sleep(K_MSEC(10));
   }
 }
 
@@ -143,6 +164,8 @@ static void handle_console_command(char* command) {
   }
 
 cleanup:
+  // TODO: verify motion state is MOTION_STATE_STOPPED.
+
   // Clear cancel flag and return to IDLE
   g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
@@ -154,8 +177,11 @@ int main() {
   state_machine_init();
   comm_init();
 
-  // init peripherals
+  // init hardware
   motor_init();
+
+  // init modules
+  motion_init();
 
   // apply default settings
   settings_apply_all();
