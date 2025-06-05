@@ -2,6 +2,7 @@
 // Main command loop is executed here.
 #include "comm.h"
 #include "gcode.h"
+#include "settings.h"
 #include "strutil.h"
 #include "system.h"
 
@@ -15,9 +16,9 @@
 // Hardware devices
 static const struct device* step_gen_cnt =
     DEVICE_DT_GET(DT_NODELABEL(step_gen_cnt));
-static const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
-static const struct device* motor1 = DEVICE_DT_GET(DT_NODELABEL(motor1));
-static const struct device* motor2 = DEVICE_DT_GET(DT_NODELABEL(motor2));
+const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
+const struct device* motor1 = DEVICE_DT_GET(DT_NODELABEL(motor1));
+const struct device* motor2 = DEVICE_DT_GET(DT_NODELABEL(motor2));
 
 // Step generation state
 static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
@@ -83,13 +84,14 @@ void queue_step(bool dir) {
   }
 }
 
-
 // Command: help
 static void cmd_help(char* args) {
   comm_print("help - Show this help");
   comm_print("regs - Read TMC registers");
   comm_print("steptest - Step motor test");
   comm_print("set <var> <val> - Set variable to value");
+  comm_print("get - List all variables with values");
+  comm_print("get <var> - Get specific variable value");
   comm_print("! - Cancel current operation");
 }
 
@@ -142,10 +144,8 @@ static void cmd_steptest(char* args) {
 static void cmd_gcode(char* full_command) {
   gcode_parsed_t parsed;
   if (parse_gcode(full_command, &parsed)) {
-    comm_print("G%d parsed: X=%s Y=%s Z=%s",
-               parsed.command,
-               parsed.has_x ? "yes" : "no",
-               parsed.has_y ? "yes" : "no",
+    comm_print("G%d parsed: X=%s Y=%s Z=%s", parsed.command,
+               parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
                parsed.has_z ? "yes" : "no");
   } else {
     comm_print_err("Failed to parse G-code: %s", full_command);
@@ -169,27 +169,37 @@ static void cmd_set(char* args) {
     return;
   }
 
-  // Handle different variables
-  int ret = 0;
-  if (strcmp(var, "mot0.microstep") == 0) {
-    ret = tmc_set_microstep(motor0, atoi(val));
-    if (ret == 0)
-      comm_print("Microstep set to %s", val);
-  } else if (strcmp(var, "mot0.current") == 0) {
-    ret = tmc_set_current(motor0, atoi(val), 0);
-    if (ret == 0)
-      comm_print("Current set to %s%%", val);
-  } else if (strcmp(var, "mot0.thresh") == 0) {
-    ret = tmc_set_stallguard_threshold(motor0, atoi(val));
-    if (ret == 0)
-      comm_print("StallGuard threshold set to %s", val);
-  } else {
-    comm_print("unknown variable %s", var);
-    return;
+  if (!settings_set(var, val)) {
+    comm_print_err("Failed to set %s", var);
   }
+}
 
-  if (ret < 0) {
-    comm_print_err("Failed to set %s: error %d", var, ret);
+// Command: get [var]
+static void cmd_get(char* args) {
+  if (!args || strlen(args) == 0) {
+    // List all settings
+    const char* key;
+    float value;
+    for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
+      comm_print("%s %.1f", key, (double)value);
+    }
+  } else {
+    // Get specific setting - check if key exists
+    bool key_exists = false;
+    const char* test_key;
+    for (int i = 0; settings_get_by_index(i, &test_key, NULL); i++) {
+      if (strcmp(test_key, args) == 0) {
+        key_exists = true;
+        break;
+      }
+    }
+    
+    if (key_exists) {
+      float value = settings_get(args);
+      comm_print("%.1f", (double)value);
+    } else {
+      comm_print_err("Unknown variable %s", args);
+    }
   }
 }
 
@@ -217,6 +227,8 @@ static void handle_console_command(char* command) {
     cmd_steptest(args);
   } else if (strcmp(cmd, "set") == 0) {
     cmd_set(args);
+  } else if (strcmp(cmd, "get") == 0) {
+    cmd_get(args);
   } else {
     comm_print_err("unknown command: %s; type 'help' for available commands",
                    cmd);
@@ -264,26 +276,8 @@ int main() {
   comm_print("Step generation initialized");
 
   // apply default settings
-  ret = tmc_set_microstep(motor0, 32);
-  if (ret < 0) {
-    comm_print_err("Failed to set microstep: %d", ret);
-  } else {
-    comm_print("Microstep set to 32");
-  }
-
-  ret = tmc_set_current(motor0, 30, 0);
-  if (ret < 0) {
-    comm_print_err("Failed to set current: %d", ret);
-  } else {
-    comm_print("Current set: run=30%% hold=0%%");
-  }
-
-  ret = tmc_set_stallguard_threshold(motor0, 2);
-  if (ret < 0) {
-    comm_print_err("Failed to set stallguard threshold: %d", ret);
-  } else {
-    comm_print("StallGuard threshold set to 2");
-  }
+  settings_apply_all();
+  comm_print("Default settings applied");
 
   ret = tmc_set_tcoolthrs(motor0,
                           750000);  // make this bigger to make stallguard work
