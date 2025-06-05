@@ -14,66 +14,77 @@ static const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
 static const struct device* motor1 = DEVICE_DT_GET(DT_NODELABEL(motor1));
 static const struct device* motor2 = DEVICE_DT_GET(DT_NODELABEL(motor2));
 
-// Step generation state
-static volatile int remaining_steps = 0;  // Positive=forward, negative=backward
-static bool current_direction = false;    // false=backward, true=forward
-
 // Step pulse generation state machine
 typedef enum {
   STEP_IDLE,        // No stepping in progress
   STEP_PULSE_HIGH,  // Step pin is HIGH (1 tick)
   STEP_PULSE_LOW,   // Step pin is LOW, waiting before next step (1 tick)
 } step_state_t;
-static step_state_t step_state = STEP_IDLE;
 
-// Handle step pulse generation state machine (called every 30us)
-static void step_tick() {
-  switch (step_state) {
+// Per-motor step generation state
+typedef struct {
+  volatile int remaining_steps;  // Steps to generate
+  bool current_direction;        // Current direction state
+  step_state_t step_state;       // Current state machine state
+  const struct device* device;   // Motor device reference
+} motor_step_state_t;
+
+static motor_step_state_t motor_states[3];
+
+// Process step generation for a single motor
+static void process_motor_step(motor_step_state_t* motor) {
+  switch (motor->step_state) {
     case STEP_IDLE:
-      if (remaining_steps != 0) {
+      if (motor->remaining_steps != 0) {
         // Start new step: set direction and begin pulse
-        bool dir = (remaining_steps > 0);
-        if (dir != current_direction) {
-          current_direction = dir;
-          tmc_set_dir(motor0, dir);
+        bool dir = (motor->remaining_steps > 0);
+        if (dir != motor->current_direction) {
+          motor->current_direction = dir;
+          tmc_set_dir(motor->device, dir);
         }
 
         // Start step pulse (HIGH)
-        tmc_set_step(motor0, true);
-        step_state = STEP_PULSE_HIGH;
+        tmc_set_step(motor->device, true);
+        motor->step_state = STEP_PULSE_HIGH;
       }
       break;
 
     case STEP_PULSE_HIGH:
       // End step pulse (LOW)
-      tmc_set_step(motor0, false);
-      step_state = STEP_PULSE_LOW;
+      tmc_set_step(motor->device, false);
+      motor->step_state = STEP_PULSE_LOW;
 
       // Consume one step
-      if (remaining_steps > 0) {
-        remaining_steps--;
+      if (motor->remaining_steps > 0) {
+        motor->remaining_steps--;
       } else {
-        remaining_steps++;
+        motor->remaining_steps++;
       }
       break;
 
     case STEP_PULSE_LOW:
       // Wait one tick before allowing next step
-      step_state = STEP_IDLE;
+      motor->step_state = STEP_IDLE;
       break;
   }
 }
 
 // Step generation ISR handler: manages step pulses (called every 30us)
 static void step_tick_handler(const struct device* dev, void* user_data) {
-  step_tick();
+  for (int i = 0; i < 3; i++) {
+    process_motor_step(&motor_states[i]);
+  }
 }
 
-void queue_step(bool dir) {
+void queue_step(int motor_num, bool dir) {
+  if (motor_num < 0 || motor_num >= 3) {
+    return;  // Invalid motor number
+  }
+
   if (dir) {
-    remaining_steps++;
+    motor_states[motor_num].remaining_steps++;
   } else {
-    remaining_steps--;
+    motor_states[motor_num].remaining_steps--;
   }
 }
 
@@ -90,7 +101,7 @@ const struct device* motor_get_device(int motor_num) {
   }
 }
 
-void motor_read_registers() {
+void motor_dump_registers() {
   char buf[256];
   const struct device* motors[] = {motor0, motor1, motor2};
   const char* names[] = {"mot0", "mot1", "mot2"};
@@ -105,8 +116,15 @@ void motor_read_registers() {
   }
 }
 
-void motor_run_steptest() {
-  tmc_energize(motor0, true);
+void motor_run_steptest(int motor_num) {
+  const struct device* motor = motor_get_device(motor_num);
+  if (!motor) {
+    comm_print_err("Invalid motor number: %d", motor_num);
+    return;
+  }
+
+  comm_print("Running steptest on motor %d", motor_num);
+  tmc_energize(motor, true);
 
   for (int i = 0; i < 2 * 200 * 32; i++) {  // 2 rotations at 32 microsteps
     // Check for cancel request
@@ -115,25 +133,33 @@ void motor_run_steptest() {
       break;
     }
 
-    queue_step(true);
+    queue_step(motor_num, true);
     k_sleep(K_USEC(250));
 
     // Print SG_RESULT every 100 steps (50ms intervals at 500us/step)
     if (i % 100 == 0) {
-      int sg_result = tmc_sgresult(motor0);
+      int sg_result = tmc_sgresult(motor);
       comm_print("SG:%d", sg_result);
     }
 
-    if (tmc_stalled(motor0)) {
+    if (tmc_stalled(motor)) {
       comm_print("Stall detected at step %d", i);
       break;
     }
   }
 
-  tmc_energize(motor0, false);
+  tmc_energize(motor, false);
 }
 
 void motor_init() {
+  // Initialize motor state arrays
+  motor_states[0] =
+      (motor_step_state_t){.step_state = STEP_IDLE, .device = motor0};
+  motor_states[1] =
+      (motor_step_state_t){.step_state = STEP_IDLE, .device = motor1};
+  motor_states[2] =
+      (motor_step_state_t){.step_state = STEP_IDLE, .device = motor2};
+
   // Check motor devices
   if (!device_is_ready(motor0)) {
     comm_print_err("Motor0 device not ready");

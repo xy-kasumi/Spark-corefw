@@ -15,7 +15,7 @@
 static void cmd_help(char* args) {
   comm_print("help - Show this help");
   comm_print("regs - Show motor registers");
-  comm_print("steptest - Step motor test");
+  comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
   comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
   comm_print("get <key> - Get specific variable value");
@@ -93,12 +93,23 @@ static void cmd_get(char* args) {
 
 // Command: regs
 static void cmd_regs(char* args) {
-  motor_read_registers();
+  motor_dump_registers();
 }
 
 // Command: steptest
 static void cmd_steptest(char* args) {
-  motor_run_steptest();
+  if (!args || strlen(args) == 0) {
+    comm_print_err("Usage: steptest <motor_num>");
+    return;
+  }
+
+  int motor_num;
+  if (!parse_int(args, &motor_num)) {
+    comm_print_err("Invalid motor number: %s", args);
+    return;
+  }
+
+  motor_run_steptest(motor_num);
 }
 
 static void handle_console_command(char* command) {
