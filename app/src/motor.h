@@ -6,6 +6,11 @@
 #include <stdbool.h>
 #include <zephyr/device.h>
 
+/** Represents position in driver coordinates (microsteps) */
+typedef struct {
+  int m0, m1, m2;  // Position in microsteps
+} pos_drv_t;
+
 /** Initialize motor subsystem and step generation */
 void motor_init();
 
@@ -15,6 +20,17 @@ void motor_init();
  * canceled out before sent to hardware.
  */
 void queue_step(int motor_num, bool dir);
+
+/** Set absolute target position in driver coordinates (microsteps)
+ * Target can be any absolute position, but caller should ensure it's
+ * "near enough" to current position for reasonable step rate.
+ * If target is far from current position, motors will step as fast
+ * as possible towards target.
+ */
+void motor_set_target_pos_drv(pos_drv_t target);
+
+/** Get current position in driver coordinates (microsteps) */
+pos_drv_t motor_get_current_pos_drv();
 
 /** Get motor device by number (0, 1, or 2). Returns NULL for invalid motor
  * numbers. */

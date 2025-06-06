@@ -3,9 +3,7 @@
 #include "comm.h"
 #include "motor.h"
 
-#include <drivers/tmc_driver.h>
 #include <math.h>
-#include <stdlib.h>
 #include <zephyr/kernel.h>
 
 // Motion constants
@@ -13,6 +11,13 @@ static const float STEPS_PER_MM_X = 200.0f;
 static const float STEPS_PER_MM_Y = 200.0f;
 static const float STEPS_PER_MM_Z = 200.0f;
 static const float VELOCITY_MM_PER_S = 10.0f;
+
+// Convert physical position to driver coordinates (microsteps)
+static pos_drv_t phys_to_drv(pos_phys_t phys) {
+  return (pos_drv_t){.m0 = (int)(phys.x * STEPS_PER_MM_X),
+                     .m1 = (int)(phys.y * STEPS_PER_MM_Y),
+                     .m2 = (int)(phys.z * STEPS_PER_MM_Z)};
+}
 
 // Helper functions
 float posp_dist(const pos_phys_t* a, const pos_phys_t* b) {
@@ -42,14 +47,6 @@ static float move_distance;  // Total distance to move in mm
 static float move_progress;  // Current progress in mm
 static float move_duration;  // Total duration in seconds
 
-// Step tracking state
-static float step_position_x;  // Current position in steps
-static float step_position_y;
-static float step_position_z;
-static float last_step_pos_x;  // Last position where we sent a step
-static float last_step_pos_y;
-static float last_step_pos_z;
-
 // Timer for periodic tick
 static struct k_timer motion_timer;
 
@@ -78,55 +75,9 @@ static void motion_tick_handler(struct k_timer* timer) {
   float t = move_progress / move_distance;  // 0.0 to 1.0
   posp_interp(&start_pos, &target_pos, t, &pos);
 
-  // Convert position to steps
-  float target_step_x = pos.x * STEPS_PER_MM_X;
-  float target_step_y = pos.y * STEPS_PER_MM_Y;
-  float target_step_z = pos.z * STEPS_PER_MM_Z;
-
-  // Check if we need to send steps for each axis
-  // X axis
-  float step_diff_x = target_step_x - last_step_pos_x;
-  if (fabsf(step_diff_x) >= 1.0f) {
-    int steps = (int)step_diff_x;
-    if (steps != 0) {
-      bool dir = steps > 0;
-      for (int i = 0; i < abs(steps); i++) {
-        queue_step(0, dir);  // Motor 0 is X
-      }
-      last_step_pos_x += steps;
-    }
-  }
-
-  // Y axis
-  float step_diff_y = target_step_y - last_step_pos_y;
-  if (fabsf(step_diff_y) >= 1.0f) {
-    int steps = (int)step_diff_y;
-    if (steps != 0) {
-      bool dir = steps > 0;
-      for (int i = 0; i < abs(steps); i++) {
-        queue_step(1, dir);  // Motor 1 is Y
-      }
-      last_step_pos_y += steps;
-    }
-  }
-
-  // Z axis
-  float step_diff_z = target_step_z - last_step_pos_z;
-  if (fabsf(step_diff_z) >= 1.0f) {
-    int steps = (int)step_diff_z;
-    if (steps != 0) {
-      bool dir = steps > 0;
-      for (int i = 0; i < abs(steps); i++) {
-        queue_step(2, dir);  // Motor 2 is Z
-      }
-      last_step_pos_z += steps;
-    }
-  }
-
-  // Update step positions
-  step_position_x = target_step_x;
-  step_position_y = target_step_y;
-  step_position_z = target_step_z;
+  // Convert to driver coordinates and send to motors
+  pos_drv_t target_drv = phys_to_drv(pos);
+  motor_set_target_pos_drv(target_drv);
 }
 
 void motion_init() {
@@ -160,14 +111,6 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   target_pos = to_pos;
   move_progress = 0.0f;
   move_duration = move_distance / VELOCITY_MM_PER_S;
-
-  // Initialize step tracking to current position
-  step_position_x = pos.x * STEPS_PER_MM_X;
-  step_position_y = pos.y * STEPS_PER_MM_Y;
-  step_position_z = pos.z * STEPS_PER_MM_Z;
-  last_step_pos_x = step_position_x;
-  last_step_pos_y = step_position_y;
-  last_step_pos_z = step_position_z;
 
   // Energize motors
   motor_energize(0, true);

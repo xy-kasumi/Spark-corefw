@@ -23,10 +23,11 @@ typedef enum {
 
 // Per-motor step generation state
 typedef struct {
-  volatile int remaining_steps;  // Steps to generate
-  bool current_direction;        // Current direction state
-  step_state_t step_state;       // Current state machine state
-  const struct device* device;   // Motor device reference
+  volatile int target_steps;    // Target position in microsteps
+  volatile int current_steps;   // Current position in microsteps
+  bool current_direction;       // Current direction state
+  step_state_t step_state;      // Current state machine state
+  const struct device* device;  // Motor device reference
 } motor_step_state_t;
 
 static motor_step_state_t motor_states[3];
@@ -35,9 +36,9 @@ static motor_step_state_t motor_states[3];
 static void process_motor_step(motor_step_state_t* motor) {
   switch (motor->step_state) {
     case STEP_IDLE:
-      if (motor->remaining_steps != 0) {
-        // Start new step: set direction and begin pulse
-        bool dir = (motor->remaining_steps > 0);
+      if (motor->current_steps != motor->target_steps) {
+        // Need to step toward target
+        bool dir = (motor->target_steps > motor->current_steps);
         if (dir != motor->current_direction) {
           motor->current_direction = dir;
           tmc_set_dir(motor->device, dir);
@@ -54,11 +55,11 @@ static void process_motor_step(motor_step_state_t* motor) {
       tmc_set_step(motor->device, false);
       motor->step_state = STEP_PULSE_LOW;
 
-      // Consume one step
-      if (motor->remaining_steps > 0) {
-        motor->remaining_steps--;
+      // Update current position
+      if (motor->target_steps > motor->current_steps) {
+        motor->current_steps++;
       } else {
-        motor->remaining_steps++;
+        motor->current_steps--;
       }
       break;
 
@@ -81,10 +82,13 @@ void queue_step(int motor_num, bool dir) {
     return;  // Invalid motor number
   }
 
+  // Atomic increment/decrement of target
   if (dir) {
-    motor_states[motor_num].remaining_steps++;
+    __atomic_add_fetch(&motor_states[motor_num].target_steps, 1,
+                       __ATOMIC_SEQ_CST);
   } else {
-    motor_states[motor_num].remaining_steps--;
+    __atomic_sub_fetch(&motor_states[motor_num].target_steps, 1,
+                       __ATOMIC_SEQ_CST);
   }
 }
 
@@ -106,6 +110,20 @@ void motor_energize(int motor_num, bool enable) {
   if (motor) {
     tmc_energize(motor, enable);
   }
+}
+
+void motor_set_target_pos_drv(pos_drv_t target) {
+  // Atomic update of all three targets
+  motor_states[0].target_steps = target.m0;
+  motor_states[1].target_steps = target.m1;
+  motor_states[2].target_steps = target.m2;
+}
+
+pos_drv_t motor_get_current_pos_drv() {
+  // Read current positions
+  return (pos_drv_t){.m0 = motor_states[0].current_steps,
+                     .m1 = motor_states[1].current_steps,
+                     .m2 = motor_states[2].current_steps};
 }
 
 void motor_dump_registers() {
