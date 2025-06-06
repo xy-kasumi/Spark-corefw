@@ -7,7 +7,8 @@
  * Parsed G-code command structure
  */
 typedef struct {
-  uint16_t command;  // G0=0, G1=1, G38.3=383 (×10 for decimals)
+  int code;      // Major number: 0 for G0, 38 for G38.2
+  int sub_code;  // Minor number: 2 for G38.2, -1 if not specified
   bool has_x, has_y, has_z;
   float x, y, z;
 } gcode_parsed_t;

@@ -12,7 +12,7 @@ static bool parse_float(const char* str, float* result) {
 }
 
 // Parse G command number, handling decimals like G38.3
-static bool parse_g_number(const char* str, uint16_t* command) {
+static bool parse_g_number(const char* str, int* code, int* sub_code) {
   if (str[0] != 'G') {
     return false;
   }
@@ -26,6 +26,8 @@ static bool parse_g_number(const char* str, uint16_t* command) {
     return false;
   }
 
+  *code = (int)int_part;
+
   // Check for decimal part
   if (*endptr == '.') {
     endptr++;  // Skip '.'
@@ -34,10 +36,10 @@ static bool parse_g_number(const char* str, uint16_t* command) {
     if (dec_endptr == endptr || dec_part < 0 || dec_part > 9) {
       return false;
     }
-    *command = (uint16_t)(int_part * 10 + dec_part);
+    *sub_code = (int)dec_part;
     return (*dec_endptr == '\0' || isspace(*dec_endptr));
   } else {
-    *command = (uint16_t)(int_part);
+    *sub_code = -1;  // No sub-code specified
     return (*endptr == '\0' || isspace(*endptr));
   }
 }
@@ -75,7 +77,7 @@ bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
   strncpy(g_token, token_start, token_len);
   g_token[token_len] = '\0';
 
-  if (!parse_g_number(g_token, &parsed->command)) {
+  if (!parse_g_number(g_token, &parsed->code, &parsed->sub_code)) {
     return false;
   }
 

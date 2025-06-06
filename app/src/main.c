@@ -30,11 +30,17 @@ static void cmd_gcode(char* full_command) {
     comm_print_err("Failed to parse G-code: %s", full_command);
     return;
   }
-  comm_print("G%d parsed: X=%s Y=%s Z=%s", parsed.command,
-             parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
-             parsed.has_z ? "yes" : "no");
+  if (parsed.sub_code == -1) {
+    comm_print("G%d parsed: X=%s Y=%s Z=%s", parsed.code,
+               parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
+               parsed.has_z ? "yes" : "no");
+  } else {
+    comm_print("G%d.%d parsed: X=%s Y=%s Z=%s", parsed.code, parsed.sub_code,
+               parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
+               parsed.has_z ? "yes" : "no");
+  }
 
-  if (parsed.command != 0) {
+  if (parsed.code != 0 || parsed.sub_code != -1) {
     comm_print_err("Unsupported g-code");
     return;
   }
