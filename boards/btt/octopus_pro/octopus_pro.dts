@@ -109,6 +109,13 @@
 	pinctrl-names = "default";
 };
 
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>; /* 400kHz */
+	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb9>;
+	pinctrl-names = "default";
+};
+
 /* Keep SWD pins available for debugging */
 &gpioa {
 	status = "okay";
@@ -142,6 +149,19 @@
 
 	usart2_rx_pd6: usart2_rx_pd6 {
 		pinmux = <STM32_PINMUX('D', 6, AF7)>;
+	};
+
+	/* I2C1 for pulser board - PB8 (SCL) and PB9 (SDA) */
+	i2c1_scl_pb8: i2c1_scl_pb8 {
+		pinmux = <STM32_PINMUX('B', 8, AF4)>;
+		bias-pull-up;
+		drive-open-drain;
+	};
+
+	i2c1_sda_pb9: i2c1_sda_pb9 {
+		pinmux = <STM32_PINMUX('B', 9, AF4)>;
+		bias-pull-up;
+		drive-open-drain;
 	};
 };
 
