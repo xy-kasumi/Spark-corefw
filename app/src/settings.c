@@ -1,4 +1,6 @@
 #include "settings.h"
+
+#include "motion.h"
 #include "motor.h"
 #include "strutil.h"
 
@@ -15,9 +17,12 @@ typedef struct {
 
 // Settings array with all 3 motors
 static setting_entry_t settings[] = {
-    {"m.0.microstep", 32.0f}, {"m.0.current", 30.0f}, {"m.0.thresh", 2.0f},
-    {"m.1.microstep", 32.0f}, {"m.1.current", 30.0f}, {"m.1.thresh", 2.0f},
-    {"m.2.microstep", 32.0f}, {"m.2.current", 30.0f}, {"m.2.thresh", 2.0f},
+    {"m.0.microstep", 32.0f}, {"m.0.current", 30.0f},
+    {"m.0.thresh", 2.0f},     {"m.0.unitsteps", 200.0f},
+    {"m.1.microstep", 32.0f}, {"m.1.current", 30.0f},
+    {"m.1.thresh", 2.0f},     {"m.1.unitsteps", -200.0f},
+    {"m.2.microstep", 32.0f}, {"m.2.current", 30.0f},
+    {"m.2.thresh", 2.0f},     {"m.2.unitsteps", -200.0f},
 };
 
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
@@ -60,6 +65,9 @@ static bool apply_motor(char* mut_key, float value) {
     ret = tmc_set_current(motor, (int)value, 0);
   } else if (strcmp(rest, "thresh") == 0) {
     ret = tmc_set_stallguard_threshold(motor, (int)value);
+  } else if (strcmp(rest, "unitsteps") == 0) {
+    motion_set_motor_unitsteps(motor_num, value);
+    ret = 0;  // Always succeeds
   } else {
     return false;
   }

@@ -1,5 +1,11 @@
-// Settings system for spark core firmware.
-
+/**
+ * Settings system for spark core firmware.
+ *
+ * Settings use a "push" model:
+ * - Settings are "pushed" to subsystems on settings_set().
+ * - Subsystems should NEVER "pull" settings values directly.
+ * - This ensures state consistency.
+ */
 #pragma once
 
 #include <stdbool.h>

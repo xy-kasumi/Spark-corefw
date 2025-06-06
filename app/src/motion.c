@@ -7,16 +7,17 @@
 #include <zephyr/kernel.h>
 
 // Motion constants
-static const float STEPS_PER_MM_X = 200.0f;
-static const float STEPS_PER_MM_Y = 200.0f;
-static const float STEPS_PER_MM_Z = 200.0f;
 static const float VELOCITY_MM_PER_S = 10.0f;
+
+// Motor configuration (pushed from settings)
+static float motor_unitsteps[3] = {200.0f, 200.0f, 200.0f};
 
 // Convert physical position to driver coordinates (microsteps)
 static pos_drv_t phys_to_drv(pos_phys_t phys) {
-  return (pos_drv_t){.m0 = (int)(phys.x * STEPS_PER_MM_X),
-                     .m1 = (int)(phys.y * STEPS_PER_MM_Y),
-                     .m2 = (int)(phys.z * STEPS_PER_MM_Z)};
+  return (pos_drv_t){
+      .m0 = (int)(phys.x * motor_unitsteps[0]),   // X maps to motor 0
+      .m1 = (int)(phys.y * motor_unitsteps[1]),   // Y maps to motor 1
+      .m2 = (int)(phys.z * motor_unitsteps[2])};  // Z maps to motor 2
 }
 
 // Helper functions
@@ -123,4 +124,10 @@ void motion_enqueue_move(pos_phys_t to_pos) {
 
 motion_state_t motion_get_current_state() {
   return state;
+}
+
+void motion_set_motor_unitsteps(int motor_num, float unitsteps) {
+  if (motor_num >= 0 && motor_num < 3) {
+    motor_unitsteps[motor_num] = unitsteps;
+  }
 }

@@ -39,3 +39,10 @@ void motion_init();
 pos_phys_t motion_get_current_pos();
 void motion_enqueue_move(pos_phys_t to_pos);
 motion_state_t motion_get_current_state();
+
+/** Set how many microsteps are needed for moving the corresponding axis in
+ * +1unit (+1 mm or +1 rotation).
+ *
+ * TODO: Calling this after movement results in weird behavior.
+ */
+void motion_set_motor_unitsteps(int motor_num, float unitsteps);
