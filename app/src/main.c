@@ -30,40 +30,54 @@ static void cmd_gcode(char* full_command) {
     comm_print_err("Failed to parse G-code: %s", full_command);
     return;
   }
-  if (parsed.sub_code == -1) {
-    comm_print("G%d parsed: X=%s Y=%s Z=%s", parsed.code,
-               parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
-               parsed.has_z ? "yes" : "no");
-  } else {
-    comm_print("G%d.%d parsed: X=%s Y=%s Z=%s", parsed.code, parsed.sub_code,
-               parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
-               parsed.has_z ? "yes" : "no");
-  }
 
   if (parsed.code == 0 && parsed.sub_code == -1) {
     // G0 - rapid positioning
+    // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
+    if (parsed.x_state == AXIS_ONLY || parsed.y_state == AXIS_ONLY ||
+        parsed.z_state == AXIS_ONLY) {
+      comm_print_err("G0 requires axis values (e.g., X10.5), not bare axes");
+      return;
+    }
+    if (parsed.x_state == AXIS_NOT_SPECIFIED &&
+        parsed.y_state == AXIS_NOT_SPECIFIED &&
+        parsed.z_state == AXIS_NOT_SPECIFIED) {
+      comm_print_err("G0 requires at least one axis parameter");
+      return;
+    }
+    
+    // Execute: move to specified coordinates
     pos_phys_t p = motion_get_current_pos();
-    if (parsed.has_x) {
+    if (parsed.x_state == AXIS_WITH_VALUE) {
       p.x = parsed.x;
     }
-    if (parsed.has_y) {
+    if (parsed.y_state == AXIS_WITH_VALUE) {
       p.y = parsed.y;
     }
-    if (parsed.has_z) {
+    if (parsed.z_state == AXIS_WITH_VALUE) {
       p.z = parsed.z;
     }
     motion_enqueue_move(p);
   } else if (parsed.code == 28 && parsed.sub_code == -1) {
-    // G28 - homing (single axis only for now)
-    if (parsed.has_x && !parsed.has_y && !parsed.has_z) {
-      motion_enqueue_home(0);  // Home X axis
-    } else if (parsed.has_y && !parsed.has_x && !parsed.has_z) {
-      motion_enqueue_home(1);  // Home Y axis
-    } else if (parsed.has_z && !parsed.has_x && !parsed.has_y) {
-      motion_enqueue_home(2);  // Home Z axis
-    } else {
-      comm_print_err("G28 requires exactly one axis (X, Y, or Z)");
+    // G28 - homing
+    // Validate: requires exactly one axis with AXIS_ONLY format
+    bool x_specified = (parsed.x_state == AXIS_ONLY);
+    bool y_specified = (parsed.y_state == AXIS_ONLY);
+    bool z_specified = (parsed.z_state == AXIS_ONLY);
+    int axis_count = x_specified + y_specified + z_specified;
+
+    if (axis_count != 1) {
+      comm_print_err("G28 requires exactly one axis without value (X, Y, or Z)");
       return;
+    }
+
+    // Execute: home the specified axis
+    if (x_specified) {
+      motion_enqueue_home(0);  // Home X axis
+    } else if (y_specified) {
+      motion_enqueue_home(1);  // Home Y axis
+    } else if (z_specified) {
+      motion_enqueue_home(2);  // Home Z axis
     }
   } else {
     comm_print_err("Unsupported g-code");
