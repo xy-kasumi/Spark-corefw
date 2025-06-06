@@ -4,12 +4,21 @@
 #include <stdint.h>
 
 /**
+ * Axis parameter state
+ */
+typedef enum {
+  AXIS_NOT_SPECIFIED,  // Axis not present in command
+  AXIS_ONLY,           // Axis present without value (e.g., "X" in G28 X)
+  AXIS_WITH_VALUE,     // Axis present with value (e.g., "X10" in G0 X10)
+} axis_state_t;
+
+/**
  * Parsed G-code command structure
  */
 typedef struct {
   int code;      // Major number: 0 for G0, 38 for G38.2
   int sub_code;  // Minor number: 2 for G38.2, -1 if not specified
-  bool has_x, has_y, has_z;
+  axis_state_t x_state, y_state, z_state;
   float x, y, z;
 } gcode_parsed_t;
 

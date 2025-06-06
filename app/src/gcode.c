@@ -1,46 +1,55 @@
 #include "gcode.h"
 
-#include <ctype.h>
-#include <stdlib.h>
+#include "strutil.h"
+
 #include <string.h>
 
-// Parse a floating point number from string
-static bool parse_float(const char* str, float* result) {
-  char* endptr;
-  *result = strtof(str, &endptr);
-  return endptr != str && (*endptr == '\0' || isspace(*endptr));
-}
-
 // Parse G command number, handling decimals like G38.3
-static bool parse_g_number(const char* str, int* code, int* sub_code) {
-  if (str[0] != 'G') {
+static bool parse_g_number(char* token, int* code, int* sub_code) {
+  if (token[0] != 'G') {
     return false;
   }
 
-  str++;  // Skip 'G'
+  // Skip 'G' and parse main code
+  char* code_part = token + 1;
+  char* sub_part = split_at(code_part, '.');
 
-  // Parse integer part
-  char* endptr;
-  long int_part = strtol(str, &endptr, 10);
-  if (endptr == str || int_part < 0 || int_part > 999) {
+  if (!parse_int(code_part, code) || *code < 0 || *code > 999) {
     return false;
   }
 
-  *code = (int)int_part;
-
-  // Check for decimal part
-  if (*endptr == '.') {
-    endptr++;  // Skip '.'
-    char* dec_endptr;
-    long dec_part = strtol(endptr, &dec_endptr, 10);
-    if (dec_endptr == endptr || dec_part < 0 || dec_part > 9) {
+  if (sub_part) {
+    if (!parse_int(sub_part, sub_code) || *sub_code < 0 || *sub_code > 9) {
       return false;
     }
-    *sub_code = (int)dec_part;
-    return (*dec_endptr == '\0' || isspace(*dec_endptr));
   } else {
-    *sub_code = -1;  // No sub-code specified
-    return (*endptr == '\0' || isspace(*endptr));
+    *sub_code = -1;
+  }
+
+  return true;
+}
+
+// Parse axis parameter like "X123" or "X"
+static bool parse_axis_param(const char* token,
+                             char expected_axis,
+                             axis_state_t* state,
+                             float* value) {
+  if (token[0] != expected_axis) {
+    return false;
+  }
+
+  if (strlen(token) == 1) {
+    // Axis only (e.g., "X" for G28 X)
+    *state = AXIS_ONLY;
+    return true;
+  } else {
+    // Axis with value (e.g., "X10.5")
+    const char* value_str = token + 1;  // Skip axis letter
+    if (!parse_float(value_str, value)) {
+      return false;
+    }
+    *state = AXIS_WITH_VALUE;
+    return true;
   }
 }
 
@@ -52,97 +61,41 @@ bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
   // Initialize result structure
   *parsed = (gcode_parsed_t){0};
 
-  // Skip leading whitespace
-  while (isspace(*line)) {
-    line++;
-  }
+  // Make mutable copy for parsing
+  char mut_line[256];
+  strncpy(mut_line, line, sizeof(mut_line) - 1);
+  mut_line[sizeof(mut_line) - 1] = '\0';
 
-  // Must start with G command
-  if (*line != 'G') {
+  // Split into tokens by whitespace
+  char* token = mut_line;
+  char* rest = split_by_space(token);
+
+  // First token must be G command
+  if (!parse_g_number(token, &parsed->code, &parsed->sub_code)) {
     return false;
   }
 
-  // Parse G command
-  const char* token_start = line;
-  while (*line && !isspace(*line)) {
-    line++;
-  }
+  // Parse remaining axis parameters
+  while (rest) {
+    token = rest;
+    rest = split_by_space(token);
 
-  // Extract G command token
-  size_t token_len = line - token_start;
-  char g_token[16];
-  if (token_len >= sizeof(g_token)) {
-    return false;
-  }
-  strncpy(g_token, token_start, token_len);
-  g_token[token_len] = '\0';
-
-  if (!parse_g_number(g_token, &parsed->code, &parsed->sub_code)) {
-    return false;
-  }
-
-  // Parse optional X, Y, Z parameters
-  while (*line) {
-    // Skip whitespace
-    while (isspace(*line)) {
-      line++;
-    }
-
-    if (*line == '\0') {
-      break;
-    }
-
-    // Parse parameter
-    char param = *line;
-    if (param != 'X' && param != 'Y' && param != 'Z') {
+    // Try to parse as axis parameter
+    char axis = token[0];
+    if (axis == 'X') {
+      if (!parse_axis_param(token, 'X', &parsed->x_state, &parsed->x)) {
+        return false;
+      }
+    } else if (axis == 'Y') {
+      if (!parse_axis_param(token, 'Y', &parsed->y_state, &parsed->y)) {
+        return false;
+      }
+    } else if (axis == 'Z') {
+      if (!parse_axis_param(token, 'Z', &parsed->z_state, &parsed->z)) {
+        return false;
+      }
+    } else {
       return false;  // Unknown parameter
-    }
-
-    line++;  // Skip parameter letter
-
-    // Find end of value
-    token_start = line;
-    if (*line == '-' || *line == '+') {
-      line++;  // Skip sign
-    }
-    while (isdigit(*line) || *line == '.') {
-      line++;
-    }
-
-    if (line == token_start || (line == token_start + 1 &&
-                                (*token_start == '-' || *token_start == '+'))) {
-      return false;  // No value after parameter
-    }
-
-    // Extract value token
-    token_len = line - token_start;
-    char value_token[32];
-    if (token_len >= sizeof(value_token)) {
-      return false;
-    }
-    strncpy(value_token, token_start, token_len);
-    value_token[token_len] = '\0';
-
-    // Parse value
-    float value;
-    if (!parse_float(value_token, &value)) {
-      return false;
-    }
-
-    // Store in appropriate field
-    switch (param) {
-      case 'X':
-        parsed->has_x = true;
-        parsed->x = value;
-        break;
-      case 'Y':
-        parsed->has_y = true;
-        parsed->y = value;
-        break;
-      case 'Z':
-        parsed->has_z = true;
-        parsed->z = value;
-        break;
     }
   }
 
