@@ -101,6 +101,13 @@ const struct device* motor_get_device(int motor_num) {
   }
 }
 
+void motor_energize(int motor_num, bool enable) {
+  const struct device* motor = motor_get_device(motor_num);
+  if (motor) {
+    tmc_energize(motor, enable);
+  }
+}
+
 void motor_dump_registers() {
   char buf[256];
   const struct device* motors[] = {motor0, motor1, motor2};

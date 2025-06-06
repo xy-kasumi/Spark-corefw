@@ -34,6 +34,11 @@ static void cmd_gcode(char* full_command) {
              parsed.has_x ? "yes" : "no", parsed.has_y ? "yes" : "no",
              parsed.has_z ? "yes" : "no");
 
+  if (parsed.command != 0) {
+    comm_print_err("Unsupported g-code");
+    return;
+  }
+
   pos_phys_t p = motion_get_current_pos();
   if (parsed.has_x) {
     p.x = parsed.x;

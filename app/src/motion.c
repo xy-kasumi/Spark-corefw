@@ -1,16 +1,140 @@
 #include "motion.h"
 
+#include "comm.h"
 #include "motor.h"
 
+#include <drivers/tmc_driver.h>
+#include <math.h>
+#include <stdlib.h>
+#include <zephyr/kernel.h>
+
+// Motion constants
+static const float STEPS_PER_MM_X = 200.0f;
+static const float STEPS_PER_MM_Y = 200.0f;
+static const float STEPS_PER_MM_Z = 200.0f;
+static const float VELOCITY_MM_PER_S = 10.0f;
+
+// Helper functions
+float posp_dist(const pos_phys_t* a, const pos_phys_t* b) {
+  float dx = b->x - a->x;
+  float dy = b->y - a->y;
+  float dz = b->z - a->z;
+  return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+void posp_interp(const pos_phys_t* a,
+                 const pos_phys_t* b,
+                 float t,
+                 pos_phys_t* out) {
+  out->x = a->x + (b->x - a->x) * t;
+  out->y = a->y + (b->y - a->y) * t;
+  out->z = a->z + (b->z - a->z) * t;
+}
+
+// Motion state
 static pos_phys_t pos;
 static motion_state_t state = MOTION_STATE_STOPPED;
 
-void motion_tick_handler() {
-  // TODO: do update. send pos to motors.
+// Motion planning state
+static pos_phys_t target_pos;
+static pos_phys_t start_pos;
+static float move_distance;  // Total distance to move in mm
+static float move_progress;  // Current progress in mm
+static float move_duration;  // Total duration in seconds
+
+// Step tracking state
+static float step_position_x;  // Current position in steps
+static float step_position_y;
+static float step_position_z;
+static float last_step_pos_x;  // Last position where we sent a step
+static float last_step_pos_y;
+static float last_step_pos_z;
+
+// Timer for periodic tick
+static struct k_timer motion_timer;
+
+static void motion_tick_handler(struct k_timer* timer) {
+  if (state != MOTION_STATE_MOVING) {
+    return;
+  }
+
+  // Update progress (1ms = 0.001s)
+  move_progress += VELOCITY_MM_PER_S * 0.001f;
+
+  if (move_progress >= move_distance) {
+    // Move completed
+    pos = target_pos;
+    state = MOTION_STATE_STOPPED;
+
+    // De-energize motors
+    motor_energize(0, false);
+    motor_energize(1, false);
+    motor_energize(2, false);
+
+    return;
+  }
+
+  // Linear interpolation
+  float t = move_progress / move_distance;  // 0.0 to 1.0
+  posp_interp(&start_pos, &target_pos, t, &pos);
+
+  // Convert position to steps
+  float target_step_x = pos.x * STEPS_PER_MM_X;
+  float target_step_y = pos.y * STEPS_PER_MM_Y;
+  float target_step_z = pos.z * STEPS_PER_MM_Z;
+
+  // Check if we need to send steps for each axis
+  // X axis
+  float step_diff_x = target_step_x - last_step_pos_x;
+  if (fabsf(step_diff_x) >= 1.0f) {
+    int steps = (int)step_diff_x;
+    if (steps != 0) {
+      bool dir = steps > 0;
+      for (int i = 0; i < abs(steps); i++) {
+        queue_step(0, dir);  // Motor 0 is X
+      }
+      last_step_pos_x += steps;
+    }
+  }
+
+  // Y axis
+  float step_diff_y = target_step_y - last_step_pos_y;
+  if (fabsf(step_diff_y) >= 1.0f) {
+    int steps = (int)step_diff_y;
+    if (steps != 0) {
+      bool dir = steps > 0;
+      for (int i = 0; i < abs(steps); i++) {
+        queue_step(1, dir);  // Motor 1 is Y
+      }
+      last_step_pos_y += steps;
+    }
+  }
+
+  // Z axis
+  float step_diff_z = target_step_z - last_step_pos_z;
+  if (fabsf(step_diff_z) >= 1.0f) {
+    int steps = (int)step_diff_z;
+    if (steps != 0) {
+      bool dir = steps > 0;
+      for (int i = 0; i < abs(steps); i++) {
+        queue_step(2, dir);  // Motor 2 is Z
+      }
+      last_step_pos_z += steps;
+    }
+  }
+
+  // Update step positions
+  step_position_x = target_step_x;
+  step_position_y = target_step_y;
+  step_position_z = target_step_z;
 }
 
 void motion_init() {
-  // TODO: start periodic tick
+  // Initialize timer for 1ms periodic tick
+  k_timer_init(&motion_timer, motion_tick_handler, NULL);
+  k_timer_start(&motion_timer, K_MSEC(1), K_MSEC(1));
+
+  comm_print("Motion initialized with 1ms tick");
 }
 
 pos_phys_t motion_get_current_pos() {
@@ -18,8 +142,40 @@ pos_phys_t motion_get_current_pos() {
 }
 
 void motion_enqueue_move(pos_phys_t to_pos) {
-  pos = to_pos;
-  state = MOTION_STATE_STOPPED;
+  // Don't start new move if already moving
+  if (state == MOTION_STATE_MOVING) {
+    return;
+  }
+
+  // Calculate move distance
+  move_distance = posp_dist(&pos, &to_pos);
+
+  // Skip if no movement needed
+  if (move_distance < 0.001f) {
+    return;
+  }
+
+  // Set up motion planning
+  start_pos = pos;
+  target_pos = to_pos;
+  move_progress = 0.0f;
+  move_duration = move_distance / VELOCITY_MM_PER_S;
+
+  // Initialize step tracking to current position
+  step_position_x = pos.x * STEPS_PER_MM_X;
+  step_position_y = pos.y * STEPS_PER_MM_Y;
+  step_position_z = pos.z * STEPS_PER_MM_Z;
+  last_step_pos_x = step_position_x;
+  last_step_pos_y = step_position_y;
+  last_step_pos_z = step_position_z;
+
+  // Energize motors
+  motor_energize(0, true);
+  motor_energize(1, true);
+  motor_energize(2, true);
+
+  // Start moving
+  state = MOTION_STATE_MOVING;
 }
 
 motion_state_t motion_get_current_state() {

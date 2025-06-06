@@ -21,6 +21,19 @@ typedef enum {
   MOTION_STATE_MOVING,
 } motion_state_t;
 
+/** Compute distance between two pos_phys_t points.
+ * @return distance in mm
+ */
+float posp_dist(const pos_phys_t* a, const pos_phys_t* b);
+
+/** Linearly interpolate between a (t=0), and b (t=1).
+ * t can be outside of [0, 1] range, in which case it will be extrapolated.
+ */
+void posp_interp(const pos_phys_t* a,
+                 const pos_phys_t* b,
+                 float t,
+                 pos_phys_t* out);
+
 void motion_init();
 
 pos_phys_t motion_get_current_pos();
