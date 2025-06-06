@@ -6,9 +6,12 @@
 #include <stdbool.h>
 #include <zephyr/device.h>
 
-/** Represents position in driver coordinates (microsteps) */
+/**
+ * Represents position in driver coordinates (microsteps).
+ * Values are absolute microsteps since motion_init() was called.
+ */
 typedef struct {
-  int m0, m1, m2;  // Position in microsteps
+  int m0, m1, m2;  // Absolute microsteps since motion_init()
 } pos_drv_t;
 
 /** Initialize motor subsystem and step generation */

@@ -45,7 +45,7 @@ static void cmd_gcode(char* full_command) {
       comm_print_err("G0 requires at least one axis parameter");
       return;
     }
-    
+
     // Execute: move to specified coordinates
     pos_phys_t p = motion_get_current_pos();
     if (parsed.x_state == AXIS_WITH_VALUE) {
@@ -67,7 +67,8 @@ static void cmd_gcode(char* full_command) {
     int axis_count = x_specified + y_specified + z_specified;
 
     if (axis_count != 1) {
-      comm_print_err("G28 requires exactly one axis without value (X, Y, or Z)");
+      comm_print_err(
+          "G28 requires exactly one axis without value (X, Y, or Z)");
       return;
     }
 
