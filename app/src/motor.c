@@ -126,12 +126,13 @@ pos_drv_t motor_get_current_pos_drv() {
                      .m2 = motor_states[2].current_steps};
 }
 
-void motor_dump_registers() {
+void motor_dump_status() {
   char buf[256];
   const struct device* motors[] = {motor0, motor1, motor2};
   const char* names[] = {"mot0", "mot1", "mot2"};
 
   for (int i = 0; i < 3; i++) {
+    comm_print("%s: current_steps:%d", names[i], motor_states[i].current_steps);
     int ret = tmc_dump_regs(motors[i], buf, sizeof(buf));
     if (ret < 0) {
       comm_print("%s: error %d", names[i], ret);

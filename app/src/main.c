@@ -15,7 +15,7 @@
 // Command: help
 static void cmd_help(char* args) {
   comm_print("help - Show this help");
-  comm_print("regs - Show motor registers");
+  comm_print("stat motor - Show motor subsystem status");
   comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
   comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
@@ -117,9 +117,19 @@ static void cmd_get(char* args) {
   }
 }
 
-// Command: regs
-static void cmd_regs(char* args) {
-  motor_dump_registers();
+// Command: stat
+static void cmd_stat(char* args) {
+  if (!args || strlen(args) == 0) {
+    comm_print_err("Usage: stat <subsystem>");
+    comm_print("Available subsystems: motor");
+    return;
+  }
+
+  if (strcmp(args, "motor") == 0) {
+    motor_dump_status();
+  } else {
+    comm_print_err("Unknown subsystem: %s", args);
+  }
 }
 
 // Command: steptest
@@ -155,8 +165,8 @@ static void handle_console_command(char* command) {
   // Dispatch to command handler
   if (strcmp(cmd, "help") == 0) {
     cmd_help(args);
-  } else if (strcmp(cmd, "regs") == 0) {
-    cmd_regs(args);
+  } else if (strcmp(cmd, "stat") == 0) {
+    cmd_stat(args);
   } else if (strcmp(cmd, "steptest") == 0) {
     cmd_steptest(args);
   } else if (strcmp(cmd, "set") == 0) {

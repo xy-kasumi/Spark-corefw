@@ -39,8 +39,8 @@ const struct device* motor_get_device(int motor_num);
 /** Energize or de-energize a motor (0, 1, or 2) */
 void motor_energize(int motor_num, bool enable);
 
-/** Read & dump TMC registers for all motors for debugging. */
-void motor_dump_registers();
+/** Dump motor subsystem status for debugging. */
+void motor_dump_status();
 
 /** Run step test on specified motor (0, 1, or 2) */
 void motor_run_steptest(int motor_num);
