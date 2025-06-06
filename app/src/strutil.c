@@ -1,5 +1,6 @@
 #include "strutil.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -19,6 +20,32 @@ char* split_at(char* str, char delim) {
 
   // No delimiter found
   return NULL;
+}
+
+char* split_by_space(char* str) {
+  if (!str) {
+    return NULL;
+  }
+
+  // Find first whitespace
+  char* p = str;
+  while (*p && !isspace(*p)) {
+    p++;
+  }
+
+  if (*p == '\0') {
+    return NULL;  // No whitespace found
+  }
+
+  *p = '\0';  // Null-terminate first part
+
+  // Skip all consecutive whitespace
+  p++;
+  while (*p && isspace(*p)) {
+    p++;
+  }
+
+  return (*p == '\0') ? NULL : p;  // Return NULL if only whitespace remains
 }
 
 bool parse_int(const char* str, int* value) {

@@ -33,6 +33,72 @@ ZTEST(strutil, test_split_not_found) {
   zassert_equal(str[1], 0, "First part should be null-terminated");
 }
 
+ZTEST(strutil, test_split_at_edge_cases) {
+  // Test split_at("a.", '.') -> str="a", return=""
+  char str1[] = "a.";
+  char* rem1 = split_at(str1, '.');
+  zassert_not_null(rem1, "Should return non-NULL for empty second part");
+  zassert_equal(str1[0], 'a', "First part should be 'a'");
+  zassert_equal(str1[1], 0, "First part should be null-terminated");
+  zassert_equal(rem1[0], 0, "Second part should be empty string");
+
+  // Test split_at("", '.') -> str="", return=NULL
+  char str2[] = "";
+  char* rem2 = split_at(str2, '.');
+  zassert_is_null(rem2, "Should return NULL for empty input");
+  zassert_equal(str2[0], 0, "First part should remain empty");
+}
+
+ZTEST(strutil, test_split_by_space_basic) {
+  // Test split_by_space("a b") -> str="a", return="b"
+  char str[] = "a b";
+  char* rem = split_by_space(str);
+
+  zassert_not_null(rem, "Should return non-NULL");
+  zassert_equal(str[0], 'a', "First part should be 'a'");
+  zassert_equal(str[1], 0, "First part should be null-terminated");
+  zassert_equal(rem[0], 'b', "Second part should be 'b'");
+  zassert_equal(rem[1], 0, "Second part should be null-terminated");
+}
+
+ZTEST(strutil, test_split_by_space_multiple_spaces) {
+  // Test split_by_space("a  b") -> str="a", return="b"
+  char str[] = "a  b";
+  char* rem = split_by_space(str);
+
+  zassert_not_null(rem, "Should return non-NULL");
+  zassert_equal(str[0], 'a', "First part should be 'a'");
+  zassert_equal(str[1], 0, "First part should be null-terminated");
+  zassert_equal(rem[0], 'b', "Second part should be 'b'");
+}
+
+ZTEST(strutil, test_split_by_space_edge_cases) {
+  // Test split_by_space("a ") -> str="a", return=NULL
+  char str1[] = "a ";
+  char* rem1 = split_by_space(str1);
+  zassert_is_null(rem1, "Should return NULL when only whitespace follows");
+  zassert_equal(str1[0], 'a', "First part should be 'a'");
+  zassert_equal(str1[1], 0, "First part should be null-terminated");
+
+  // Test split_by_space("a") -> str="a", return=NULL
+  char str2[] = "a";
+  char* rem2 = split_by_space(str2);
+  zassert_is_null(rem2, "Should return NULL when no whitespace");
+  zassert_equal(str2[0], 'a', "First part should be 'a'");
+
+  // Test split_by_space("") -> str="", return=NULL
+  char str3[] = "";
+  char* rem3 = split_by_space(str3);
+  zassert_is_null(rem3, "Should return NULL for empty string");
+  zassert_equal(str3[0], 0, "First part should remain empty");
+
+  // Test split_by_space(" ") -> str="", return=NULL
+  char str4[] = " ";
+  char* rem4 = split_by_space(str4);
+  zassert_is_null(rem4, "Should return NULL for whitespace-only string");
+  zassert_equal(str4[0], 0, "First part should be empty after split");
+}
+
 ZTEST(strutil, test_parse_int_valid) {
   int value;
   zassert_true(parse_int("123", &value), "Should parse valid int");
