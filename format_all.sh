@@ -5,6 +5,17 @@
 
 set -e
 
+# Target directories to format (relative to spark/)
+TARGET_DIRS=(
+    "app"
+    "drivers"
+    "tests"
+    "include"
+)
+
+# Marker file to identify spark directory
+MARKER_FILE="app/src/main.c"
+
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -18,10 +29,35 @@ if ! command -v clang-format &> /dev/null; then
     exit 1
 fi
 
+# Find spark directory by looking for marker file
+spark_dir=""
+if [ -f "$MARKER_FILE" ]; then
+    # We're in the spark directory
+    spark_dir="."
+elif [ -f "spark/$MARKER_FILE" ]; then
+    # We're in the parent directory
+    spark_dir="spark"
+else
+    echo -e "${RED}Error: Cannot find spark directory (looking for $MARKER_FILE)${NC}"
+    exit 1
+fi
+
 echo "Formatting C/C++ files in spark directory..."
 
-# Find all .c and .h files in specific directories
-files=$(find spark/app spark/drivers spark/tests spark/include -type f \( -name "*.c" -o -name "*.h" \) 2>/dev/null | sort)
+# Find all .c and .h files in target directories
+files=""
+for dir in "${TARGET_DIRS[@]}"; do
+    dir_path="$spark_dir/$dir"
+    if [ -d "$dir_path" ]; then
+        dir_files=$(find "$dir_path" -type f \( -name "*.c" -o -name "*.h" \) 2>/dev/null | sort)
+        if [ -n "$dir_files" ]; then
+            files="$files$dir_files"$'\n'
+        fi
+    fi
+done
+
+# Remove trailing newline
+files=$(echo -n "$files")
 
 if [ -z "$files" ]; then
     echo "No C/C++ files found in spark directory"
