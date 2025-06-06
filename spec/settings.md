@@ -6,7 +6,7 @@ but currently unavailable.
 * m.{0,1,2}.{thresh,microstep,current,unitsteps}
 	* unitsteps = fullsteps for moving +1 unit (1 mm or 1 rotation)
 		* can be negative
-* a.{x,y,z}.{maxtravel}
+* (future) a.{x,y,z}.{maxtravel}
 	* mm
 	* 0: infinite
 	* violation of this is serious error (results in auto-cancel)
@@ -14,13 +14,13 @@ but currently unavailable.
 	* mm/sec
 * (future) a.{x,y,z}.{maxacc}
 	* mm/sec2
-* (future) a.{x,y,z}.home.{side,origin,phase}
+* a.{x,y,z}.home.{side,origin, (future)phase}
 	* side
-		* -1: min side is the home switch
-		* 1: max side is the home switch
+		* -1: home towards negative side
+		* 1: home towards positive side
 	* origin
 		* value (home position's coordinate)
 	* phase
 		* 0, 1, 2... (nat-number)
-		* when auto-homing, phase is executed sequential
+		* when auto-homing, phase is executed sequentially
 		* same-phase axes are homed simultaneously

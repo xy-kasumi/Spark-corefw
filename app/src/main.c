@@ -40,26 +40,53 @@ static void cmd_gcode(char* full_command) {
                parsed.has_z ? "yes" : "no");
   }
 
-  if (parsed.code != 0 || parsed.sub_code != -1) {
+  if (parsed.code == 0 && parsed.sub_code == -1) {
+    // G0 - rapid positioning
+    pos_phys_t p = motion_get_current_pos();
+    if (parsed.has_x) {
+      p.x = parsed.x;
+    }
+    if (parsed.has_y) {
+      p.y = parsed.y;
+    }
+    if (parsed.has_z) {
+      p.z = parsed.z;
+    }
+    motion_enqueue_move(p);
+  } else if (parsed.code == 28 && parsed.sub_code == -1) {
+    // G28 - homing (single axis only for now)
+    if (parsed.has_x && !parsed.has_y && !parsed.has_z) {
+      motion_enqueue_home(0);  // Home X axis
+    } else if (parsed.has_y && !parsed.has_x && !parsed.has_z) {
+      motion_enqueue_home(1);  // Home Y axis
+    } else if (parsed.has_z && !parsed.has_x && !parsed.has_y) {
+      motion_enqueue_home(2);  // Home Z axis
+    } else {
+      comm_print_err("G28 requires exactly one axis (X, Y, or Z)");
+      return;
+    }
+  } else {
     comm_print_err("Unsupported g-code");
     return;
   }
-
-  pos_phys_t p = motion_get_current_pos();
-  if (parsed.has_x) {
-    p.x = parsed.x;
-  }
-  if (parsed.has_y) {
-    p.y = parsed.y;
-  }
-  if (parsed.has_z) {
-    p.z = parsed.z;
-  }
-  motion_enqueue_move(p);
   while (true) {
     motion_state_t state = motion_get_current_state();
     if (state == MOTION_STATE_STOPPED) {
-      comm_print("Motion completed");
+      motion_stop_reason_t stop_reason = motion_get_last_stop_reason();
+      switch (stop_reason) {
+        case STOP_REASON_TARGET_REACHED:
+          comm_print("Motion completed: target reached");
+          break;
+        case STOP_REASON_STALL_DETECTED:
+          comm_print("Motion completed: stall detected");
+          break;
+        case STOP_REASON_PROBE_TRIGGERED:
+          comm_print("Motion completed: probe triggered");
+          break;
+        default:
+          comm_print("Motion completed: unknown reason");
+          break;
+      }
       break;
     }
     k_sleep(K_MSEC(10));

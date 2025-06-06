@@ -3,6 +3,7 @@
 #include "comm.h"
 #include "motor.h"
 
+#include <drivers/tmc_driver.h>
 #include <math.h>
 #include <zephyr/kernel.h>
 
@@ -11,6 +12,13 @@ static const float VELOCITY_MM_PER_S = 10.0f;
 
 // Motor configuration (pushed from settings)
 static float motor_unitsteps[3] = {200.0f, 200.0f, 200.0f};
+
+// Home configuration (pushed from settings)
+static float home_origins[3] = {0.0f, 0.0f, 0.0f};
+static float home_sides[3] = {1.0f, 1.0f, 1.0f};
+
+// Constants
+static const float MAX_TRAVEL_MM = 500.0f;
 
 // Convert physical position to driver coordinates (microsteps)
 static pos_drv_t phys_to_drv(pos_phys_t phys) {
@@ -48,6 +56,12 @@ static float move_distance;  // Total distance to move in mm
 static float move_progress;  // Current progress in mm
 static float move_duration;  // Total duration in seconds
 
+// Stop condition flags
+static bool stop_at_stall;
+static bool stop_at_probe;
+static motion_stop_reason_t last_stop_reason;
+static int homing_axis;  // Which axis is being homed (-1 if not homing)
+
 // Timer for periodic tick
 static struct k_timer motion_timer;
 
@@ -56,12 +70,34 @@ static void motion_tick_handler(struct k_timer* timer) {
     return;
   }
 
+  // Check for stall condition (homing)
+  if (stop_at_stall && homing_axis >= 0) {
+    const struct device* motor = motor_get_device(homing_axis);
+    if (motor && tmc_stalled(motor)) {
+      // Homing completed - stall detected
+      pos.x = (homing_axis == 0) ? home_origins[0] : pos.x;
+      pos.y = (homing_axis == 1) ? home_origins[1] : pos.y;
+      pos.z = (homing_axis == 2) ? home_origins[2] : pos.z;
+
+      last_stop_reason = STOP_REASON_STALL_DETECTED;
+      state = MOTION_STATE_STOPPED;
+
+      // De-energize motors
+      motor_energize(0, false);
+      motor_energize(1, false);
+      motor_energize(2, false);
+
+      return;
+    }
+  }
+
   // Update progress (1ms = 0.001s)
   move_progress += VELOCITY_MM_PER_S * 0.001f;
 
   if (move_progress >= move_distance) {
-    // Move completed
+    // Move completed normally
     pos = target_pos;
+    last_stop_reason = STOP_REASON_TARGET_REACHED;
     state = MOTION_STATE_STOPPED;
 
     // De-energize motors
@@ -113,6 +149,11 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   move_progress = 0.0f;
   move_duration = move_distance / VELOCITY_MM_PER_S;
 
+  // Clear stop conditions (normal move)
+  stop_at_stall = false;
+  stop_at_probe = false;
+  homing_axis = -1;
+
   // Energize motors
   motor_energize(0, true);
   motor_energize(1, true);
@@ -130,4 +171,70 @@ void motion_set_motor_unitsteps(int motor_num, float unitsteps) {
   if (motor_num >= 0 && motor_num < 3) {
     motor_unitsteps[motor_num] = unitsteps;
   }
+}
+
+void motion_set_home_origin(int axis, float origin_mm) {
+  if (axis >= 0 && axis < 3) {
+    home_origins[axis] = origin_mm;
+  }
+}
+
+void motion_set_home_side(int axis, float side) {
+  if (axis >= 0 && axis < 3) {
+    home_sides[axis] = side;
+  }
+}
+
+motion_stop_reason_t motion_get_last_stop_reason() {
+  return last_stop_reason;
+}
+
+void motion_enqueue_home(int axis) {
+  // Don't start new move if already moving
+  if (state == MOTION_STATE_MOVING) {
+    return;
+  }
+
+  // Validate axis
+  if (axis < 0 || axis >= 3) {
+    return;
+  }
+
+  // Calculate target position for homing
+  pos_phys_t home_target = pos;
+  float side = home_sides[axis];
+  if (axis == 0) {
+    home_target.x += side * MAX_TRAVEL_MM;
+  } else if (axis == 1) {
+    home_target.y += side * MAX_TRAVEL_MM;
+  } else if (axis == 2) {
+    home_target.z += side * MAX_TRAVEL_MM;
+  }
+
+  // Calculate move distance
+  move_distance = posp_dist(&pos, &home_target);
+
+  // Skip if no movement needed
+  if (move_distance < 0.001f) {
+    return;
+  }
+
+  // Set up motion planning
+  start_pos = pos;
+  target_pos = home_target;
+  move_progress = 0.0f;
+  move_duration = move_distance / VELOCITY_MM_PER_S;
+
+  // Set stop conditions for homing
+  stop_at_stall = true;
+  stop_at_probe = false;
+  homing_axis = axis;
+
+  // Energize motors
+  motor_energize(0, true);
+  motor_energize(1, true);
+  motor_energize(2, true);
+
+  // Start homing
+  state = MOTION_STATE_MOVING;
 }

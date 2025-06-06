@@ -15,14 +15,28 @@ typedef struct {
   float value;
 } setting_entry_t;
 
-// Settings array with all 3 motors
+// Settings array with all 3 motors and axes
 static setting_entry_t settings[] = {
-    {"m.0.microstep", 32.0f}, {"m.0.current", 30.0f},
-    {"m.0.thresh", 2.0f},     {"m.0.unitsteps", 200.0f},
-    {"m.1.microstep", 32.0f}, {"m.1.current", 30.0f},
-    {"m.1.thresh", 2.0f},     {"m.1.unitsteps", -200.0f},
-    {"m.2.microstep", 32.0f}, {"m.2.current", 30.0f},
-    {"m.2.thresh", 2.0f},     {"m.2.unitsteps", -200.0f},
+    // Motor settings
+    {"m.0.microstep", 32.0f},
+    {"m.0.current", 30.0f},
+    {"m.0.thresh", 2.0f},
+    {"m.0.unitsteps", 200.0f},
+    {"m.1.microstep", 32.0f},
+    {"m.1.current", 30.0f},
+    {"m.1.thresh", 2.0f},
+    {"m.1.unitsteps", -200.0f},
+    {"m.2.microstep", 32.0f},
+    {"m.2.current", 30.0f},
+    {"m.2.thresh", 2.0f},
+    {"m.2.unitsteps", -200.0f},
+    // Axis settings
+    {"a.x.origin", 0.0f},
+    {"a.x.side", 1.0f},
+    {"a.y.origin", 0.0f},
+    {"a.y.side", -1.0f},
+    {"a.z.origin", 0.0f},
+    {"a.z.side", 1.0f},
 };
 
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
@@ -75,6 +89,38 @@ static bool apply_motor(char* mut_key, float value) {
   return ret == 0;
 }
 
+// Axis-specific setting application under "a."
+static bool apply_axis(char* mut_key, float value) {
+  // Parse: {axis_name}.{key}
+  char* rest = split_at(mut_key, '.');
+  if (!rest) {
+    return false;  // invalid key format
+  }
+
+  // Get axis number from name
+  int axis_num = -1;
+  if (strcmp(mut_key, "x") == 0) {
+    axis_num = 0;
+  } else if (strcmp(mut_key, "y") == 0) {
+    axis_num = 1;
+  } else if (strcmp(mut_key, "z") == 0) {
+    axis_num = 2;
+  } else {
+    return false;  // Invalid axis name
+  }
+
+  // Apply setting
+  if (strcmp(rest, "origin") == 0) {
+    motion_set_home_origin(axis_num, value);
+    return true;
+  } else if (strcmp(rest, "side") == 0) {
+    motion_set_home_side(axis_num, value);
+    return true;
+  }
+
+  return false;
+}
+
 // Hierarchical apply dispatcher
 static bool apply_setting(const char* key, float value) {
   // Make mutable copy for parsing
@@ -90,6 +136,8 @@ static bool apply_setting(const char* key, float value) {
 
   if (strcmp(mut_key, "m") == 0) {
     return apply_motor(rest, value);
+  } else if (strcmp(mut_key, "a") == 0) {
+    return apply_axis(rest, value);
   }
   return false;
 }
