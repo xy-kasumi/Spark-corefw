@@ -16,8 +16,7 @@
 // Command: help
 static void cmd_help(char* args) {
   comm_print("help - Show this help");
-  comm_print("stat motor - Show motor subsystem status");
-  comm_print("pulser - Show pulser subsystem status");
+  comm_print("stat <subsystem> - Show subsystem status (motor, pulser)");
   comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
   comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
@@ -174,12 +173,14 @@ static void cmd_get(char* args) {
 static void cmd_stat(char* args) {
   if (!args || strlen(args) == 0) {
     comm_print_err("Usage: stat <subsystem>");
-    comm_print("Available subsystems: motor");
+    comm_print("Available subsystems: motor, pulser");
     return;
   }
 
   if (strcmp(args, "motor") == 0) {
     motor_dump_status();
+  } else if (strcmp(args, "pulser") == 0) {
+    pulser_dump_status();
   } else {
     comm_print_err("Unknown subsystem: %s", args);
   }
@@ -201,11 +202,6 @@ static void cmd_steptest(char* args) {
   motor_run_steptest(motor_num);
 }
 
-// Command: pulser
-static void cmd_pulser(char* args) {
-  pulser_dump_status();
-}
-
 static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
   comm_print_ack();
@@ -225,8 +221,6 @@ static void handle_console_command(char* command) {
     cmd_help(args);
   } else if (strcmp(cmd, "stat") == 0) {
     cmd_stat(args);
-  } else if (strcmp(cmd, "pulser") == 0) {
-    cmd_pulser(args);
   } else if (strcmp(cmd, "steptest") == 0) {
     cmd_steptest(args);
   } else if (strcmp(cmd, "set") == 0) {
