@@ -17,6 +17,14 @@
 		zephyr,dtcm = &dtcm;
 	};
 
+	/* Reserve SWD pins PA13 (SWDIO) and PA14 (SWCLK) for debugging */
+	reserved-gpios = <&gpioa 13 0>, <&gpioa 14 0>;
+
+	/*
+	 * Octopus Pro configuration with TMC2209 stepper drivers and EDM pulser
+	 * - TMC2209: Trinamic stepper drivers with stallGuard and UART interface
+	 * - Pulser: External EDM discharge control board via I2C
+	 */
 	motor0: motor0 {
 		compatible = "adi,tmc2209-uart";
 		step-gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
@@ -116,7 +124,6 @@
 	pinctrl-names = "default";
 };
 
-/* Keep SWD pins available for debugging */
 &gpioa {
 	status = "okay";
 };
@@ -163,10 +170,4 @@
 		bias-pull-up;
 		drive-open-drain;
 	};
-};
-
-
-/* Reserve SWD pins PA13 (SWDIO) and PA14 (SWCLK) for debugging */
-/ {
-	reserved-gpios = <&gpioa 13 0>, <&gpioa 14 0>;
 };

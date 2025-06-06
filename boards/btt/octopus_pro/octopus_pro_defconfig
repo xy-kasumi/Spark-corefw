@@ -10,3 +10,4 @@ CONFIG_RTC_STM32=n  # No RTC connected
 # Basic I/O
 CONFIG_SERIAL=y
 CONFIG_GPIO=y
+CONFIG_I2C=y
