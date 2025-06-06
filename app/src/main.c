@@ -174,7 +174,11 @@ cleanup:
   // Clear cancel flag and return to IDLE
   g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
-  comm_print("ready");
+
+  // Print ready with current position
+  pos_phys_t current_pos = motion_get_current_pos();
+  comm_print("ready X%.3f Y%.3f Z%.3f", (double)current_pos.x,
+             (double)current_pos.y, (double)current_pos.z);
 }
 
 int main() {
