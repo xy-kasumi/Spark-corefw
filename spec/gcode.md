@@ -27,3 +27,47 @@ Coordinates of homed axes will be set to origin value configured by
 
 When all-axis homing (`G28`) is instructed, `a.{x,y,z}.home.phase` will
 be used for grouping and ordering of axes.
+
+# Supported M-Codes
+
+### M3: Energize, tool negative voltage
+Parameters: P (pulse time in µs), Q (current in A), R (duty cycle %)
+
+TODO: Document expected behavior, safety limits, interaction with motion
+
+Default values:
+- P: 500µs
+- Q: 1.0A  
+- R: 25%
+
+Examples:
+```
+M3              ; Use all defaults
+M3 P750 Q1.5    ; 750µs pulses, 1.5A current, default duty
+M3 Q2.0 R30     ; 2A current, 30% duty, default pulse time
+```
+
+### M4: Energize, tool positive voltage
+Parameters: P (pulse time in µs), Q (current in A), R (duty cycle %)
+
+TODO: Document expected behavior, safety limits, interaction with motion
+
+Default values same as M3.
+
+Examples:
+```
+M4              ; Use all defaults
+M4 P1000 Q0.8   ; 1000µs pulses, 0.8A current, default duty
+```
+
+### M5: De-energize
+Parameters: None
+
+TODO: Document shutdown behavior, safety procedures
+
+Examples:
+```
+M5              ; Stop all EDM activity
+```
+
+TODO: Document M-code interaction with motion system, error handling, safety interlocks

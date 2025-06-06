@@ -4,13 +4,20 @@
 
 #include <string.h>
 
-// Parse G command number, handling decimals like G38.3
-static bool parse_g_number(char* token, int* code, int* sub_code) {
-  if (token[0] != 'G') {
+// Parse G/M command number, handling decimals like G38.3
+static bool parse_command_number(char* token,
+                                 cmd_type_t* cmd_type,
+                                 int* code,
+                                 int* sub_code) {
+  if (token[0] == 'G') {
+    *cmd_type = CMD_TYPE_G;
+  } else if (token[0] == 'M') {
+    *cmd_type = CMD_TYPE_M;
+  } else {
     return false;
   }
 
-  // Skip 'G' and parse main code
+  // Skip command letter and parse main code
   char* code_part = token + 1;
   char* sub_part = split_at(code_part, '.');
 
@@ -53,6 +60,28 @@ static bool parse_axis_param(const char* token,
   }
 }
 
+// Parse parameter like "P500" or "Q2.5"
+static bool parse_param(const char* token,
+                        char expected_param,
+                        param_state_t* state,
+                        float* value) {
+  if (token[0] != expected_param) {
+    return false;
+  }
+
+  if (strlen(token) == 1) {
+    return false;  // Parameter must have value
+  }
+
+  const char* value_str = token + 1;  // Skip parameter letter
+  if (!parse_float(value_str, value)) {
+    return false;
+  }
+
+  *state = PARAM_SPECIFIED;
+  return true;
+}
+
 bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
   if (!line || !parsed) {
     return false;
@@ -70,28 +99,44 @@ bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
   char* token = mut_line;
   char* rest = split_by_space(token);
 
-  // First token must be G command
-  if (!parse_g_number(token, &parsed->code, &parsed->sub_code)) {
+  // First token must be G or M command
+  if (!parse_command_number(token, &parsed->cmd_type, &parsed->code,
+                            &parsed->sub_code)) {
     return false;
   }
 
-  // Parse remaining axis parameters
+  // Parse remaining parameters
   while (rest) {
     token = rest;
     rest = split_by_space(token);
 
-    // Try to parse as axis parameter
-    char axis = token[0];
-    if (axis == 'X') {
+    char param = token[0];
+
+    // Try axis parameters (for G-codes)
+    if (param == 'X') {
       if (!parse_axis_param(token, 'X', &parsed->x_state, &parsed->x)) {
         return false;
       }
-    } else if (axis == 'Y') {
+    } else if (param == 'Y') {
       if (!parse_axis_param(token, 'Y', &parsed->y_state, &parsed->y)) {
         return false;
       }
-    } else if (axis == 'Z') {
+    } else if (param == 'Z') {
       if (!parse_axis_param(token, 'Z', &parsed->z_state, &parsed->z)) {
+        return false;
+      }
+    }
+    // Try P/Q/R parameters (for M-codes)
+    else if (param == 'P') {
+      if (!parse_param(token, 'P', &parsed->p_state, &parsed->p)) {
+        return false;
+      }
+    } else if (param == 'Q') {
+      if (!parse_param(token, 'Q', &parsed->q_state, &parsed->q)) {
+        return false;
+      }
+    } else if (param == 'R') {
+      if (!parse_param(token, 'R', &parsed->r_state, &parsed->r)) {
         return false;
       }
     } else {

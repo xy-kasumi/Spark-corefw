@@ -28,11 +28,12 @@ static void cmd_help(char* args) {
 static void cmd_gcode(char* full_command) {
   gcode_parsed_t parsed;
   if (!parse_gcode(full_command, &parsed)) {
-    comm_print_err("Failed to parse G-code: %s", full_command);
+    comm_print_err("Failed to parse G/M-code: %s", full_command);
     return;
   }
 
-  if (parsed.code == 0 && parsed.sub_code == -1) {
+  if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 0 &&
+      parsed.sub_code == -1) {
     // G0 - rapid positioning
     // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
     if (parsed.x_state == AXIS_ONLY || parsed.y_state == AXIS_ONLY ||
@@ -59,7 +60,8 @@ static void cmd_gcode(char* full_command) {
       p.z = parsed.z;
     }
     motion_enqueue_move(p);
-  } else if (parsed.code == 28 && parsed.sub_code == -1) {
+  } else if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 28 &&
+             parsed.sub_code == -1) {
     // G28 - homing
     // Validate: requires exactly one axis with AXIS_ONLY format
     bool x_specified = (parsed.x_state == AXIS_ONLY);
@@ -81,8 +83,51 @@ static void cmd_gcode(char* full_command) {
     } else if (z_specified) {
       motion_enqueue_home(2);  // Home Z axis
     }
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 3 &&
+             parsed.sub_code == -1) {
+    // M3 - Energize, tool negative voltage
+    // Validate: P (pulse time), Q (current), R (duty) are optional
+    float pulse_time_us = (parsed.p_state == PARAM_SPECIFIED)
+                              ? parsed.p
+                              : 500.0f;  // Default 500us
+    float pulse_current_a =
+        (parsed.q_state == PARAM_SPECIFIED) ? parsed.q : 1.0f;  // Default 1A
+    float max_duty_pct =
+        (parsed.r_state == PARAM_SPECIFIED) ? parsed.r : 25.0f;  // Default 25%
+
+    comm_print("M3: Tool negative, P=%.1f Q=%.1f R=%.1f", (double)pulse_time_us,
+               (double)pulse_current_a, (double)max_duty_pct);
+    // TODO: pulser_start_negative(pulse_time_us, pulse_current_a,
+    // max_duty_pct);
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 4 &&
+             parsed.sub_code == -1) {
+    // M4 - Energize, tool positive voltage
+    // Validate: P (pulse time), Q (current), R (duty) are optional
+    float pulse_time_us = (parsed.p_state == PARAM_SPECIFIED)
+                              ? parsed.p
+                              : 500.0f;  // Default 500us
+    float pulse_current_a =
+        (parsed.q_state == PARAM_SPECIFIED) ? parsed.q : 1.0f;  // Default 1A
+    float max_duty_pct =
+        (parsed.r_state == PARAM_SPECIFIED) ? parsed.r : 25.0f;  // Default 25%
+
+    comm_print("M4: Tool positive, P=%.1f Q=%.1f R=%.1f", (double)pulse_time_us,
+               (double)pulse_current_a, (double)max_duty_pct);
+    // TODO: pulser_start_positive(pulse_time_us, pulse_current_a,
+    // max_duty_pct);
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 5 &&
+             parsed.sub_code == -1) {
+    // M5 - De-energize
+    comm_print("M5: De-energize");
+    // TODO: pulser_stop();
   } else {
-    comm_print_err("Unsupported g-code");
+    if (parsed.cmd_type == CMD_TYPE_G) {
+      comm_print_err("Unsupported G-code: G%d", parsed.code);
+    } else if (parsed.cmd_type == CMD_TYPE_M) {
+      comm_print_err("Unsupported M-code: M%d", parsed.code);
+    } else {
+      comm_print_err("Unknown command type");
+    }
     return;
   }
   while (true) {
@@ -206,9 +251,9 @@ static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
   comm_print_ack();
 
-  // Check for G-code before destructive parsing
-  if (command[0] == 'G') {
-    cmd_gcode(command);  // Pass full command for G-code parsing
+  // Check for G-code or M-code before destructive parsing
+  if (command[0] == 'G' || command[0] == 'M') {
+    cmd_gcode(command);  // Pass full command for G/M-code parsing
     goto cleanup;
   }
 

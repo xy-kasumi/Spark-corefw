@@ -1,4 +1,5 @@
 #include "pulser.h"
+
 #include "comm.h"
 
 #include <zephyr/device.h>
