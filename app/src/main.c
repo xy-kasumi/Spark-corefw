@@ -98,6 +98,9 @@ static void cmd_gcode(char* full_command) {
         case STOP_REASON_PROBE_TRIGGERED:
           comm_print("Motion completed: probe triggered");
           break;
+        case STOP_REASON_CANCELLED:
+          comm_print("Motion completed: cancelled");
+          break;
         default:
           comm_print("Motion completed: unknown reason");
           break;

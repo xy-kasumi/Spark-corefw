@@ -23,6 +23,10 @@ char* comm_read_command();
 /**
  * Get next command from input thread (blocking)
  * Buffer must be at least 256 bytes
+ * 
+ * Note: "!" is NOT a regular command - it's handled asynchronously
+ * by the input thread and sets g_cancel_requested immediately,
+ * bypassing the normal command queue.
  */
 void comm_get_next_command(char* buffer);
 

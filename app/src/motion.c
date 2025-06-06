@@ -2,6 +2,7 @@
 
 #include "comm.h"
 #include "motor.h"
+#include "system.h"
 
 #include <drivers/tmc_driver.h>
 #include <math.h>
@@ -98,6 +99,19 @@ static struct k_timer motion_timer;
 
 static void motion_tick_handler(struct k_timer* timer) {
   if (state != MOTION_STATE_MOVING) {
+    return;
+  }
+
+  // Check for cancellation first (highest priority)
+  if (g_cancel_requested) {
+    last_stop_reason = STOP_REASON_CANCELLED;
+    state = MOTION_STATE_STOPPED;
+
+    // De-energize motors immediately
+    motor_energize(0, false);
+    motor_energize(1, false);
+    motor_energize(2, false);
+
     return;
   }
 

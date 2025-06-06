@@ -28,6 +28,7 @@ typedef enum {
   STOP_REASON_TARGET_REACHED,
   STOP_REASON_PROBE_TRIGGERED,
   STOP_REASON_STALL_DETECTED,
+  STOP_REASON_CANCELLED,  // Stopped due to cancel request
 } motion_stop_reason_t;
 
 /** Compute distance between two pos_phys_t points.
