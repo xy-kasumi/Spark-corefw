@@ -233,7 +233,8 @@ ZTEST(gcode, test_invalid_decimal_format) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3 P10..5", &parsed);
 
-  zassert_false(result, "Invalid decimal format (double decimal) should fail to parse");
+  zassert_false(result,
+                "Invalid decimal format (double decimal) should fail to parse");
 }
 
 ZTEST_SUITE(gcode, NULL, NULL, NULL, NULL, NULL);
