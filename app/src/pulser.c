@@ -43,6 +43,20 @@ static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
 static uint8_t last_n_pulse = 0;
 
+// Ring buffer for EDM polling data
+#define EDM_BUFFER_SIZE 10000
+
+typedef struct __attribute__((packed)) {
+  uint8_t r_short;
+  uint8_t r_open;
+  uint8_t num_pulse;
+  uint8_t reserved;
+} edm_poll_entry_t;
+
+static edm_poll_entry_t edm_buffer[EDM_BUFFER_SIZE];
+static uint32_t edm_buffer_head = 0;   // Next write position
+static uint32_t edm_buffer_count = 0;  // Number of entries stored
+
 // Work queue for EDM status polling
 static struct k_work edm_poll_work;
 static struct k_timer edm_poll_timer;
@@ -92,6 +106,17 @@ static void edm_poll_work_handler(struct k_work* work) {
   last_r_short = buf[REG_R_SHORT - REG_CKP_N_PULSE];
   last_r_open = buf[REG_R_OPEN - REG_CKP_N_PULSE];
   poll_count++;
+
+  // Record (r_short, r_open, num_pulse) in ring buffer
+  edm_buffer[edm_buffer_head].r_short = last_r_short;
+  edm_buffer[edm_buffer_head].r_open = last_r_open;
+  edm_buffer[edm_buffer_head].num_pulse = last_n_pulse;
+  edm_buffer[edm_buffer_head].reserved = 0;
+  edm_buffer_head = (edm_buffer_head + 1) % EDM_BUFFER_SIZE;
+
+  if (edm_buffer_count < EDM_BUFFER_SIZE) {
+    edm_buffer_count++;
+  }
 }
 
 // Timer callback - schedules EDM polling work
@@ -139,6 +164,9 @@ void pulser_dump_status() {
   comm_print("Poll count: %u", poll_count);
   comm_print("EDM state: n_pulse=%u, r_pulse=%u, r_short=%u, r_open=%u",
              last_n_pulse, last_r_pulse, last_r_short, last_r_open);
+  comm_print("EDM buffer: %u/%u entries (%.1f%% full)", edm_buffer_count,
+             EDM_BUFFER_SIZE,
+             (double)(edm_buffer_count * 100) / EDM_BUFFER_SIZE);
 
   if (init_success) {
     uint8_t temperature;
@@ -211,6 +239,38 @@ void pulser_deenergize() {
   }
 
   comm_print("Pulser deenergized");
+}
+
+uint32_t pulser_get_buffer_count() {
+  return edm_buffer_count;
+}
+
+bool pulser_get_buffer_entry(uint32_t index,
+                             uint8_t* r_short,
+                             uint8_t* r_open,
+                             uint8_t* num_pulse) {
+  if (index >= edm_buffer_count) {
+    return false;
+  }
+
+  uint32_t actual_index;
+  if (edm_buffer_count < EDM_BUFFER_SIZE) {
+    // Buffer not full yet, entries are from 0 to edm_buffer_count-1
+    actual_index = index;
+  } else {
+    // Buffer is full, oldest entry is at edm_buffer_head
+    actual_index = (edm_buffer_head + index) % EDM_BUFFER_SIZE;
+  }
+
+  *r_short = edm_buffer[actual_index].r_short;
+  *r_open = edm_buffer[actual_index].r_open;
+  *num_pulse = edm_buffer[actual_index].num_pulse;
+  return true;
+}
+
+void pulser_clear_buffer() {
+  edm_buffer_head = 0;
+  edm_buffer_count = 0;
 }
 
 uint8_t pulser_get_short_rate() {
