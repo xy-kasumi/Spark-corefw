@@ -9,14 +9,22 @@
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/kernel.h>
 
-// Register addresses
+// I2C address
 #define PULSER_I2C_ADDR 0x3b
-#define REG_POLARITY 0x01
-#define REG_PULSE_CURRENT 0x02
-#define REG_TEMPERATURE 0x03
-#define REG_PULSE_DUR 0x04
-#define REG_MAX_DUTY 0x05
-#define REG_CKP_N_PULSE 0x10
+
+// Registers (from
+// https://github.com/xy-kasumi/Spark/blob/main/docs/user-PULSER.md)
+#define REG_POLARITY 0x01       // RW: 0=OFF, 1-4=energize with polarity
+#define REG_PULSE_CURRENT 0x02  // RW: pulse current in 100mA units (1-200)
+#define REG_TEMPERATURE 0x03    // R:  heatsink temperature in °C
+#define REG_PULSE_DUR 0x04      // RW: pulse duration in 10us units (5-100)
+#define REG_MAX_DUTY 0x05       // RW: max duty factor in percent (1-95)
+#define REG_CKP_N_PULSE 0x10    // R:  number of pulses (checkpoint read)
+#define REG_T_IGNITION 0x11     // R:  avg ignition time in 5us units
+#define REG_T_IGNITION_SD 0x12  // R:  std dev of ignition time in 5us units
+#define REG_R_PULSE 0x13        // R:  ratio spent discharging (0-255)
+#define REG_R_SHORT 0x14        // R:  ratio spent shorted (0-255)
+#define REG_R_OPEN 0x15         // R:  ratio spent waiting (0-255)
 
 // I2C device from device tree
 static const struct device* i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c1));
@@ -72,17 +80,17 @@ static void edm_poll_work_handler(struct k_work* work) {
   }
 
   // Read 6 registers starting from REG_CKP_N_PULSE
-  uint8_t buf[6];
+  uint8_t buf[REG_R_OPEN - REG_CKP_N_PULSE + 1];
   int ret = i2c_burst_read(i2c_dev, PULSER_I2C_ADDR, REG_CKP_N_PULSE, buf, 6);
   if (ret != 0) {
     return;
   }
 
   // Update state from registers
-  last_n_pulse = buf[0];
-  last_r_pulse = buf[3];
-  last_r_short = buf[4];
-  last_r_open = buf[5];
+  last_n_pulse = buf[REG_CKP_N_PULSE - REG_CKP_N_PULSE];
+  last_r_pulse = buf[REG_R_PULSE - REG_CKP_N_PULSE];
+  last_r_short = buf[REG_R_SHORT - REG_CKP_N_PULSE];
+  last_r_open = buf[REG_R_OPEN - REG_CKP_N_PULSE];
   poll_count++;
 }
 
