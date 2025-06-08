@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: Apache-2.0
 #include "uart1wire.h"
 
 #include <string.h>

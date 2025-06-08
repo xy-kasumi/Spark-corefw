@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Single-wire UART implementation using bit-banging
  *
@@ -9,7 +11,6 @@
  * - Frame format: 1 start bit (0) + 8 data bits + 1 stop bit (1)
  * - Data bits: LSB first (bit 0 transmitted first)
  */
-
 #pragma once
 
 #include <stddef.h>

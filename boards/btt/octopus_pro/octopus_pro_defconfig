@@ -1,6 +1,4 @@
-# SPDX-FileCopyrightText: 2025 夕月霞
-# SPDX-License-Identifier: AGPL-3.0-or-later
-
+# SPDX-License-Identifier: CC0-1.0
 # Clock configuration
 CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=550000000
 CONFIG_SYS_CLOCK_TICKS_PER_SEC=50000

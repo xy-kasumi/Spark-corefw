@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * (Singleton) Raw serial communcation.
  * 99% of the app code should use comm.h instead.

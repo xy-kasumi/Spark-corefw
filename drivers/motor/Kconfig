@@ -1,4 +1,4 @@
-# Motor driver configuration
+# SPDX-License-Identifier: CC0-1.0
 
 config TMC2209_MOTOR_DRIVER
 	bool "TMC2209 Stepper Motor Driver"

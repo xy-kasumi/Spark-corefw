@@ -1,5 +1,9 @@
-// Application entry point for spark core firmware.
-// Main command loop is executed here.
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+/**
+ * Application entry point for spark core firmware.
+ * Main command loop is executed here.
+ */
 #include "comm.h"
 #include "gcode.h"
 #include "motion.h"

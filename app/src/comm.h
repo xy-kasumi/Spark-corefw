@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * (Singleton) Semi-structured serial printing functions for the app.
  * As soon as serial is initialized, spark MUST use these functions.
