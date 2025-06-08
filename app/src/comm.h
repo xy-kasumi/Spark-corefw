@@ -1,5 +1,5 @@
 /**
- * Semi-structured serial printing functions for the app.
+ * (Singleton) Semi-structured serial printing functions for the app.
  * As soon as serial is initialized, spark MUST use these functions.
  * Don't use printk(), LOG_*() etc.
  * Host of spark board depends on structured I/O.

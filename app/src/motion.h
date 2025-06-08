@@ -1,17 +1,9 @@
 /**
- * Motion controller & coordinate management.
+ * (Singleton) Motion controller & coordinate management.
  */
 #pragma once
 
-/** Represents a single physical coordinate. (i.e. coordinates specification in
- * G-code)
- */
-typedef struct {
-  float x;
-  float y;
-  float z;
-  // a, b, c etc.
-} pos_phys_t;
+#include "motion_base.h"
 
 /**
  * Represents motion state.
@@ -30,19 +22,6 @@ typedef enum {
   STOP_REASON_STALL_DETECTED,
   STOP_REASON_CANCELLED,  // Stopped due to cancel request
 } motion_stop_reason_t;
-
-/** Compute distance between two pos_phys_t points.
- * @return distance in mm
- */
-float posp_dist(const pos_phys_t* a, const pos_phys_t* b);
-
-/** Linearly interpolate between a (t=0), and b (t=1).
- * t can be outside of [0, 1] range, in which case it will be extrapolated.
- */
-void posp_interp(const pos_phys_t* a,
-                 const pos_phys_t* b,
-                 float t,
-                 pos_phys_t* out);
 
 void motion_init();
 

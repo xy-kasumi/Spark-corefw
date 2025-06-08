@@ -1,4 +1,6 @@
-/** State machine which entire app depends on. */
+/**
+ * (Singleton) State machine which entire app depends on.
+ */
 #pragma once
 
 #include <stdbool.h>

@@ -1,3 +1,6 @@
+/**
+ * (Stateless) String parsing utilities.
+ */
 #pragma once
 
 #include <stdbool.h>

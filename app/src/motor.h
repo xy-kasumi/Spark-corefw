@@ -1,5 +1,5 @@
 /**
- * Multiple stepper motors
+ * (Singleton) Multiple stepper motors
  */
 #pragma once
 

@@ -1,3 +1,6 @@
+/**
+ * (Stateless) G-code parsing utilities.
+ */
 #pragma once
 
 #include <stdbool.h>

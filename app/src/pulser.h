@@ -1,5 +1,5 @@
 /**
- * EDM pulser board interface
+ * (Singleton) EDM pulser board interface
  */
 #pragma once
 

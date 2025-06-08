@@ -1,5 +1,5 @@
 /**
- * Settings system for spark core firmware.
+ * (Singleton) Settings system for spark core firmware.
  *
  * Settings use a "push" model:
  * - Settings are "pushed" to subsystems on settings_set().
