@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include <stdint.h>
+
 /** Initialize communication subsystem */
 void comm_init();
 
@@ -31,6 +33,15 @@ char* comm_read_command();
  * bypassing the normal command queue.
  */
 void comm_get_next_command(char* buffer);
+
+/**
+ * Print binary data as base64url blob with checksum (single line)
+ * Format: ">blob urlsafe-base64data... adler32hex"
+ * Example: {1,2,3,4} outputs ">blob AQIDBA 0018000b"
+ * @param ptr pointer to binary data
+ * @param size number of bytes to print
+ */
+void comm_print_blob(uint8_t* ptr, int size);
 
 // Future stream support
 // void comm_print_stream_rem(uint32_t count);

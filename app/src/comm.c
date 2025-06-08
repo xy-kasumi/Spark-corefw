@@ -181,3 +181,65 @@ K_THREAD_DEFINE(input_thread,
                 5,  // Higher priority than main (7)
                 0,
                 0);
+
+// Adler-32 checksum calculation
+static uint32_t adler32(uint8_t* data, int len) {
+  uint32_t a = 1, b = 0;
+  for (int i = 0; i < len; i++) {
+    a = (a + data[i]) % 65521;
+    b = (b + a) % 65521;
+  }
+  return (b << 16) | a;
+}
+
+void comm_print_blob(uint8_t* ptr, int size) {
+  const char* base64url_table =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const char* hex_table = "0123456789abcdef";
+
+  comm_raw_puts(">blob ");
+
+  // Encode in base64url
+  for (int i = 0; i < size; i += 3) {
+    uint32_t val = 0;
+    int chars = 0;
+
+    // Pack up to 3 bytes into 24-bit value
+    for (int j = 0; j < 3 && i + j < size; j++) {
+      val = (val << 8) | ptr[i + j];
+      chars++;
+    }
+
+    // Pad with zeros if needed
+    val <<= (3 - chars) * 8;
+
+    // Output base64url characters (no padding)
+    char b64_chars[4];
+    b64_chars[0] = base64url_table[(val >> 18) & 0x3F];
+    b64_chars[1] = base64url_table[(val >> 12) & 0x3F];
+    b64_chars[2] = base64url_table[(val >> 6) & 0x3F];
+    b64_chars[3] = base64url_table[val & 0x3F];
+
+    int output_chars = (chars == 1) ? 2 : (chars == 2) ? 3 : 4;
+    for (int k = 0; k < output_chars; k++) {
+      comm_raw_putc(b64_chars[k]);
+    }
+  }
+
+  // Calculate and append Adler-32 checksum
+  uint32_t checksum = adler32(ptr, size);
+  char checksum_str[9];  // 8 hex chars + null terminator
+  checksum_str[0] = hex_table[(checksum >> 28) & 0x0F];
+  checksum_str[1] = hex_table[(checksum >> 24) & 0x0F];
+  checksum_str[2] = hex_table[(checksum >> 20) & 0x0F];
+  checksum_str[3] = hex_table[(checksum >> 16) & 0x0F];
+  checksum_str[4] = hex_table[(checksum >> 12) & 0x0F];
+  checksum_str[5] = hex_table[(checksum >> 8) & 0x0F];
+  checksum_str[6] = hex_table[(checksum >> 4) & 0x0F];
+  checksum_str[7] = hex_table[checksum & 0x0F];
+  checksum_str[8] = '\0';
+
+  comm_raw_putc(' ');
+  comm_raw_puts(checksum_str);
+  comm_raw_puts("\n");
+}

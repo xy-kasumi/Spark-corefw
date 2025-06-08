@@ -8,6 +8,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 
 // I2C address
 #define PULSER_I2C_ADDR 0x3b
@@ -61,6 +62,9 @@ static uint32_t edm_buffer_count = 0;  // Number of entries stored
 static struct k_work edm_poll_work;
 static struct k_timer edm_poll_timer;
 
+// Atomic flag to prevent buffer writes during copy
+static atomic_t copying_flag = ATOMIC_INIT(0);
+
 // Read single register from pulser board
 static bool read_register(uint8_t reg_addr, uint8_t* value) {
   if (!i2c_dev) {
@@ -107,15 +111,17 @@ static void edm_poll_work_handler(struct k_work* work) {
   last_r_open = buf[REG_R_OPEN - REG_CKP_N_PULSE];
   poll_count++;
 
-  // Record (r_short, r_open, num_pulse) in ring buffer
-  edm_buffer[edm_buffer_head].r_short = last_r_short;
-  edm_buffer[edm_buffer_head].r_open = last_r_open;
-  edm_buffer[edm_buffer_head].num_pulse = last_n_pulse;
-  edm_buffer[edm_buffer_head].reserved = 0;
-  edm_buffer_head = (edm_buffer_head + 1) % EDM_BUFFER_SIZE;
+  // Record (r_short, r_open, num_pulse) in ring buffer if not copying
+  if (atomic_get(&copying_flag) == 0) {
+    edm_buffer[edm_buffer_head].r_short = last_r_short;
+    edm_buffer[edm_buffer_head].r_open = last_r_open;
+    edm_buffer[edm_buffer_head].num_pulse = last_n_pulse;
+    edm_buffer[edm_buffer_head].reserved = 0;
+    edm_buffer_head = (edm_buffer_head + 1) % EDM_BUFFER_SIZE;
 
-  if (edm_buffer_count < EDM_BUFFER_SIZE) {
-    edm_buffer_count++;
+    if (edm_buffer_count < EDM_BUFFER_SIZE) {
+      edm_buffer_count++;
+    }
   }
 }
 
@@ -145,6 +151,7 @@ void pulser_init() {
     comm_print("Pulser init: Failed to configure gate GPIO");
     return;
   }
+
 
   // Initialize work item
   k_work_init(&edm_poll_work, edm_poll_work_handler);
@@ -269,8 +276,10 @@ bool pulser_get_buffer_entry(uint32_t index,
 }
 
 void pulser_clear_buffer() {
+  atomic_set(&copying_flag, 1);
   edm_buffer_head = 0;
   edm_buffer_count = 0;
+  atomic_set(&copying_flag, 0);
 }
 
 uint8_t pulser_get_short_rate() {
@@ -283,4 +292,35 @@ uint8_t pulser_get_open_rate() {
 
 bool pulser_has_discharge() {
   return (last_r_pulse > 0 || last_r_short > 0);
+}
+
+uint32_t pulser_copy_log_to_buffer(uint8_t* buffer, uint32_t max_size) {
+  // Set copying flag to prevent new writes during copy
+  atomic_set(&copying_flag, 1);
+  
+  uint32_t entry_size = sizeof(edm_poll_entry_t);
+  uint32_t max_entries = max_size / entry_size;
+  uint32_t entries_to_copy =
+      (edm_buffer_count < max_entries) ? edm_buffer_count : max_entries;
+
+  for (uint32_t i = 0; i < entries_to_copy; i++) {
+    uint32_t actual_index;
+    if (edm_buffer_count < EDM_BUFFER_SIZE) {
+      actual_index = i;
+    } else {
+      actual_index = (edm_buffer_head + i) % EDM_BUFFER_SIZE;
+    }
+
+    uint8_t* dest = buffer + (i * entry_size);
+    edm_poll_entry_t* src = &edm_buffer[actual_index];
+
+    dest[0] = src->r_short;
+    dest[1] = src->r_open;
+    dest[2] = src->num_pulse;
+    dest[3] = src->reserved;
+  }
+
+  // Clear copying flag to resume writes
+  atomic_set(&copying_flag, 0);
+  return entries_to_copy * entry_size;
 }

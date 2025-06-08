@@ -71,3 +71,11 @@ bool pulser_get_buffer_entry(uint32_t index,
  * Clear all entries from EDM buffer
  */
 void pulser_clear_buffer();
+
+/**
+ * Copy EDM buffer data to download buffer
+ * @param buffer destination buffer
+ * @param max_size maximum size of destination buffer
+ * @return number of bytes copied
+ */
+uint32_t pulser_copy_log_to_buffer(uint8_t* buffer, uint32_t max_size);

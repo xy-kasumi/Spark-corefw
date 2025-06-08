@@ -17,6 +17,10 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 
+// 10K buffer for download data with fake data
+static uint8_t download_buffer[40000];
+static uint32_t download_buffer_size = 0;
+
 // Command: help
 static void cmd_help(char* args) {
   comm_print("help - Show this help");
@@ -25,6 +29,7 @@ static void cmd_help(char* args) {
   comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
   comm_print("get <key> - Get specific variable value");
+  comm_print("download - Download EDM log data as base64url blob");
   comm_print("! - Cancel current operation");
 }
 
@@ -272,6 +277,23 @@ static void cmd_steptest(char* args) {
   motor_run_steptest(motor_num);
 }
 
+// Command: download
+static void cmd_download(char* args) {
+  // Copy EDM log data to download buffer
+  download_buffer_size =
+      pulser_copy_log_to_buffer(download_buffer, sizeof(download_buffer));
+
+  if (download_buffer_size == 0) {
+    comm_print("No EDM data available");
+    return;
+  }
+
+  uint32_t entry_count = download_buffer_size / 4;  // 4 bytes per entry
+  comm_print("Downloaded %u bytes (%u EDM entries)", download_buffer_size,
+             entry_count);
+  comm_print_blob(download_buffer, download_buffer_size);
+}
+
 static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
   comm_print_ack();
@@ -297,6 +319,8 @@ static void handle_console_command(char* command) {
     cmd_set(args);
   } else if (strcmp(cmd, "get") == 0) {
     cmd_get(args);
+  } else if (strcmp(cmd, "download") == 0) {
+    cmd_download(args);
   } else {
     comm_print_err("unknown command: %s; type 'help' for available commands",
                    cmd);
