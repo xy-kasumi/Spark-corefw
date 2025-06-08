@@ -84,12 +84,17 @@ EXEC_INTERACTIVE
 output-interactive =
   ">ack" |
   ">err " human-text |
-  ">inf " human-text
+  ">inf " human-text |
+  ">blob " base64-text (* payload in urlsafe base64 w/o "=" *) " " checksum-text (* adler-32 checksum *)
+
+checksum-text =
+  [0-9a-f]{8}
 
 examples:
 >ack
 >err unkown command: Xset
 >inf doing processing 1.3
+>blob AQIDBA 0018000b
 ```
 
 EXEC_STREAM
