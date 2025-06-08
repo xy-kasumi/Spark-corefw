@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /** Initialize pulser subsystem */
 void pulser_init();
@@ -17,7 +18,8 @@ void pulser_dump_status();
  * Energize pulser with specified parameters
  * @param negative true for tool negative, false for tool positive
  * @param pulse_us pulse duration in microseconds (100-1000)
- * @param current_a pulse current in amperes (0-20). 0 means minimum possible current.
+ * @param current_a pulse current in amperes (0-20). 0 means minimum possible
+ * current.
  * @param duty_pct duty cycle percentage (1-95)
  */
 void pulser_energize(bool negative,
@@ -27,3 +29,21 @@ void pulser_energize(bool negative,
 
 /** De-energize pulser (M5) */
 void pulser_deenergize();
+
+/**
+ * Get latest short rate from EDM polling
+ * @return short rate (0-255), typically >127 indicates retraction needed
+ */
+uint8_t pulser_get_short_rate();
+
+/**
+ * Get latest open rate from EDM polling
+ * @return open rate (0-255)
+ */
+uint8_t pulser_get_open_rate();
+
+/**
+ * Check if there is active discharge (pulse or short)
+ * @return true if r_pulse > 0 or r_short > 0
+ */
+bool pulser_has_discharge();

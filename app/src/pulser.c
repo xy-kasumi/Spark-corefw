@@ -7,6 +7,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/i2c.h>
+#include <zephyr/kernel.h>
 
 // Register addresses
 #define PULSER_I2C_ADDR 0x3b
@@ -15,6 +16,7 @@
 #define REG_TEMPERATURE 0x03
 #define REG_PULSE_DUR 0x04
 #define REG_MAX_DUTY 0x05
+#define REG_CKP_N_PULSE 0x10
 
 // I2C device from device tree
 static const struct device* i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c1));
@@ -26,6 +28,16 @@ static const struct gpio_dt_spec gate_gpio =
 // Status tracking
 static bool init_success = false;
 static uint32_t poll_count = 0;
+
+// EDM state from latest poll
+static uint8_t last_r_pulse = 0;
+static uint8_t last_r_short = 0;
+static uint8_t last_r_open = 0;
+static uint8_t last_n_pulse = 0;
+
+// Work queue for EDM status polling
+static struct k_work edm_poll_work;
+static struct k_timer edm_poll_timer;
 
 // Read single register from pulser board
 static bool read_register(uint8_t reg_addr, uint8_t* value) {
@@ -53,6 +65,32 @@ static void set_gate(bool on) {
   gpio_pin_set_dt(&gate_gpio, on);
 }
 
+// Work handler for EDM status polling (runs in system workqueue)
+static void edm_poll_work_handler(struct k_work* work) {
+  if (!init_success) {
+    return;
+  }
+
+  // Read 6 registers starting from REG_CKP_N_PULSE
+  uint8_t buf[6];
+  int ret = i2c_burst_read(i2c_dev, PULSER_I2C_ADDR, REG_CKP_N_PULSE, buf, 6);
+  if (ret != 0) {
+    return;
+  }
+
+  // Update state from registers
+  last_n_pulse = buf[0];
+  last_r_pulse = buf[3];
+  last_r_short = buf[4];
+  last_r_open = buf[5];
+  poll_count++;
+}
+
+// Timer callback - schedules EDM polling work
+static void edm_poll_timer_handler(struct k_timer* timer) {
+  k_work_submit(&edm_poll_work);
+}
+
 void pulser_init() {
   if (!i2c_dev) {
     comm_print("Pulser init: I2C device not found");
@@ -75,7 +113,15 @@ void pulser_init() {
     return;
   }
 
+  // Initialize work item
+  k_work_init(&edm_poll_work, edm_poll_work_handler);
+
+  // Initialize and start polling timer (1ms period)
+  k_timer_init(&edm_poll_timer, edm_poll_timer_handler, NULL);
+  k_timer_start(&edm_poll_timer, K_MSEC(1), K_MSEC(1));
+
   init_success = true;
+  comm_print("Pulser initialized with 1ms polling via workqueue");
 }
 
 void pulser_dump_status() {
@@ -83,6 +129,8 @@ void pulser_dump_status() {
   comm_print("Init: %s", init_success ? "OK" : "FAIL");
   comm_print("I2C device: %s", i2c_dev ? "found" : "not found");
   comm_print("Poll count: %u", poll_count);
+  comm_print("EDM state: n_pulse=%u, r_pulse=%u, r_short=%u, r_open=%u",
+             last_n_pulse, last_r_pulse, last_r_short, last_r_open);
 
   if (init_success) {
     uint8_t temperature;
@@ -155,4 +203,16 @@ void pulser_deenergize() {
   }
 
   comm_print("Pulser deenergized");
+}
+
+uint8_t pulser_get_short_rate() {
+  return last_r_short;
+}
+
+uint8_t pulser_get_open_rate() {
+  return last_r_open;
+}
+
+bool pulser_has_discharge() {
+  return (last_r_pulse > 0 || last_r_short > 0);
 }
