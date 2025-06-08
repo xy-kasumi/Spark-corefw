@@ -65,10 +65,7 @@ static pos_phys_t pos;
 static motion_state_t state = MOTION_STATE_STOPPED;
 
 // Motion planning state
-static pos_phys_t target_pos;
-static pos_phys_t start_pos;
-static float move_distance;  // Total distance to move in mm
-static float move_progress;  // Current progress in mm
+static path_buffer_t motion_path;
 
 // Stop condition flags
 static bool stop_at_stall;
@@ -110,20 +107,16 @@ static void motion_tick_handler(struct k_timer* timer) {
     }
   }
 
-  // Update progress (1ms = 0.001s)
-  move_progress += VELOCITY_MM_PER_S * 0.001f;
+  // Move along path (1ms = 0.001s, velocity in mm/s)
+  pb_move(&motion_path, VELOCITY_MM_PER_S * 0.001f);
+  pos = pb_get_pos(&motion_path);
 
-  if (move_progress >= move_distance) {
-    // Move completed normally
-    pos = target_pos;
+  // Check if path completed
+  if (pb_at_end(&motion_path)) {
     last_stop_reason = STOP_REASON_TARGET_REACHED;
     state = MOTION_STATE_STOPPED;
     return;
   }
-
-  // Linear interpolation
-  float t = move_progress / move_distance;  // 0.0 to 1.0
-  posp_interp(&start_pos, &target_pos, t, &pos);
 
   // Convert to driver coordinates and send to motors
   pos_drv_t target_drv = phys_to_drv(pos);
@@ -148,25 +141,19 @@ void motion_enqueue_move(pos_phys_t to_pos) {
     return;
   }
 
-  // Calculate move distance
-  move_distance = posp_dist(&pos, &to_pos);
-
   // Skip if no movement needed
-  if (move_distance < 0.001f) {
+  float distance = posp_dist(&pos, &to_pos);
+  if (distance < 0.001f) {
     return;
   }
 
-  // Set up motion planning
-  start_pos = pos;
-  target_pos = to_pos;
-  move_progress = 0.0f;
+  // Initialize path buffer with single segment
+  pb_init(&motion_path, &pos, &to_pos, true);  // Single segment, end=true
 
   // Clear stop conditions (normal move)
   stop_at_stall = false;
   stop_at_probe = false;
   homing_axis = -1;
-
-  // Motors will auto-energize when they start moving
 
   // Start moving
   state = MOTION_STATE_MOVING;
@@ -220,18 +207,14 @@ void motion_enqueue_home(int axis) {
     home_target.z += side * MAX_TRAVEL_MM;
   }
 
-  // Calculate move distance
-  move_distance = posp_dist(&pos, &home_target);
-
   // Skip if no movement needed
-  if (move_distance < 0.001f) {
+  float distance = posp_dist(&pos, &home_target);
+  if (distance < 0.001f) {
     return;
   }
 
-  // Set up motion planning
-  start_pos = pos;
-  target_pos = home_target;
-  move_progress = 0.0f;
+  // Initialize path buffer with single segment
+  pb_init(&motion_path, &pos, &home_target, true);  // Single segment, end=true
 
   // Set stop conditions for homing
   stop_at_stall = true;
