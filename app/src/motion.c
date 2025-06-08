@@ -86,7 +86,6 @@ static pos_phys_t target_pos;
 static pos_phys_t start_pos;
 static float move_distance;  // Total distance to move in mm
 static float move_progress;  // Current progress in mm
-static float move_duration;  // Total duration in seconds
 
 // Stop condition flags
 static bool stop_at_stall;
@@ -178,7 +177,6 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   start_pos = pos;
   target_pos = to_pos;
   move_progress = 0.0f;
-  move_duration = move_distance / VELOCITY_MM_PER_S;
 
   // Clear stop conditions (normal move)
   stop_at_stall = false;
@@ -251,7 +249,6 @@ void motion_enqueue_home(int axis) {
   start_pos = pos;
   target_pos = home_target;
   move_progress = 0.0f;
-  move_duration = move_distance / VELOCITY_MM_PER_S;
 
   // Set stop conditions for homing
   stop_at_stall = true;
