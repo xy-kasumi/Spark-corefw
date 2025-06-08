@@ -99,10 +99,7 @@ static void cmd_gcode(char* full_command) {
     float max_duty_pct =
         (parsed.r_state == PARAM_SPECIFIED) ? parsed.r : 25.0f;  // Default 25%
 
-    comm_print("M3: Tool negative, P=%.1f Q=%.1f R=%.1f", (double)pulse_time_us,
-               (double)pulse_current_a, (double)max_duty_pct);
-    // TODO: pulser_start_negative(pulse_time_us, pulse_current_a,
-    // max_duty_pct);
+    pulser_energize(true, pulse_time_us, pulse_current_a, max_duty_pct);
   } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 4 &&
              parsed.sub_code == -1) {
     // M4 - Energize, tool positive voltage
@@ -115,15 +112,11 @@ static void cmd_gcode(char* full_command) {
     float max_duty_pct =
         (parsed.r_state == PARAM_SPECIFIED) ? parsed.r : 25.0f;  // Default 25%
 
-    comm_print("M4: Tool positive, P=%.1f Q=%.1f R=%.1f", (double)pulse_time_us,
-               (double)pulse_current_a, (double)max_duty_pct);
-    // TODO: pulser_start_positive(pulse_time_us, pulse_current_a,
-    // max_duty_pct);
+    pulser_energize(false, pulse_time_us, pulse_current_a, max_duty_pct);
   } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 5 &&
              parsed.sub_code == -1) {
     // M5 - De-energize
-    comm_print("M5: De-energize");
-    // TODO: pulser_stop();
+    pulser_deenergize();
   } else {
     if (parsed.cmd_type == CMD_TYPE_G) {
       comm_print_err("Unsupported G-code: G%d", parsed.code);
