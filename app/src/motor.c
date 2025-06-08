@@ -21,23 +21,45 @@ typedef enum {
   STEP_PULSE_LOW,   // Step pin is LOW, waiting before next step (1 tick)
 } step_state_t;
 
+// Motor idle timeout configuration
+static const uint32_t STEP_ISR_PERIOD_US = 30;  // ISR period in microseconds
+
 // Per-motor step generation state
 typedef struct {
-  volatile int target_steps;    // Target position in microsteps
-  volatile int current_steps;   // Current position in microsteps
-  bool current_direction;       // Current direction state
-  step_state_t step_state;      // Current state machine state
   const struct device* device;  // Motor device reference
+
+  volatile int target_steps;   // Target position in microsteps
+  volatile int current_steps;  // Current position in microsteps
+
+  bool current_direction;   // Current direction state
+  step_state_t step_state;  // Current state machine state
+
+  bool always_energized;        // If true, never de-energize due to timeout
+  uint32_t idle_timeout_ticks;  // Timeout in ticks (only used if
+                                // !always_energized)
+  bool energized;               // Current energization state
+  uint32_t idle_ticks;          // Ticks since motor became idle
 } motor_step_state_t;
 
 static motor_step_state_t motor_states[3];
+
+// Helper to ensure motor energization state
+static inline void ensure_energized(motor_step_state_t* motor, bool energize) {
+  if (motor->energized != energize) {
+    tmc_energize(motor->device, energize);
+    motor->energized = energize;
+  }
+}
 
 // Process step generation for a single motor
 static void process_motor_step(motor_step_state_t* motor) {
   switch (motor->step_state) {
     case STEP_IDLE:
       if (motor->current_steps != motor->target_steps) {
-        // Need to step toward target
+        // Need to step toward target - ensure energized
+        motor->idle_ticks = 0;
+        ensure_energized(motor, true);
+
         bool dir = (motor->target_steps > motor->current_steps);
         if (dir != motor->current_direction) {
           motor->current_direction = dir;
@@ -47,6 +69,16 @@ static void process_motor_step(motor_step_state_t* motor) {
         // Start step pulse (HIGH)
         tmc_set_step(motor->device, true);
         motor->step_state = STEP_PULSE_HIGH;
+      } else {
+        // Motor is at target - handle idle timeout
+        if (!motor->always_energized) {
+          if (motor->idle_ticks < motor->idle_timeout_ticks) {
+            motor->idle_ticks++;
+          } else {
+            // De-energize after timeout
+            ensure_energized(motor, false);
+          }
+        }
       }
       break;
 
@@ -105,10 +137,21 @@ const struct device* motor_get_device(int motor_num) {
   }
 }
 
-void motor_energize(int motor_num, bool enable) {
-  const struct device* motor = motor_get_device(motor_num);
-  if (motor) {
-    tmc_energize(motor, enable);
+void motor_deenergize_after(int motor_num, int timeout_ms) {
+  if (motor_num < 0 || motor_num >= 3) {
+    return;  // Invalid motor number
+  }
+
+  if (timeout_ms < 0) {
+    // Negative value means always keep energized
+    motor_states[motor_num].always_energized = true;
+    motor_states[motor_num].idle_timeout_ticks =
+        0;  // Unused when always_energized
+  } else {
+    // Convert milliseconds to ISR ticks
+    motor_states[motor_num].always_energized = false;
+    motor_states[motor_num].idle_timeout_ticks =
+        (timeout_ms * 1000) / STEP_ISR_PERIOD_US;
   }
 }
 
@@ -132,7 +175,9 @@ void motor_dump_status() {
   const char* names[] = {"mot0", "mot1", "mot2"};
 
   for (int i = 0; i < 3; i++) {
-    comm_print("%s: current_steps:%d", names[i], motor_states[i].current_steps);
+    comm_print("%s: current_steps:%d energized:%s", names[i],
+               motor_states[i].current_steps,
+               motor_states[i].energized ? "true" : "false");
     int ret = tmc_dump_regs(motors[i], buf, sizeof(buf));
     if (ret < 0) {
       comm_print("%s: error %d", names[i], ret);
@@ -178,13 +223,29 @@ void motor_run_steptest(int motor_num) {
 }
 
 void motor_init() {
-  // Initialize motor state arrays
+  // Initialize motor state arrays with default 200ms timeout
+  uint32_t default_timeout_ticks = (200 * 1000) / STEP_ISR_PERIOD_US;
   motor_states[0] =
-      (motor_step_state_t){.step_state = STEP_IDLE, .device = motor0};
+      (motor_step_state_t){.step_state = STEP_IDLE,
+                           .device = motor0,
+                           .energized = false,
+                           .idle_ticks = 0,
+                           .idle_timeout_ticks = default_timeout_ticks,
+                           .always_energized = false};
   motor_states[1] =
-      (motor_step_state_t){.step_state = STEP_IDLE, .device = motor1};
+      (motor_step_state_t){.step_state = STEP_IDLE,
+                           .device = motor1,
+                           .energized = false,
+                           .idle_ticks = 0,
+                           .idle_timeout_ticks = default_timeout_ticks,
+                           .always_energized = false};
   motor_states[2] =
-      (motor_step_state_t){.step_state = STEP_IDLE, .device = motor2};
+      (motor_step_state_t){.step_state = STEP_IDLE,
+                           .device = motor2,
+                           .energized = false,
+                           .idle_ticks = 0,
+                           .idle_timeout_ticks = default_timeout_ticks,
+                           .always_energized = false};
 
   // Check motor devices
   if (!device_is_ready(motor0)) {

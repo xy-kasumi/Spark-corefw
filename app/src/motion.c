@@ -106,12 +106,6 @@ static void motion_tick_handler(struct k_timer* timer) {
   if (g_cancel_requested) {
     last_stop_reason = STOP_REASON_CANCELLED;
     state = MOTION_STATE_STOPPED;
-
-    // De-energize motors immediately
-    motor_energize(0, false);
-    motor_energize(1, false);
-    motor_energize(2, false);
-
     return;
   }
 
@@ -130,12 +124,6 @@ static void motion_tick_handler(struct k_timer* timer) {
 
       last_stop_reason = STOP_REASON_STALL_DETECTED;
       state = MOTION_STATE_STOPPED;
-
-      // De-energize motors
-      motor_energize(0, false);
-      motor_energize(1, false);
-      motor_energize(2, false);
-
       return;
     }
   }
@@ -148,12 +136,6 @@ static void motion_tick_handler(struct k_timer* timer) {
     pos = target_pos;
     last_stop_reason = STOP_REASON_TARGET_REACHED;
     state = MOTION_STATE_STOPPED;
-
-    // De-energize motors
-    motor_energize(0, false);
-    motor_energize(1, false);
-    motor_energize(2, false);
-
     return;
   }
 
@@ -203,10 +185,7 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   stop_at_probe = false;
   homing_axis = -1;
 
-  // Energize motors
-  motor_energize(0, true);
-  motor_energize(1, true);
-  motor_energize(2, true);
+  // Motors will auto-energize when they start moving
 
   // Start moving
   state = MOTION_STATE_MOVING;
@@ -278,11 +257,6 @@ void motion_enqueue_home(int axis) {
   stop_at_stall = true;
   stop_at_probe = false;
   homing_axis = axis;
-
-  // Energize motors
-  motor_energize(0, true);
-  motor_energize(1, true);
-  motor_energize(2, true);
 
   // Start homing
   state = MOTION_STATE_MOVING;
