@@ -29,6 +29,7 @@ void motion_init();
 
 pos_phys_t motion_get_current_pos();
 void motion_enqueue_move(pos_phys_t to_pos);
+void motion_enqueue_edm_move(pos_phys_t to_pos);
 void motion_enqueue_home(int axis);
 motion_state_t motion_get_current_state();
 motion_stop_reason_t motion_get_last_stop_reason();

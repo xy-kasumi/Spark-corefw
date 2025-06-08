@@ -64,6 +64,34 @@ static void cmd_gcode(char* full_command) {
       p.z = parsed.z;
     }
     motion_enqueue_move(p);
+  } else if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 1 &&
+             parsed.sub_code == -1) {
+    // G1 - controlled EDM move
+    // Same validation as G0
+    if (parsed.x_state == AXIS_ONLY || parsed.y_state == AXIS_ONLY ||
+        parsed.z_state == AXIS_ONLY) {
+      comm_print_err("G1 requires axis values (e.g., X10.5), not bare axes");
+      return;
+    }
+    if (parsed.x_state == AXIS_NOT_SPECIFIED &&
+        parsed.y_state == AXIS_NOT_SPECIFIED &&
+        parsed.z_state == AXIS_NOT_SPECIFIED) {
+      comm_print_err("G1 requires at least one axis parameter");
+      return;
+    }
+
+    // Execute: EDM move to specified coordinates
+    pos_phys_t p = motion_get_current_pos();
+    if (parsed.x_state == AXIS_WITH_VALUE) {
+      p.x = parsed.x;
+    }
+    if (parsed.y_state == AXIS_WITH_VALUE) {
+      p.y = parsed.y;
+    }
+    if (parsed.z_state == AXIS_WITH_VALUE) {
+      p.z = parsed.z;
+    }
+    motion_enqueue_edm_move(p);
   } else if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 28 &&
              parsed.sub_code == -1) {
     // G28 - homing

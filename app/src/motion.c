@@ -4,6 +4,7 @@
 
 #include "comm.h"
 #include "motor.h"
+#include "pulser.h"
 #include "system.h"
 
 #include <drivers/tmc_driver.h>
@@ -12,6 +13,8 @@
 
 // Motion constants
 static const float VELOCITY_MM_PER_S = 10.0f;
+static const float EDM_INITIAL_VELOCITY_MM_PER_S = 0.5f;  // Start slow for EDM
+static const float TICK_PERIOD_S = 0.001f;  // 1ms tick period in seconds
 
 // Motor configuration (pushed from settings)
 static float motor_unitsteps[3] = {200.0f, 200.0f, 200.0f};
@@ -69,6 +72,10 @@ static motion_state_t state = MOTION_STATE_STOPPED;
 // Motion planning state
 static path_buffer_t motion_path;
 
+// EDM control state
+static bool is_edm_move = false;
+static float edm_current_speed = 0.0f;  // mm/s
+
 // Stop condition flags
 static bool stop_at_stall;
 static bool stop_at_probe;
@@ -87,6 +94,7 @@ static void motion_tick_handler(struct k_timer* timer) {
   if (g_cancel_requested) {
     last_stop_reason = STOP_REASON_CANCELLED;
     state = MOTION_STATE_STOPPED;
+    pulser_deenergize();  // De-energize pulser for safety
     return;
   }
 
@@ -109,8 +117,23 @@ static void motion_tick_handler(struct k_timer* timer) {
     }
   }
 
-  // Move along path (1ms = 0.001s, velocity in mm/s)
-  pb_move(&motion_path, VELOCITY_MM_PER_S * 0.001f);
+  // Move along path based on move type
+  if (is_edm_move) {
+    // EDM control logic
+    uint8_t open_rate = pulser_get_open_rate();
+    uint8_t short_rate = pulser_get_short_rate();
+
+    if (open_rate > 127) {
+      // too much open: too far away
+      pb_move(&motion_path, 1e-3f);  // +1 um / tick (-> 1mm/s max)
+    } else if (short_rate > 127) {
+      // too much short: too close
+      pb_move(&motion_path, -5e-3f);  // -5 um / tick (-> -5mm/s max)
+    }
+  } else {
+    // Normal move
+    pb_move(&motion_path, VELOCITY_MM_PER_S * TICK_PERIOD_S);
+  }
   pos = pb_get_pos(&motion_path);
 
   // Check if path completed
@@ -153,6 +176,35 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   pb_init(&motion_path, &pos, &to_pos, true);  // Single segment, end=true
 
   // Clear stop conditions (normal move)
+  stop_at_stall = false;
+  stop_at_probe = false;
+  homing_axis = -1;
+  is_edm_move = false;
+
+  // Start moving
+  state = MOTION_STATE_MOVING;
+}
+
+void motion_enqueue_edm_move(pos_phys_t to_pos) {
+  // Don't start new move if already moving
+  if (state == MOTION_STATE_MOVING) {
+    return;
+  }
+
+  // Skip if no movement needed
+  float distance = posp_dist(&pos, &to_pos);
+  if (distance < 0.001f) {
+    return;
+  }
+
+  // Initialize path buffer with single segment
+  pb_init(&motion_path, &pos, &to_pos, true);  // Single segment, end=true
+
+  // Set EDM mode
+  is_edm_move = true;
+  edm_current_speed = EDM_INITIAL_VELOCITY_MM_PER_S;
+
+  // Clear stop conditions
   stop_at_stall = false;
   stop_at_probe = false;
   homing_axis = -1;
@@ -222,6 +274,7 @@ void motion_enqueue_home(int axis) {
   stop_at_stall = true;
   stop_at_probe = false;
   homing_axis = axis;
+  is_edm_move = false;
 
   // Start homing
   state = MOTION_STATE_MOVING;
