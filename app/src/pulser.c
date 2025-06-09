@@ -152,7 +152,6 @@ void pulser_init() {
     return;
   }
 
-
   // Initialize work item
   k_work_init(&edm_poll_work, edm_poll_work_handler);
 
@@ -297,7 +296,7 @@ bool pulser_has_discharge() {
 uint32_t pulser_copy_log_to_buffer(uint8_t* buffer, uint32_t max_size) {
   // Set copying flag to prevent new writes during copy
   atomic_set(&copying_flag, 1);
-  
+
   uint32_t entry_size = sizeof(edm_poll_entry_t);
   uint32_t max_entries = max_size / entry_size;
   uint32_t entries_to_copy =
