@@ -3,8 +3,11 @@
 /**
  * (Singleton) Semi-structured serial printing functions for the app.
  * As soon as serial is initialized, spark MUST use these functions.
- * Don't use printk(), LOG_*() etc.
- * Host of spark board depends on structured I/O.
+ * Don't use printk(), LOG_*() etc., as the host of spark board depends on
+ * structured I/O.
+ *
+ * All output lines are automatically prefixed by "I", ">" or "@" which
+ * indicates the current state.
  */
 #pragma once
 
@@ -13,33 +16,32 @@
 /** Initialize communication subsystem */
 void comm_init();
 
-/** Auto-prefix based on current machine state */
+/** (blocking) Print generic informational string. */
 void comm_print(const char* fmt, ...);
 
-/** Specific message types (override auto-prefix) */
+/** (blocking) Print for specific message types. */
 void comm_print_ack();
 void comm_print_err(const char* fmt, ...);
 void comm_print_info(const char* fmt, ...);
 
 /**
- * Get next command from console (blocking)
+ * (blocking) Get next command from console.
  * Buffer must be at least 256 bytes
  *
- * Note: "!" is NOT a regular command - it's handled immediately
+ * Note 1: this will not return "!". Instead, it's processed internally
  * and sets g_cancel_requested, then waits for the next command.
- * Commands are only accepted in IDLE state.
+ *
+ * Note 2: Commands that come in non-IDLE states are silently ignored.
  */
 void comm_get_next_command(char* buffer);
 
 /**
- * Print binary data as base64url blob with checksum (single line)
+ * (blocking) Print binary data as base64url blob with checksum as big single
+ * line.
+ *
  * Format: ">blob urlsafe-base64data... adler32hex"
  * Example: {1,2,3,4} outputs ">blob AQIDBA 0018000b"
  * @param ptr pointer to binary data
  * @param size number of bytes to print
  */
 void comm_print_blob(uint8_t* ptr, int size);
-
-// Future stream support
-// void comm_print_stream_rem(uint32_t count);
-// void comm_print_stream_seq(uint32_t seq, const char* fmt, ...);
