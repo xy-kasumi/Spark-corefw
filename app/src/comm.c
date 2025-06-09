@@ -99,9 +99,26 @@ static void uart_write(const uint8_t* data, int len) {
   k_mutex_unlock(&tx_mutex);
 }
 
-// Helper to write string
 static void uart_puts(const char* str) {
   uart_write((const uint8_t*)str, strlen(str));
+}
+
+static void send_state_prefix(const char* message_type) {
+  machine_state_t state = state_machine_get_state();
+
+  switch (state) {
+    case STATE_IDLE:
+      uart_write((const uint8_t*)"I", 1);
+      break;
+    case STATE_EXEC_INTERACTIVE:
+      uart_write((const uint8_t*)">", 1);
+      break;
+    case STATE_EXEC_STREAM:
+      uart_write((const uint8_t*)"@", 1);
+      break;
+  }
+
+  uart_puts(message_type);
 }
 
 void comm_init() {
@@ -116,29 +133,13 @@ void comm_init() {
 }
 
 void comm_print(const char* fmt, ...) {
+  send_state_prefix(" ");
+
+  // Format and send message
   char buffer[256];
-  char* ptr = buffer;
-
-  // Add prefix based on state
-  switch (state_machine_get_state()) {
-    case STATE_IDLE:
-      strcpy(ptr, "I ");
-      ptr += 2;
-      break;
-    case STATE_EXEC_INTERACTIVE:
-      strcpy(ptr, "> ");
-      ptr += 2;
-      break;
-    case STATE_EXEC_STREAM:
-      strcpy(ptr, "@ ");
-      ptr += 2;
-      break;
-  }
-
-  // Format message
   va_list args;
   va_start(args, fmt);
-  vsnprintf(ptr, buffer + sizeof(buffer) - ptr, fmt, args);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
   va_end(args);
 
   uart_puts(buffer);
@@ -146,58 +147,18 @@ void comm_print(const char* fmt, ...) {
 }
 
 void comm_print_ack() {
-  uart_puts(">ack");
+  send_state_prefix("ack");
   uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_print_err(const char* fmt, ...) {
+  send_state_prefix("err ");
+
+  // Format and send message
   char buffer[256];
-  char* ptr = buffer;
-  machine_state_t state = state_machine_get_state();
-
-  // Choose prefix based on state
-  if (state == STATE_EXEC_INTERACTIVE) {
-    strcpy(ptr, ">err ");
-    ptr += 5;
-  } else if (state == STATE_EXEC_STREAM) {
-    strcpy(ptr, "@err ");
-    ptr += 5;
-  } else {
-    strcpy(ptr, "I ");
-    ptr += 2;
-  }
-
-  // Format message
   va_list args;
   va_start(args, fmt);
-  vsnprintf(ptr, buffer + sizeof(buffer) - ptr, fmt, args);
-  va_end(args);
-
-  uart_puts(buffer);
-  uart_write(LINE_ENDING, LINE_ENDING_LEN);
-}
-
-void comm_print_info(const char* fmt, ...) {
-  char buffer[256];
-  char* ptr = buffer;
-  machine_state_t state = state_machine_get_state();
-
-  // Choose prefix based on state
-  if (state == STATE_EXEC_INTERACTIVE) {
-    strcpy(ptr, ">inf ");
-    ptr += 5;
-  } else if (state == STATE_EXEC_STREAM) {
-    strcpy(ptr, "@inf ");
-    ptr += 5;
-  } else {
-    strcpy(ptr, "I ");
-    ptr += 2;
-  }
-
-  // Format message
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(ptr, buffer + sizeof(buffer) - ptr, fmt, args);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
   va_end(args);
 
   uart_puts(buffer);
@@ -247,12 +208,10 @@ static uint32_t adler32(const uint8_t* data, int len) {
 }
 
 void comm_print_blob(uint8_t* ptr, int size) {
+  send_state_prefix("blob ");
+
   char buffer[256];
   int pos = 0;
-
-  // Start with prefix
-  strcpy(buffer, ">blob ");
-  pos = 6;
 
   const char* base64url_table =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";

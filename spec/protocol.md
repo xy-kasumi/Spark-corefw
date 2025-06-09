@@ -12,6 +12,7 @@ Allowed transition
 
 Machine will never execute two commands at the same time.
 As shorthand, we refer (`EXEC_INTERACTIVE` or `EXEC_STREAM`) as simply `EXEC`.
+
 ### Command Execution
 A command is always representable by a single human-readable text.
 When the FW enters `EXEC` state, an *execution context* is created.
@@ -22,11 +23,43 @@ The context is destroyed when the FW leaves `EXEC` state.
 In each context, commands are assigned *sequence number* starting from 1 and increments.
 
 Commands can decide to reject to run (cause error) in certain mode (only allow interactive or stream). This is useful for cerain commands that should not be part of a stream.
+
+### Interactive Command
+**Simplest command**
+```
+I ...  ; core -> host
+G0 X10 ; host -> core
+>ack   ; core -> host
+I ...  ; core -> host
+```
+I indicates the core is in IDLE state. Host can only send command after confirming reception of I.
+In this case, host sent `G0 X10` which takes some time to complete.
+
+`>ack` is replied as soon as command is received by the core, before any other `>` responses.
+Only after the command is done, `I ...` will be returned.
+
+**Command with additional messages**
+```
+I ...                  ; core -> host
+get not.found          ; host -> core
+>ack                   ; core -> host
+> searching...         ; core -> host
+>err setting not found ; core -> host
+> setting ended        ; core -> host
+I ...                  ; core -> host
+```
+After `>ack`, core may return 0 or more info messages (`> ...`), and 0 or more error messages (`>err ...`).
+Info and error messages might be interspersed.
+
+Host can determine that a command was succesful iff 0 error messages was emitted during its execution (i.e. before `I`).
+
+
 ### Communication
 The FW exposes serial communication, as baseline mandatory communication.
 Everything FW can do physically (other than pure UI purposes) must be exposed to serial.
 
 Optionally, if the hardware has big storage (e.g. SD card), FW can implement special command that executes EXEC_STREAM based on storage instead of serial streaming. Execution semantics will be exactly the same.
+
 ### Error Handling
 FW must always maintain defined state and respond to comm.
 Only exception is the code that satisfies both:
@@ -76,16 +109,17 @@ G1 X1
 IDLE
 ```
 output-idle =
-  "I " human-text
+  "I " human-text |
+  "Ierr " human-text
 ```
 
 EXEC_INTERACTIVE
 ```
 output-interactive =
   ">ack" |
-  ">err " human-text |
-  ">inf " human-text |
+  "> " human-text |
   ">blob " base64-text (* payload in urlsafe base64 w/o "=" *) " " checksum-text (* adler-32 checksum *)
+  ">err " human-text |
 
 checksum-text =
   [0-9a-f]{8}
@@ -93,7 +127,7 @@ checksum-text =
 examples:
 >ack
 >err unkown command: Xset
->inf doing processing 1.3
+> doing processing 1.3
 >blob AQIDBA 0018000b
 ```
 
@@ -101,16 +135,16 @@ EXEC_STREAM
 ```
 output-stream :=
   "@rem " nat-number (* num_currently_acceptable_commands, >=0 *) |
-  "@" nat-number (* seq_num *) " err " human-text |
-  "@" nat-number (* seq_num *) " inf " human-text |
+  "@" nat-number (* seq_num *) "err " human-text |
+  "@" nat-number (* seq_num *) " " human-text |
   "@err " human-text |
-  "@inf " human-text
+  "@ " human-text
 
 examples:
 @rem 100
-@34 inf ignoring unknown code
-@5 err invalid parameter
-@5 err operation failed
+@34 ignoring unknown code
+@5err invalid parameter
+@5err operation failed
 @err wrong seq number
 @err buffer depleted
 @err machine failed suddenly
@@ -151,6 +185,7 @@ FW can choose to keep status flag that persists across states, such that
 * can be only reset by certain interactive commands
 * other commands results in error depending on the flag state
 This can be used to ensure initialization, error recovery etc.
+
 ### Error Levels
 "err" and "inf" is used throughout the protocol.
 

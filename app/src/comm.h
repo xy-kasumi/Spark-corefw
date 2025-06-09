@@ -16,13 +16,24 @@
 /** Initialize communication subsystem */
 void comm_init();
 
-/** (blocking) Print generic informational string. */
+/** (blocking) Print info message. */
 void comm_print(const char* fmt, ...);
 
-/** (blocking) Print for specific message types. */
+/** (blocking) Print ack. */
 void comm_print_ack();
+
+/** (blocking) Print error message. */
 void comm_print_err(const char* fmt, ...);
-void comm_print_info(const char* fmt, ...);
+
+/**
+ * (blocking) Print blob as base64 with checksum in one big line.
+ *
+ * Format: ">blob urlsafe-base64data... adler32hex"
+ * Example: {1,2,3,4} outputs ">blob AQIDBA 0018000b"
+ * @param ptr pointer to binary data
+ * @param size number of bytes to print
+ */
+void comm_print_blob(uint8_t* ptr, int size);
 
 /**
  * (blocking) Get next command from console.
@@ -34,14 +45,3 @@ void comm_print_info(const char* fmt, ...);
  * Note 2: Commands that come in non-IDLE states are silently ignored.
  */
 void comm_get_next_command(char* buffer);
-
-/**
- * (blocking) Print binary data as base64url blob with checksum as big single
- * line.
- *
- * Format: ">blob urlsafe-base64data... adler32hex"
- * Example: {1,2,3,4} outputs ">blob AQIDBA 0018000b"
- * @param ptr pointer to binary data
- * @param size number of bytes to print
- */
-void comm_print_blob(uint8_t* ptr, int size);

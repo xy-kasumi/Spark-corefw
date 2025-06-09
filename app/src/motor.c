@@ -202,7 +202,7 @@ void motor_run_steptest(int motor_num) {
   for (int i = 0; i < 2 * 200 * 32; i++) {  // 2 rotations at 32 microsteps
     // Check for cancel request
     if (g_cancel_requested) {
-      comm_print_info("Steptest cancelled at step %d", i);
+      comm_print("Steptest cancelled at step %d", i);
       break;
     }
 
