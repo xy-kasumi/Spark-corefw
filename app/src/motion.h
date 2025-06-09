@@ -25,6 +25,9 @@ typedef enum {
   STOP_REASON_CANCELLED,  // Stopped due to cancel request
 } motion_stop_reason_t;
 
+/**
+ * (blocking) Initialize motion subsystem.
+ */
 void motion_init();
 
 pos_phys_t motion_get_current_pos();

@@ -8,7 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/** Initialize pulser subsystem */
+/** (blocking) Initialize pulser subsystem */
 void pulser_init();
 
 /** (blocking) Dump pulser status for debugging */

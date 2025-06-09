@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-/** Initialize communication subsystem */
+/** (blocking) Initialize communication subsystem */
 void comm_init();
 
 /** (blocking) Print info message. */

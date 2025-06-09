@@ -16,7 +16,7 @@ typedef struct {
   int m0, m1, m2;  // Absolute microsteps since motion_init()
 } pos_drv_t;
 
-/** Initialize motor subsystem and step generation */
+/** (blocking) Initialize motor subsystem and step generation */
 void motor_init();
 
 /**
@@ -51,8 +51,8 @@ const struct device* motor_get_device(int motor_num);
  */
 void motor_deenergize_after(int motor_num, int timeout_ms);
 
-/** Dump motor subsystem status for debugging. */
+/** (blocking) Dump motor subsystem status for debugging. */
 void motor_dump_status();
 
-/** Run step test on specified motor (0, 1, or 2) */
+/** (blocking) Run step test on specified motor (0, 1, or 2) */
 void motor_run_steptest(int motor_num);
