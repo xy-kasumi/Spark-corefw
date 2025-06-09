@@ -94,7 +94,6 @@ static void motion_tick_handler(struct k_timer* timer) {
   if (g_cancel_requested) {
     last_stop_reason = STOP_REASON_CANCELLED;
     state = MOTION_STATE_STOPPED;
-    pulser_deenergize();  // De-energize pulser for safety
     return;
   }
 

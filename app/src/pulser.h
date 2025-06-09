@@ -11,11 +11,11 @@
 /** Initialize pulser subsystem */
 void pulser_init();
 
-/** Dump pulser status for debugging */
+/** (blocking) Dump pulser status for debugging */
 void pulser_dump_status();
 
 /**
- * Energize pulser with specified parameters
+ * (blocking) Energize pulser with specified parameters
  * @param negative true for tool negative, false for tool positive
  * @param pulse_us pulse duration in microseconds (100-1000)
  * @param current_a pulse current in amperes (0-20). 0 means minimum possible
@@ -27,7 +27,7 @@ void pulser_energize(bool negative,
                      float current_a,
                      float duty_pct);
 
-/** De-energize pulser (M5) */
+/** (blocking)  De-energize pulser */
 void pulser_deenergize();
 
 /**

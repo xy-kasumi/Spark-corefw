@@ -176,6 +176,9 @@ static void cmd_gcode(char* full_command) {
           break;
         case STOP_REASON_CANCELLED:
           comm_print("Motion completed: cancelled");
+          // safety measures
+          pulser_deenergize();
+          comm_print("Pulser de-energized due to cancel");
           break;
         default:
           comm_print("Motion completed: unknown reason");
