@@ -41,7 +41,14 @@ static void uart_isr(const struct device* dev, void* user_data) {
     while (uart_fifo_read(dev, &c, 1) == 1) {
       if (c == '\r' || c == '\n') {
         // Can accept any of CR, CRLF, LF.
-        if (rx_pos > 0) {
+        if (rx_pos == 1 && command_buffer[0] == '!') {
+          // Special case: cancel
+          if (state_machine_get_state() != STATE_IDLE) {
+             g_cancel_requested = true;
+          }
+          // Reset command buffer
+          rx_pos = 0;
+        } else if (rx_pos > 0) {
           command_buffer[rx_pos] = '\0';
           rx_pos = 0;
           k_sem_give(&rx_sem);  // Signal command ready
@@ -52,9 +59,10 @@ static void uart_isr(const struct device* dev, void* user_data) {
           rx_pos--;
         }
       } else if (c >= 0x20 && c <= 0x7E) {
-        // Printable character
+        // Printable character or cancel command
         if (rx_pos < sizeof(command_buffer) - 1) {
-          command_buffer[rx_pos++] = c;
+          command_buffer[rx_pos] = c;
+          rx_pos++;
         }
       }
     }
@@ -68,8 +76,6 @@ static void uart_isr(const struct device* dev, void* user_data) {
 
     if (tx_pos >= tx_len) {
       uart_irq_tx_disable(dev);
-      tx_pos = 0;
-      tx_len = 0;
       k_sem_give(&tx_done);
     }
   }
@@ -90,7 +96,6 @@ static void uart_write(const uint8_t* data, int len) {
   memcpy(tx_buffer, data, len);
   tx_len = len;
   tx_pos = 0;
-
   uart_irq_tx_enable(uart_dev);
 
   // Wait for completion before releasing mutex
@@ -177,12 +182,6 @@ void comm_get_next_command(char* buffer) {
     char* trimmed = command_buffer;
     while (*trimmed == ' ' || *trimmed == '\t') {
       trimmed++;
-    }
-
-    // Special handling for "!" - always process immediately
-    if (strcmp(trimmed, "!") == 0) {
-      g_cancel_requested = true;
-      continue;  // Wait for next command
     }
 
     // Only accept commands in IDLE state
