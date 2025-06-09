@@ -22,7 +22,11 @@ static const uint8_t LINE_ENDING[] = "\r\n";
 // RX buffer and state
 static char command_buffer[256];
 static volatile int rx_pos = 0;
-static K_SEM_DEFINE(rx_sem, 0, 1);
+static K_EVENT_DEFINE(rx_events);
+
+// RX event definitions
+#define RX_EVENT_COMMAND_RECEIVED BIT(0)
+#define RX_EVENT_BACKSPACE BIT(1)
 
 // TX buffer and state
 static uint8_t tx_buffer[256];
@@ -44,19 +48,20 @@ static void uart_isr(const struct device* dev, void* user_data) {
         if (rx_pos == 1 && command_buffer[0] == '!') {
           // Special case: cancel
           if (state_machine_get_state() != STATE_IDLE) {
-             g_cancel_requested = true;
+            g_cancel_requested = true;
           }
           // Reset command buffer
           rx_pos = 0;
         } else if (rx_pos > 0) {
           command_buffer[rx_pos] = '\0';
           rx_pos = 0;
-          k_sem_give(&rx_sem);  // Signal command ready
+          k_event_post(&rx_events, RX_EVENT_COMMAND_RECEIVED);
         }
       } else if (c == '\b' || c == 0x7F) {
-        // Backspace handling (terminal handles echo)
+        // Backspace handling - signal event for thread to handle echo
         if (rx_pos > 0) {
           rx_pos--;
+          k_event_post(&rx_events, RX_EVENT_BACKSPACE);
         }
       } else if (c >= 0x20 && c <= 0x7E) {
         // Printable character or cancel command
@@ -172,27 +177,39 @@ void comm_print_err(const char* fmt, ...) {
 
 void comm_get_next_command(char* buffer) {
   while (1) {
-    // Wait for command from ISR
-    k_sem_take(&rx_sem, K_FOREVER);
+    // Wait for RX events
+    uint32_t events =
+        k_event_wait(&rx_events, RX_EVENT_COMMAND_RECEIVED | RX_EVENT_BACKSPACE,
+                     false, K_FOREVER);
 
-    // Echo newline
-    uart_write(LINE_ENDING, LINE_ENDING_LEN);
+    if (events & RX_EVENT_BACKSPACE) {
+      k_event_clear(&rx_events, RX_EVENT_BACKSPACE);
 
-    // Trim leading whitespace
-    char* trimmed = command_buffer;
-    while (*trimmed == ' ' || *trimmed == '\t') {
-      trimmed++;
+      uart_write((const uint8_t*)" \b", 2);  // backspace echo
+      continue;
     }
 
-    // Only accept commands in IDLE state
-    if (g_machine_state != STATE_IDLE) {
-      continue;  // Silently ignore
-    }
+    if (events & RX_EVENT_COMMAND_RECEIVED) {
+      k_event_clear(&rx_events, RX_EVENT_COMMAND_RECEIVED);
 
-    // Copy command to caller's buffer
-    strncpy(buffer, trimmed, 255);
-    buffer[255] = '\0';
-    return;
+      uart_write(LINE_ENDING, LINE_ENDING_LEN);  // echo new line
+
+      // Trim leading whitespace
+      char* trimmed = command_buffer;
+      while (*trimmed == ' ' || *trimmed == '\t') {
+        trimmed++;
+      }
+
+      // Only accept commands in IDLE state
+      if (g_machine_state != STATE_IDLE) {
+        continue;  // Silently ignore
+      }
+
+      // Copy command to caller's buffer
+      strncpy(buffer, trimmed, 255);
+      buffer[255] = '\0';
+      return;
+    }
   }
 }
 
