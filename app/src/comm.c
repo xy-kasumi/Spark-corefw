@@ -2,188 +2,242 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "comm.h"
 
-#include "comm_raw.h"
 #include "system.h"
 
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
-// Static buffer for command reading
+// UART device
+static const struct device* uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+
+// Line ending for output
+static const uint8_t LINE_ENDING[] = "\r\n";
+#define LINE_ENDING_LEN 2
+
+// RX buffer and state
 static char command_buffer[256];
+static volatile int rx_pos = 0;
+static K_SEM_DEFINE(rx_sem, 0, 1);
 
-// Command message for thread communication
-typedef struct {
-  char cmd[256];
-} cmd_msg_t;
+// TX buffer and state
+static uint8_t tx_buffer[256];
+static K_MUTEX_DEFINE(tx_mutex);
+static volatile int tx_len = 0;
+static volatile int tx_pos = 0;
+static K_SEM_DEFINE(tx_done, 1, 1);
 
-// Single-entry message queue for commands
-K_MSGQ_DEFINE(cmd_queue, sizeof(cmd_msg_t), 1, 4);
+// UART interrupt handler
+static void uart_isr(const struct device* dev, void* user_data) {
+  uart_irq_update(dev);
+
+  // RX handling - directly into command_buffer
+  if (uart_irq_rx_ready(dev)) {
+    uint8_t c;
+    while (uart_fifo_read(dev, &c, 1) == 1) {
+      if (c == '\r' || c == '\n') {
+        // Can accept any of CR, CRLF, LF.
+        if (rx_pos > 0) {
+          command_buffer[rx_pos] = '\0';
+          rx_pos = 0;
+          k_sem_give(&rx_sem);  // Signal command ready
+        }
+      } else if (c == '\b' || c == 0x7F) {
+        // Backspace handling (terminal handles echo)
+        if (rx_pos > 0) {
+          rx_pos--;
+        }
+      } else if (c >= 0x20 && c <= 0x7E) {
+        // Printable character
+        if (rx_pos < sizeof(command_buffer) - 1) {
+          command_buffer[rx_pos++] = c;
+        }
+      }
+    }
+  }
+
+  // TX handling - from static buffer
+  if (uart_irq_tx_ready(dev) && tx_pos < tx_len) {
+    int to_send = tx_len - tx_pos;
+    int sent = uart_fifo_fill(dev, &tx_buffer[tx_pos], to_send);
+    tx_pos += sent;
+
+    if (tx_pos >= tx_len) {
+      uart_irq_tx_disable(dev);
+      tx_pos = 0;
+      tx_len = 0;
+      k_sem_give(&tx_done);
+    }
+  }
+}
+
+/**
+ * Safe UART write with mutex protection
+ * @param data Binary data to transmit
+ * @param len Length of data (must be <= 256 bytes, excess will be silently
+ * truncated)
+ */
+static void uart_write(const uint8_t* data, int len) {
+  k_mutex_lock(&tx_mutex, K_FOREVER);
+  k_sem_take(&tx_done, K_FOREVER);
+
+  // Copy to safe buffer - silently truncate if too long
+  len = (len > sizeof(tx_buffer)) ? sizeof(tx_buffer) : len;
+  memcpy(tx_buffer, data, len);
+  tx_len = len;
+  tx_pos = 0;
+
+  uart_irq_tx_enable(uart_dev);
+
+  // Wait for completion before releasing mutex
+  k_sem_take(&tx_done, K_FOREVER);
+  k_sem_give(&tx_done);  // Reset for next use
+  k_mutex_unlock(&tx_mutex);
+}
+
+// Helper to write string
+static void uart_puts(const char* str) {
+  uart_write((const uint8_t*)str, strlen(str));
+}
 
 void comm_init() {
-  comm_raw_init();
+  if (!device_is_ready(uart_dev)) {
+    // Can't report error via UART
+    return;
+  }
+
+  // Configure UART interrupts
+  uart_irq_callback_user_data_set(uart_dev, uart_isr, NULL);
+  uart_irq_rx_enable(uart_dev);
 }
 
 void comm_print(const char* fmt, ...) {
+  char buffer[256];
+  char* ptr = buffer;
+
+  // Add prefix based on state
   switch (state_machine_get_state()) {
     case STATE_IDLE:
-      comm_raw_puts("I ");
+      strcpy(ptr, "I ");
+      ptr += 2;
       break;
     case STATE_EXEC_INTERACTIVE:
-      comm_raw_puts("> ");
+      strcpy(ptr, "> ");
+      ptr += 2;
       break;
     case STATE_EXEC_STREAM:
-      comm_raw_puts("@ ");
+      strcpy(ptr, "@ ");
+      ptr += 2;
       break;
   }
 
+  // Format message
   va_list args;
   va_start(args, fmt);
-  comm_raw_vprintf(fmt, args);
+  vsnprintf(ptr, buffer + sizeof(buffer) - ptr, fmt, args);
   va_end(args);
 
-  comm_raw_puts("\n");
+  uart_puts(buffer);
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_print_ack() {
-  comm_raw_puts(">ack\n");
+  uart_puts(">ack");
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_print_err(const char* fmt, ...) {
+  char buffer[256];
+  char* ptr = buffer;
   machine_state_t state = state_machine_get_state();
 
   // Choose prefix based on state
   if (state == STATE_EXEC_INTERACTIVE) {
-    comm_raw_puts(">err ");
+    strcpy(ptr, ">err ");
+    ptr += 5;
   } else if (state == STATE_EXEC_STREAM) {
-    comm_raw_puts("@err ");
+    strcpy(ptr, "@err ");
+    ptr += 5;
   } else {
-    // In IDLE, errors still use "I " prefix
-    comm_raw_puts("I ");
+    strcpy(ptr, "I ");
+    ptr += 2;
   }
 
+  // Format message
   va_list args;
   va_start(args, fmt);
-  comm_raw_vprintf(fmt, args);
+  vsnprintf(ptr, buffer + sizeof(buffer) - ptr, fmt, args);
   va_end(args);
 
-  // Auto-add newline
-  comm_raw_puts("\n");
+  uart_puts(buffer);
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_print_info(const char* fmt, ...) {
+  char buffer[256];
+  char* ptr = buffer;
   machine_state_t state = state_machine_get_state();
 
   // Choose prefix based on state
   if (state == STATE_EXEC_INTERACTIVE) {
-    comm_raw_puts(">inf ");
+    strcpy(ptr, ">inf ");
+    ptr += 5;
   } else if (state == STATE_EXEC_STREAM) {
-    comm_raw_puts("@inf ");
+    strcpy(ptr, "@inf ");
+    ptr += 5;
   } else {
-    // In IDLE, info uses "I " prefix
-    comm_raw_puts("I ");
+    strcpy(ptr, "I ");
+    ptr += 2;
   }
 
+  // Format message
   va_list args;
   va_start(args, fmt);
-  comm_raw_vprintf(fmt, args);
+  vsnprintf(ptr, buffer + sizeof(buffer) - ptr, fmt, args);
   va_end(args);
 
-  // Auto-add newline
-  comm_raw_puts("\n");
-}
-
-char* comm_read_command() {
-  static int buffer_pos = 0;
-
-  while (1) {
-    unsigned char ch;
-    if (comm_raw_poll_in(&ch) != 0) {
-      k_sleep(K_MSEC(1));
-      continue;
-    }
-
-    if (ch == '\r' || ch == '\n') {
-      // end of line
-      comm_raw_putc('\n');
-
-      if (buffer_pos > 0) {
-        command_buffer[buffer_pos] = '\0';  // Null terminate
-
-        // Trim leading whitespace
-        char* trimmed = command_buffer;
-        while (*trimmed == ' ' || *trimmed == '\t') {
-          trimmed++;
-        }
-
-        buffer_pos = 0;  // Reset buffer for next command
-
-        // Return command if not empty
-        if (strlen(trimmed) > 0) {
-          return trimmed;
-        }
-      }
-    } else if (ch == '\b' || ch == 0x7F) {
-      // Backspace or DEL - remove last character
-      if (buffer_pos > 0) {
-        // overwrite with space (assuming local echo already moved cursor back)
-        comm_raw_puts(" \b");
-        buffer_pos--;
-      }
-    } else if (ch >= 0x20 && ch <= 0x7E) {
-      // Printable ASCII character
-      if (buffer_pos < sizeof(command_buffer) - 1) {
-        command_buffer[buffer_pos] = ch;
-        buffer_pos++;
-      }
-    }
-  }
+  uart_puts(buffer);
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_get_next_command(char* buffer) {
-  cmd_msg_t msg;
-  k_msgq_get(&cmd_queue, &msg, K_FOREVER);
-  strcpy(buffer, msg.cmd);
-}
-
-// Input thread function
-static void input_thread_fn(void* p1, void* p2, void* p3) {
   while (1) {
-    char* cmd = comm_read_command();
+    // Wait for command from ISR
+    k_sem_take(&rx_sem, K_FOREVER);
+
+    // Echo newline
+    uart_write(LINE_ENDING, LINE_ENDING_LEN);
+
+    // Trim leading whitespace
+    char* trimmed = command_buffer;
+    while (*trimmed == ' ' || *trimmed == '\t') {
+      trimmed++;
+    }
 
     // Special handling for "!" - always process immediately
-    if (strcmp(cmd, "!") == 0) {
+    if (strcmp(trimmed, "!") == 0) {
       g_cancel_requested = true;
-      continue;
+      continue;  // Wait for next command
     }
 
-    // In EXEC_INTERACTIVE, silently reject other commands
+    // Only accept commands in IDLE state
     if (g_machine_state != STATE_IDLE) {
-      continue;
+      continue;  // Silently ignore
     }
 
-    // Queue command for main thread
-    cmd_msg_t msg;
-    strncpy(msg.cmd, cmd, sizeof(msg.cmd) - 1);
-    msg.cmd[sizeof(msg.cmd) - 1] = '\0';
-
-    k_msgq_put(&cmd_queue, &msg, K_FOREVER);
+    // Copy command to caller's buffer
+    strncpy(buffer, trimmed, 255);
+    buffer[255] = '\0';
+    return;
   }
 }
 
-// Define input thread with higher priority than main
-K_THREAD_DEFINE(input_thread,
-                2048,
-                input_thread_fn,
-                NULL,
-                NULL,
-                NULL,
-                5,  // Higher priority than main (7)
-                0,
-                0);
-
 // Adler-32 checksum calculation
-static uint32_t adler32(uint8_t* data, int len) {
+static uint32_t adler32(const uint8_t* data, int len) {
   uint32_t a = 1, b = 0;
   for (int i = 0; i < len; i++) {
     a = (a + data[i]) % 65521;
@@ -193,14 +247,24 @@ static uint32_t adler32(uint8_t* data, int len) {
 }
 
 void comm_print_blob(uint8_t* ptr, int size) {
+  char buffer[256];
+  int pos = 0;
+
+  // Start with prefix
+  strcpy(buffer, ">blob ");
+  pos = 6;
+
   const char* base64url_table =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-  const char* hex_table = "0123456789abcdef";
 
-  comm_raw_puts(">blob ");
-
-  // Encode in base64url
+  // Encode in base64url (in chunks to fit buffer)
   for (int i = 0; i < size; i += 3) {
+    // Flush buffer if getting full
+    if (pos > sizeof(buffer) - 10) {
+      uart_write((const uint8_t*)buffer, pos);
+      pos = 0;
+    }
+
     uint32_t val = 0;
     int chars = 0;
 
@@ -213,33 +277,27 @@ void comm_print_blob(uint8_t* ptr, int size) {
     // Pad with zeros if needed
     val <<= (3 - chars) * 8;
 
-    // Output base64url characters (no padding)
-    char b64_chars[4];
-    b64_chars[0] = base64url_table[(val >> 18) & 0x3F];
-    b64_chars[1] = base64url_table[(val >> 12) & 0x3F];
-    b64_chars[2] = base64url_table[(val >> 6) & 0x3F];
-    b64_chars[3] = base64url_table[val & 0x3F];
-
+    // Output base64url characters
     int output_chars = (chars == 1) ? 2 : (chars == 2) ? 3 : 4;
-    for (int k = 0; k < output_chars; k++) {
-      comm_raw_putc(b64_chars[k]);
+    buffer[pos++] = base64url_table[(val >> 18) & 0x3F];
+    buffer[pos++] = base64url_table[(val >> 12) & 0x3F];
+    if (output_chars > 2) {
+      buffer[pos++] = base64url_table[(val >> 6) & 0x3F];
+    }
+    if (output_chars > 3) {
+      buffer[pos++] = base64url_table[val & 0x3F];
     }
   }
 
-  // Calculate and append Adler-32 checksum
-  uint32_t checksum = adler32(ptr, size);
-  char checksum_str[9];  // 8 hex chars + null terminator
-  checksum_str[0] = hex_table[(checksum >> 28) & 0x0F];
-  checksum_str[1] = hex_table[(checksum >> 24) & 0x0F];
-  checksum_str[2] = hex_table[(checksum >> 20) & 0x0F];
-  checksum_str[3] = hex_table[(checksum >> 16) & 0x0F];
-  checksum_str[4] = hex_table[(checksum >> 12) & 0x0F];
-  checksum_str[5] = hex_table[(checksum >> 8) & 0x0F];
-  checksum_str[6] = hex_table[(checksum >> 4) & 0x0F];
-  checksum_str[7] = hex_table[checksum & 0x0F];
-  checksum_str[8] = '\0';
+  // Add checksum
+  buffer[pos++] = ' ';
 
-  comm_raw_putc(' ');
-  comm_raw_puts(checksum_str);
-  comm_raw_puts("\n");
+  uint32_t checksum = adler32(ptr, size);
+  const char* hex_table = "0123456789abcdef";
+  for (int i = 7; i >= 0; i--) {
+    buffer[pos++] = hex_table[(checksum >> (i * 4)) & 0x0F];
+  }
+
+  uart_write((const uint8_t*)buffer, pos);
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
