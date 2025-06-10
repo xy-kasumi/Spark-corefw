@@ -131,24 +131,10 @@ void queue_step(int motor_num, bool dir) {
 }
 
 const struct device* motor_get_device(int motor_num) {
-  switch (motor_num) {
-    case 0:
-      return motor0;
-    case 1:
-      return motor1;
-    case 2:
-      return motor2;
-    case 3:
-      return motor3;
-    case 4:
-      return motor4;
-    case 5:
-      return motor5;
-    case 6:
-      return motor6;
-    default:
-      return NULL;
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
+    return NULL;
   }
+  return motor_states[motor_num].device;
 }
 
 void motor_deenergize_after(int motor_num, int timeout_ms) {
