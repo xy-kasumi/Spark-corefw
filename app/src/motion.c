@@ -17,7 +17,8 @@ static const float EDM_INITIAL_VELOCITY_MM_PER_S = 0.5f;  // Start slow for EDM
 static const float TICK_PERIOD_S = 0.001f;  // 1ms tick period in seconds
 
 // Motor configuration (pushed from settings)
-static float motor_unitsteps[3] = {200.0f, 200.0f, 200.0f};
+static float motor_unitsteps[MOTOR_COUNT] = {200.0f, 200.0f, 200.0f, 200.0f,
+                                             200.0f, 200.0f, 200.0f};
 
 // Home configuration (pushed from settings)
 static float home_origins[3] = {0.0f, 0.0f, 0.0f};
@@ -25,7 +26,7 @@ static float home_sides[3] = {1.0f, 1.0f, 1.0f};
 
 // Homing offset: bridges gap between driver coords and physical coords
 // Updated after each successful home operation
-static pos_drv_t homing_offset = {0, 0, 0};
+static pos_drv_t homing_offset = {0, 0, 0, 0, 0, 0, 0};
 
 // Constants
 static const float MAX_TRAVEL_MM = 500.0f;
@@ -217,7 +218,7 @@ motion_state_t motion_get_current_state() {
 }
 
 void motion_set_motor_unitsteps(int motor_num, float unitsteps) {
-  if (motor_num >= 0 && motor_num < 3) {
+  if (motor_num >= 0 && motor_num < MOTOR_COUNT) {
     motor_unitsteps[motor_num] = unitsteps;
   }
 }

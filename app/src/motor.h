@@ -8,12 +8,14 @@
 #include <stdbool.h>
 #include <zephyr/device.h>
 
+#define MOTOR_COUNT 7
+
 /**
  * Represents position in driver coordinates (microsteps).
  * Values are absolute microsteps since motion_init() was called.
  */
 typedef struct {
-  int m0, m1, m2;  // Absolute microsteps since motion_init()
+  int m0, m1, m2, m3, m4, m5, m6;  // Absolute microsteps since motion_init()
 } pos_drv_t;
 
 /** (blocking) Initialize motor subsystem and step generation */
@@ -39,7 +41,7 @@ void motor_set_target_pos_drv(pos_drv_t target);
 pos_drv_t motor_get_current_pos_drv();
 
 /**
- * Get motor device by number (0, 1, or 2). Returns NULL for invalid motor
+ * Get motor device by number (0-6). Returns NULL for invalid motor
  * numbers.
  */
 const struct device* motor_get_device(int motor_num);
@@ -54,5 +56,5 @@ void motor_deenergize_after(int motor_num, int timeout_ms);
 /** (blocking) Dump motor subsystem status for debugging. */
 void motor_dump_status();
 
-/** (blocking) Run step test on specified motor (0, 1, or 2) */
+/** (blocking) Run step test on specified motor (0-6) */
 void motor_run_steptest(int motor_num);

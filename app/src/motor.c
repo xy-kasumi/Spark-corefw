@@ -15,6 +15,10 @@ static const struct device* step_gen_cnt =
 static const struct device* motor0 = DEVICE_DT_GET(DT_NODELABEL(motor0));
 static const struct device* motor1 = DEVICE_DT_GET(DT_NODELABEL(motor1));
 static const struct device* motor2 = DEVICE_DT_GET(DT_NODELABEL(motor2));
+static const struct device* motor3 = DEVICE_DT_GET(DT_NODELABEL(motor3));
+static const struct device* motor4 = DEVICE_DT_GET(DT_NODELABEL(motor4));
+static const struct device* motor5 = DEVICE_DT_GET(DT_NODELABEL(motor5));
+static const struct device* motor6 = DEVICE_DT_GET(DT_NODELABEL(motor6));
 
 // Step pulse generation state machine
 typedef enum {
@@ -43,7 +47,7 @@ typedef struct {
   uint32_t idle_ticks;          // Ticks since motor became idle
 } motor_step_state_t;
 
-static motor_step_state_t motor_states[3];
+static motor_step_state_t motor_states[MOTOR_COUNT];
 
 // Helper to ensure motor energization state
 static inline void ensure_energized(motor_step_state_t* motor, bool energize) {
@@ -106,13 +110,13 @@ static void process_motor_step(motor_step_state_t* motor) {
 
 // Step generation ISR handler: manages step pulses (called every 30us)
 static void step_tick_handler(const struct device* dev, void* user_data) {
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < MOTOR_COUNT; i++) {
     process_motor_step(&motor_states[i]);
   }
 }
 
 void queue_step(int motor_num, bool dir) {
-  if (motor_num < 0 || motor_num >= 3) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
     return;  // Invalid motor number
   }
 
@@ -134,13 +138,21 @@ const struct device* motor_get_device(int motor_num) {
       return motor1;
     case 2:
       return motor2;
+    case 3:
+      return motor3;
+    case 4:
+      return motor4;
+    case 5:
+      return motor5;
+    case 6:
+      return motor6;
     default:
       return NULL;
   }
 }
 
 void motor_deenergize_after(int motor_num, int timeout_ms) {
-  if (motor_num < 0 || motor_num >= 3) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
     return;  // Invalid motor number
   }
 
@@ -158,25 +170,35 @@ void motor_deenergize_after(int motor_num, int timeout_ms) {
 }
 
 void motor_set_target_pos_drv(pos_drv_t target) {
-  // Atomic update of all three targets
+  // Atomic update of all targets
   motor_states[0].target_steps = target.m0;
   motor_states[1].target_steps = target.m1;
   motor_states[2].target_steps = target.m2;
+  motor_states[3].target_steps = target.m3;
+  motor_states[4].target_steps = target.m4;
+  motor_states[5].target_steps = target.m5;
+  motor_states[6].target_steps = target.m6;
 }
 
 pos_drv_t motor_get_current_pos_drv() {
   // Read current positions
   return (pos_drv_t){.m0 = motor_states[0].current_steps,
                      .m1 = motor_states[1].current_steps,
-                     .m2 = motor_states[2].current_steps};
+                     .m2 = motor_states[2].current_steps,
+                     .m3 = motor_states[3].current_steps,
+                     .m4 = motor_states[4].current_steps,
+                     .m5 = motor_states[5].current_steps,
+                     .m6 = motor_states[6].current_steps};
 }
 
 void motor_dump_status() {
   char buf[256];
-  const struct device* motors[] = {motor0, motor1, motor2};
-  const char* names[] = {"mot0", "mot1", "mot2"};
+  const struct device* motors[] = {motor0, motor1, motor2, motor3,
+                                   motor4, motor5, motor6};
+  const char* names[] = {"mot0", "mot1", "mot2", "mot3",
+                         "mot4", "mot5", "mot6"};
 
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < MOTOR_COUNT; i++) {
     comm_print("%s: current_steps:%d energized:%s", names[i],
                motor_states[i].current_steps,
                motor_states[i].energized ? "true" : "false");
@@ -227,40 +249,25 @@ void motor_run_steptest(int motor_num) {
 void motor_init() {
   // Initialize motor state arrays with default 200ms timeout
   uint32_t default_timeout_ticks = (200 * 1000) / STEP_ISR_PERIOD_US;
-  motor_states[0] =
-      (motor_step_state_t){.step_state = STEP_IDLE,
-                           .device = motor0,
-                           .energized = false,
-                           .idle_ticks = 0,
-                           .idle_timeout_ticks = default_timeout_ticks,
-                           .always_energized = false};
-  motor_states[1] =
-      (motor_step_state_t){.step_state = STEP_IDLE,
-                           .device = motor1,
-                           .energized = false,
-                           .idle_ticks = 0,
-                           .idle_timeout_ticks = default_timeout_ticks,
-                           .always_energized = false};
-  motor_states[2] =
-      (motor_step_state_t){.step_state = STEP_IDLE,
-                           .device = motor2,
-                           .energized = false,
-                           .idle_ticks = 0,
-                           .idle_timeout_ticks = default_timeout_ticks,
-                           .always_energized = false};
+  const struct device* motors[] = {motor0, motor1, motor2, motor3,
+                                   motor4, motor5, motor6};
+
+  for (int i = 0; i < MOTOR_COUNT; i++) {
+    motor_states[i] =
+        (motor_step_state_t){.step_state = STEP_IDLE,
+                             .device = motors[i],
+                             .energized = false,
+                             .idle_ticks = 0,
+                             .idle_timeout_ticks = default_timeout_ticks,
+                             .always_energized = false};
+  }
 
   // Check motor devices
-  if (!device_is_ready(motor0)) {
-    comm_print_err("Motor0 device not ready");
-    return;
-  }
-  if (!device_is_ready(motor1)) {
-    comm_print_err("Motor1 device not ready");
-    return;
-  }
-  if (!device_is_ready(motor2)) {
-    comm_print_err("Motor2 device not ready");
-    return;
+  for (int i = 0; i < MOTOR_COUNT; i++) {
+    if (!device_is_ready(motors[i])) {
+      comm_print_err("Motor%d device not ready", i);
+      return;
+    }
   }
 
   // Initialize step generation counter
@@ -279,8 +286,7 @@ void motor_init() {
   comm_print("Step generation initialized");
 
   // Configure TCOOLTHRS for all motors
-  const struct device* motors[] = {motor0, motor1, motor2};
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < MOTOR_COUNT; i++) {
     ret = tmc_set_tcoolthrs(motors[i], 750000);
     if (ret < 0) {
       comm_print_err("Failed to set TCOOLTHRS for motor %d", i);
