@@ -37,6 +37,13 @@ void queue_step(int motor_num, bool dir);
  */
 void motor_set_target_pos_drv(pos_drv_t target);
 
+/**
+ * Set absolute target position for a specific motor (microsteps)
+ * @param motor_num Motor number (0-6)
+ * @param target_steps Target position in microsteps
+ */
+void motor_set_target_steps(int motor_num, int target_steps);
+
 /** Get current position in driver coordinates (microsteps) */
 pos_drv_t motor_get_current_pos_drv();
 

@@ -5,6 +5,7 @@
 #include "motion.h"
 #include "motor.h"
 #include "strutil.h"
+#include "wirefeed.h"
 
 #include <drivers/tmc_driver.h>
 
@@ -58,10 +59,10 @@ static setting_entry_t settings[] = {
     {"m.5.thresh", 2.0f},
     {"m.5.unitsteps", 200.0f},
     {"m.6.current", 30.0f},
-    {"m.6.idlems", 200.0f},
+    {"m.6.idlems", 5000.0f},
     {"m.6.microstep", 32.0f},
     {"m.6.thresh", 2.0f},
-    {"m.6.unitsteps", 200.0f},
+    {"m.6.unitsteps", 203.8f},
 };
 
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
@@ -101,11 +102,20 @@ static bool apply_motor(char* mut_key, float value) {
   if (strcmp(rest, "microstep") == 0) {
     ret = tmc_set_microstep(motor, (int)value);
   } else if (strcmp(rest, "current") == 0) {
-    ret = tmc_set_current(motor, (int)value, 0);
+    // if (motor_num == 6) {
+    // same hold current as move current
+    ret = tmc_set_current(motor, (int)value, (int)value);
+    //} else {
+    //      ret = tmc_set_current(motor, (int)value, 0);
+    //  }
   } else if (strcmp(rest, "thresh") == 0) {
     ret = tmc_set_stallguard_threshold(motor, (int)value);
   } else if (strcmp(rest, "unitsteps") == 0) {
     motion_set_motor_unitsteps(motor_num, value);
+    // Also update wirefeed if this is motor6
+    if (motor_num == 6) {
+      wirefeed_set_unitsteps(value);
+    }
     ret = 0;  // Always succeeds
   } else if (strcmp(rest, "idlems") == 0) {
     motor_deenergize_after(motor_num, (int)value);

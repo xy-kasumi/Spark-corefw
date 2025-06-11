@@ -12,6 +12,7 @@
 #include "settings.h"
 #include "strutil.h"
 #include "system.h"
+#include "wirefeed.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -24,7 +25,8 @@ static uint32_t download_buffer_size = 0;
 // Command: help
 static void cmd_help(char* args) {
   comm_print("help - Show this help");
-  comm_print("stat <subsystem> - Show subsystem status (motor, pulser)");
+  comm_print(
+      "stat <subsystem> - Show subsystem status (motor, pulser, wirefeed)");
   comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
   comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
@@ -150,6 +152,18 @@ static void cmd_gcode(char* full_command) {
              parsed.sub_code == -1) {
     // M5 - De-energize
     pulser_deenergize();
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 10 &&
+             parsed.sub_code == -1) {
+    // M10 - Start wire feeding
+    if (parsed.r_state != PARAM_SPECIFIED) {
+      comm_print_err("M10 requires R parameter (feed rate in mm/min)");
+      return;
+    }
+    wirefeed_start(parsed.r);
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 11 &&
+             parsed.sub_code == -1) {
+    // M11 - Stop wire feeding
+    wirefeed_stop();
   } else {
     if (parsed.cmd_type == CMD_TYPE_G) {
       comm_print_err("Unsupported G-code: G%d", parsed.code);
@@ -251,7 +265,7 @@ static void cmd_get(char* args) {
 static void cmd_stat(char* args) {
   if (!args || strlen(args) == 0) {
     comm_print_err("Usage: stat <subsystem>");
-    comm_print("Available subsystems: motor, pulser");
+    comm_print("Available subsystems: motor, pulser, wirefeed");
     return;
   }
 
@@ -259,6 +273,8 @@ static void cmd_stat(char* args) {
     motor_dump_status();
   } else if (strcmp(args, "pulser") == 0) {
     pulser_dump_status();
+  } else if (strcmp(args, "wirefeed") == 0) {
+    wirefeed_dump_status();
   } else {
     comm_print_err("Unknown subsystem: %s", args);
   }
@@ -353,6 +369,7 @@ int main() {
 
   // init modules
   motion_init();
+  wirefeed_init();
 
   // apply default settings
   settings_apply_all();

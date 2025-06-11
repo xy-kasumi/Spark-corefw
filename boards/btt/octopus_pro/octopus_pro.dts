@@ -94,6 +94,8 @@
 		uart-timer = <&sw_uart_cnt>;
 	};
 
+	/*
+	// This is available, but PA14 (DIR) will conflict with SWCLK, so commented out.
 	motor7: motor7 {
 		compatible = "adi,tmc2209-uart";
 		step-gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
@@ -103,6 +105,7 @@
 		diag-gpios = <&gpiog 15 GPIO_ACTIVE_HIGH>;
 		uart-timer = <&sw_uart_cnt>;
 	};
+	*/
 
 	pulser: pulser {
 		compatible = "gpio-leds";

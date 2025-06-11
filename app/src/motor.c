@@ -166,6 +166,13 @@ void motor_set_target_pos_drv(pos_drv_t target) {
   motor_states[6].target_steps = target.m6;
 }
 
+void motor_set_target_steps(int motor_num, int target_steps) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
+    return;  // Invalid motor number
+  }
+  motor_states[motor_num].target_steps = target_steps;
+}
+
 pos_drv_t motor_get_current_pos_drv() {
   // Read current positions
   return (pos_drv_t){.m0 = motor_states[0].current_steps,

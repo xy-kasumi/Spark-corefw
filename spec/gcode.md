@@ -71,3 +71,21 @@ M5              ; Stop all EDM activity
 ```
 
 TODO: Document M-code interaction with motion system, error handling, safety interlocks
+
+### (future) M8: Start pump
+### (future) M9: Stop pump
+### (future) M10: Start grinder wire feeding
+Parameters: R (feed rate in mm/min, required)
+
+Examples:
+```
+M10 R0.1 ; start with wire feed rate of 15mm/min
+```
+
+### (future) M11: Stop grinder wire feeding
+Parameters: None
+
+Examples:
+```
+M11  ; Stop wire feed
+```
