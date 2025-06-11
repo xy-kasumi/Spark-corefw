@@ -190,7 +190,7 @@ void pulser_energize(bool negative,
                      float current_a,
                      float duty_pct) {
   if (!init_success) {
-    comm_print("Pulser energize: Not initialized");
+    comm_print_err("pulser: energize failed (not initialized)");
     return;
   }
 
@@ -215,20 +215,19 @@ void pulser_energize(bool negative,
   all_ok &= write_register(REG_POLARITY, polarity);
 
   if (!all_ok) {
-    comm_print("Pulser energize: I2C write failed");
+    comm_print_err("pulser: energize failed (I2C write failed)");
     return;
   }
 
   // Enable gate
   set_gate(true);
-  comm_print("Pulser energized: %s, %.0fµs, %.1fA, %.0f%%",
+  comm_print("pulser: energized (%s, %.0fµs, %.1fA, %.0f%%)",
              negative ? "T-" : "T+", (double)pulse_us, (double)current_a,
              (double)duty_pct);
 }
 
 void pulser_deenergize() {
   if (!init_success) {
-    comm_print("Pulser deenergize: Not initialized");
     return;
   }
 
@@ -238,11 +237,11 @@ void pulser_deenergize() {
   // Write polarity register to off
   bool ok = write_register(REG_POLARITY, 0);
   if (!ok) {
-    comm_print("Pulser deenergize: I2C write failed");
+    comm_print_err("pulser: deenergize failed (I2C write failed)");
     return;
   }
 
-  comm_print("Pulser deenergized");
+  comm_print("pulser: deenergized");
 }
 
 uint32_t pulser_get_buffer_count() {

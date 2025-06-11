@@ -18,7 +18,6 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 
-// 10K buffer for download data with fake data
 static uint8_t download_buffer[40000];
 static uint32_t download_buffer_size = 0;
 
@@ -144,7 +143,7 @@ static void cmd_download(char* args) {
   }
 
   uint32_t entry_count = download_buffer_size / 4;  // 4 bytes per entry
-  comm_print("Downloaded %u bytes (%u EDM entries)", download_buffer_size,
+  comm_print("Sending %u bytes (%u EDM entries)", download_buffer_size,
              entry_count);
   comm_print_blob(download_buffer, download_buffer_size);
 }
@@ -182,8 +181,6 @@ static void handle_console_command(char* command) {
   }
 
 cleanup:
-  // TODO: verify motion state is MOTION_STATE_STOPPED.
-
   // Clear cancel flag and return to IDLE
   g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
