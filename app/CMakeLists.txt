@@ -9,6 +9,7 @@ target_sources(app PRIVATE
   src/comm.c
   src/system.c
   src/gcode.c
+  src/gcode_base.c
   src/strutil.c
   src/settings.c
   src/motion.c

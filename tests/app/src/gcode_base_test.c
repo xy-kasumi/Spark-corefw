@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2025 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#include "gcode.h"
+#include "gcode_base.h"
+
 #include <zephyr/ztest.h>
 
-ZTEST(gcode, test_basic_g0_command) {
+ZTEST(gcode_base, test_basic_g0_command) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G0", &parsed);
 
@@ -18,7 +19,7 @@ ZTEST(gcode, test_basic_g0_command) {
                 "Z should not be specified");
 }
 
-ZTEST(gcode, test_g38_2_command) {
+ZTEST(gcode_base, test_g38_2_command) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G38.2", &parsed);
 
@@ -33,7 +34,7 @@ ZTEST(gcode, test_g38_2_command) {
                 "Z should not be specified");
 }
 
-ZTEST(gcode, test_g1_with_coordinates) {
+ZTEST(gcode_base, test_g1_with_coordinates) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G1 X10.5 Y-20.3 Z5", &parsed);
 
@@ -48,7 +49,7 @@ ZTEST(gcode, test_g1_with_coordinates) {
   zassert_equal(parsed.z, 5.0f, "Z should be 5.0");
 }
 
-ZTEST(gcode, test_g28_axis_only) {
+ZTEST(gcode_base, test_g28_axis_only) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G28 X", &parsed);
 
@@ -63,7 +64,7 @@ ZTEST(gcode, test_g28_axis_only) {
 }
 
 // M-code parsing tests
-ZTEST(gcode, test_basic_m3_command) {
+ZTEST(gcode_base, test_basic_m3_command) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3", &parsed);
 
@@ -79,7 +80,7 @@ ZTEST(gcode, test_basic_m3_command) {
                 "R should not be specified");
 }
 
-ZTEST(gcode, test_m3_with_all_parameters) {
+ZTEST(gcode_base, test_m3_with_all_parameters) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3 P750 Q1.5 R30", &parsed);
 
@@ -95,7 +96,7 @@ ZTEST(gcode, test_m3_with_all_parameters) {
   zassert_equal(parsed.r, 30.0f, "R should be 30.0");
 }
 
-ZTEST(gcode, test_m4_with_partial_parameters) {
+ZTEST(gcode_base, test_m4_with_partial_parameters) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M4 Q2.0 R25", &parsed);
 
@@ -111,7 +112,7 @@ ZTEST(gcode, test_m4_with_partial_parameters) {
   zassert_equal(parsed.r, 25.0f, "R should be 25.0");
 }
 
-ZTEST(gcode, test_m5_command) {
+ZTEST(gcode_base, test_m5_command) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M5", &parsed);
 
@@ -127,7 +128,7 @@ ZTEST(gcode, test_m5_command) {
                 "R should not be specified");
 }
 
-ZTEST(gcode, test_m_code_mixed_parameters) {
+ZTEST(gcode_base, test_m_code_mixed_parameters) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3 P1000 R50", &parsed);
 
@@ -142,21 +143,21 @@ ZTEST(gcode, test_m_code_mixed_parameters) {
   zassert_equal(parsed.r, 50.0f, "R should be 50.0");
 }
 
-ZTEST(gcode, test_invalid_m_code_parameter) {
+ZTEST(gcode_base, test_invalid_m_code_parameter) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3 P", &parsed);
 
   zassert_false(result, "M3 with bare P should fail to parse");
 }
 
-ZTEST(gcode, test_m_code_with_unknown_parameter) {
+ZTEST(gcode_base, test_m_code_with_unknown_parameter) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3 P500 S100", &parsed);
 
   zassert_false(result, "M3 with unknown parameter S should fail to parse");
 }
 
-ZTEST(gcode, test_invalid_m_code_number) {
+ZTEST(gcode_base, test_invalid_m_code_number) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M999", &parsed);
 
@@ -168,21 +169,21 @@ ZTEST(gcode, test_invalid_m_code_number) {
 }
 
 // Parse failure test cases
-ZTEST(gcode, test_empty_string) {
+ZTEST(gcode_base, test_empty_string) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("", &parsed);
 
   zassert_false(result, "Empty string should fail to parse");
 }
 
-ZTEST(gcode, test_whitespace_only) {
+ZTEST(gcode_base, test_whitespace_only) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("   ", &parsed);
 
   zassert_false(result, "Whitespace-only string should fail to parse");
 }
 
-ZTEST(gcode, test_extra_whitespace_success) {
+ZTEST(gcode_base, test_extra_whitespace_success) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G0   X10.5    Y20", &parsed);
 
@@ -195,35 +196,35 @@ ZTEST(gcode, test_extra_whitespace_success) {
   zassert_equal(parsed.y, 20.0f, "Y should be 20.0");
 }
 
-ZTEST(gcode, test_lowercase_command) {
+ZTEST(gcode_base, test_lowercase_command) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("g0 X10", &parsed);
 
   zassert_false(result, "Lowercase command should fail to parse");
 }
 
-ZTEST(gcode, test_lowercase_parameter) {
+ZTEST(gcode_base, test_lowercase_parameter) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G0 x10", &parsed);
 
   zassert_false(result, "Lowercase parameter should fail to parse");
 }
 
-ZTEST(gcode, test_garbled_command) {
+ZTEST(gcode_base, test_garbled_command) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G0abc X10", &parsed);
 
   zassert_false(result, "Garbled command should fail to parse");
 }
 
-ZTEST(gcode, test_garbled_number) {
+ZTEST(gcode_base, test_garbled_number) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G0 X10.5.2", &parsed);
 
   zassert_false(result, "Garbled number should fail to parse");
 }
 
-ZTEST(gcode, test_no_whitespace_between_params) {
+ZTEST(gcode_base, test_no_whitespace_between_params) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G0X1Y2", &parsed);
 
@@ -231,7 +232,7 @@ ZTEST(gcode, test_no_whitespace_between_params) {
                 "No whitespace between parameters should fail to parse");
 }
 
-ZTEST(gcode, test_invalid_decimal_format) {
+ZTEST(gcode_base, test_invalid_decimal_format) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("M3 P10..5", &parsed);
 
@@ -239,4 +240,4 @@ ZTEST(gcode, test_invalid_decimal_format) {
                 "Invalid decimal format (double decimal) should fail to parse");
 }
 
-ZTEST_SUITE(gcode, NULL, NULL, NULL, NULL, NULL);
+ZTEST_SUITE(gcode_base, NULL, NULL, NULL, NULL, NULL);

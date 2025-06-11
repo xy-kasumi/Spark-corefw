@@ -6,10 +6,10 @@ project(test_app LANGUAGES C)
 
 # Include the source files we want to test
 target_sources(app PRIVATE 
-    ../../app/src/gcode.c
+    ../../app/src/gcode_base.c
     ../../app/src/strutil.c
     ../../app/src/motion_base.c
-    src/gcode_test.c
+    src/gcode_base_test.c
     src/strutil_test.c
     src/motion_base_test.c
 )

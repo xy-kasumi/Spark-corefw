@@ -2,149 +2,179 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "gcode.h"
 
-#include "strutil.h"
+#include "comm.h"
+#include "gcode_base.h"
+#include "motion.h"
+#include "pulser.h"
+#include "system.h"
+#include "wirefeed.h"
 
-#include <string.h>
+#include <zephyr/kernel.h>
 
-// Parse G/M command number, handling decimals like G38.3
-static bool parse_command_number(char* token,
-                                 cmd_type_t* cmd_type,
-                                 int* code,
-                                 int* sub_code) {
-  if (token[0] == 'G') {
-    *cmd_type = CMD_TYPE_G;
-  } else if (token[0] == 'M') {
-    *cmd_type = CMD_TYPE_M;
-  } else {
-    return false;
+void exec_gcode(char* full_command) {
+  gcode_parsed_t parsed;
+  if (!parse_gcode(full_command, &parsed)) {
+    comm_print_err("Failed to parse G/M-code: %s", full_command);
+    return;
   }
 
-  // Skip command letter and parse main code
-  char* code_part = token + 1;
-  char* sub_part = split_at(code_part, '.');
-
-  if (!parse_int(code_part, code) || *code < 0 || *code > 999) {
-    return false;
-  }
-
-  if (sub_part) {
-    if (!parse_int(sub_part, sub_code) || *sub_code < 0 || *sub_code > 9) {
-      return false;
+  if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 0 &&
+      parsed.sub_code == -1) {
+    // G0 - rapid positioning
+    // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
+    if (parsed.x_state == AXIS_ONLY || parsed.y_state == AXIS_ONLY ||
+        parsed.z_state == AXIS_ONLY) {
+      comm_print_err("G0 requires axis values (e.g., X10.5), not bare axes");
+      return;
     }
-  } else {
-    *sub_code = -1;
-  }
-
-  return true;
-}
-
-// Parse axis parameter like "X123" or "X"
-static bool parse_axis_param(const char* token,
-                             char expected_axis,
-                             axis_state_t* state,
-                             float* value) {
-  if (token[0] != expected_axis) {
-    return false;
-  }
-
-  if (strlen(token) == 1) {
-    // Axis only (e.g., "X" for G28 X)
-    *state = AXIS_ONLY;
-    return true;
-  } else {
-    // Axis with value (e.g., "X10.5")
-    const char* value_str = token + 1;  // Skip axis letter
-    if (!parse_float(value_str, value)) {
-      return false;
+    if (parsed.x_state == AXIS_NOT_SPECIFIED &&
+        parsed.y_state == AXIS_NOT_SPECIFIED &&
+        parsed.z_state == AXIS_NOT_SPECIFIED) {
+      comm_print_err("G0 requires at least one axis parameter");
+      return;
     }
-    *state = AXIS_WITH_VALUE;
-    return true;
-  }
-}
 
-// Parse parameter like "P500" or "Q2.5"
-static bool parse_param(const char* token,
-                        char expected_param,
-                        param_state_t* state,
-                        float* value) {
-  if (token[0] != expected_param) {
-    return false;
-  }
-
-  if (strlen(token) == 1) {
-    return false;  // Parameter must have value
-  }
-
-  const char* value_str = token + 1;  // Skip parameter letter
-  if (!parse_float(value_str, value)) {
-    return false;
-  }
-
-  *state = PARAM_SPECIFIED;
-  return true;
-}
-
-bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
-  if (!line || !parsed) {
-    return false;
-  }
-
-  // Initialize result structure
-  *parsed = (gcode_parsed_t){0};
-
-  // Make mutable copy for parsing
-  char mut_line[256];
-  strncpy(mut_line, line, sizeof(mut_line) - 1);
-  mut_line[sizeof(mut_line) - 1] = '\0';
-
-  // Split into tokens by whitespace
-  char* token = mut_line;
-  char* rest = split_by_space(token);
-
-  // First token must be G or M command
-  if (!parse_command_number(token, &parsed->cmd_type, &parsed->code,
-                            &parsed->sub_code)) {
-    return false;
-  }
-
-  // Parse remaining parameters
-  while (rest) {
-    token = rest;
-    rest = split_by_space(token);
-
-    char param = token[0];
-
-    // Try axis parameters (for G-codes)
-    if (param == 'X') {
-      if (!parse_axis_param(token, 'X', &parsed->x_state, &parsed->x)) {
-        return false;
-      }
-    } else if (param == 'Y') {
-      if (!parse_axis_param(token, 'Y', &parsed->y_state, &parsed->y)) {
-        return false;
-      }
-    } else if (param == 'Z') {
-      if (!parse_axis_param(token, 'Z', &parsed->z_state, &parsed->z)) {
-        return false;
-      }
+    // Execute: move to specified coordinates
+    pos_phys_t p = motion_get_current_pos();
+    if (parsed.x_state == AXIS_WITH_VALUE) {
+      p.x = parsed.x;
     }
-    // Try P/Q/R parameters (for M-codes)
-    else if (param == 'P') {
-      if (!parse_param(token, 'P', &parsed->p_state, &parsed->p)) {
-        return false;
-      }
-    } else if (param == 'Q') {
-      if (!parse_param(token, 'Q', &parsed->q_state, &parsed->q)) {
-        return false;
-      }
-    } else if (param == 'R') {
-      if (!parse_param(token, 'R', &parsed->r_state, &parsed->r)) {
-        return false;
-      }
+    if (parsed.y_state == AXIS_WITH_VALUE) {
+      p.y = parsed.y;
+    }
+    if (parsed.z_state == AXIS_WITH_VALUE) {
+      p.z = parsed.z;
+    }
+    motion_enqueue_move(p);
+  } else if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 1 &&
+             parsed.sub_code == -1) {
+    // G1 - controlled EDM move
+    // Same validation as G0
+    if (parsed.x_state == AXIS_ONLY || parsed.y_state == AXIS_ONLY ||
+        parsed.z_state == AXIS_ONLY) {
+      comm_print_err("G1 requires axis values (e.g., X10.5), not bare axes");
+      return;
+    }
+    if (parsed.x_state == AXIS_NOT_SPECIFIED &&
+        parsed.y_state == AXIS_NOT_SPECIFIED &&
+        parsed.z_state == AXIS_NOT_SPECIFIED) {
+      comm_print_err("G1 requires at least one axis parameter");
+      return;
+    }
+
+    // Execute: EDM move to specified coordinates
+    pos_phys_t p = motion_get_current_pos();
+    if (parsed.x_state == AXIS_WITH_VALUE) {
+      p.x = parsed.x;
+    }
+    if (parsed.y_state == AXIS_WITH_VALUE) {
+      p.y = parsed.y;
+    }
+    if (parsed.z_state == AXIS_WITH_VALUE) {
+      p.z = parsed.z;
+    }
+    motion_enqueue_edm_move(p);
+  } else if (parsed.cmd_type == CMD_TYPE_G && parsed.code == 28 &&
+             parsed.sub_code == -1) {
+    // G28 - homing
+    // Validate: requires exactly one axis with AXIS_ONLY format
+    bool x_specified = (parsed.x_state == AXIS_ONLY);
+    bool y_specified = (parsed.y_state == AXIS_ONLY);
+    bool z_specified = (parsed.z_state == AXIS_ONLY);
+    int axis_count = x_specified + y_specified + z_specified;
+
+    if (axis_count != 1) {
+      comm_print_err(
+          "G28 requires exactly one axis without value (X, Y, or Z)");
+      return;
+    }
+
+    // Execute: home the specified axis
+    if (x_specified) {
+      motion_enqueue_home(0);  // Home X axis
+    } else if (y_specified) {
+      motion_enqueue_home(1);  // Home Y axis
+    } else if (z_specified) {
+      motion_enqueue_home(2);  // Home Z axis
+    }
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 3 &&
+             parsed.sub_code == -1) {
+    // M3 - Energize, tool negative voltage
+    // Validate: P (pulse time), Q (current), R (duty) are optional
+    float pulse_time_us = (parsed.p_state == PARAM_SPECIFIED)
+                              ? parsed.p
+                              : 500.0f;  // Default 500us
+    float pulse_current_a =
+        (parsed.q_state == PARAM_SPECIFIED) ? parsed.q : 1.0f;  // Default 1A
+    float max_duty_pct =
+        (parsed.r_state == PARAM_SPECIFIED) ? parsed.r : 25.0f;  // Default 25%
+
+    pulser_energize(true, pulse_time_us, pulse_current_a, max_duty_pct);
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 4 &&
+             parsed.sub_code == -1) {
+    // M4 - Energize, tool positive voltage
+    // Validate: P (pulse time), Q (current), R (duty) are optional
+    float pulse_time_us = (parsed.p_state == PARAM_SPECIFIED)
+                              ? parsed.p
+                              : 500.0f;  // Default 500us
+    float pulse_current_a =
+        (parsed.q_state == PARAM_SPECIFIED) ? parsed.q : 1.0f;  // Default 1A
+    float max_duty_pct =
+        (parsed.r_state == PARAM_SPECIFIED) ? parsed.r : 25.0f;  // Default 25%
+
+    pulser_energize(false, pulse_time_us, pulse_current_a, max_duty_pct);
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 5 &&
+             parsed.sub_code == -1) {
+    // M5 - De-energize
+    pulser_deenergize();
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 10 &&
+             parsed.sub_code == -1) {
+    // M10 - Start wire feeding
+    if (parsed.r_state != PARAM_SPECIFIED) {
+      comm_print_err("M10 requires R parameter (feed rate in mm/min)");
+      return;
+    }
+    wirefeed_start(parsed.r);
+  } else if (parsed.cmd_type == CMD_TYPE_M && parsed.code == 11 &&
+             parsed.sub_code == -1) {
+    // M11 - Stop wire feeding
+    wirefeed_stop();
+  } else {
+    if (parsed.cmd_type == CMD_TYPE_G) {
+      comm_print_err("Unsupported G-code: G%d", parsed.code);
+    } else if (parsed.cmd_type == CMD_TYPE_M) {
+      comm_print_err("Unsupported M-code: M%d", parsed.code);
     } else {
-      return false;  // Unknown parameter
+      comm_print_err("Unknown command type");
     }
+    return;
   }
-
-  return true;
+  while (true) {
+    motion_state_t state = motion_get_current_state();
+    if (state == MOTION_STATE_STOPPED) {
+      motion_stop_reason_t stop_reason = motion_get_last_stop_reason();
+      switch (stop_reason) {
+        case STOP_REASON_TARGET_REACHED:
+          comm_print("Motion completed: target reached");
+          break;
+        case STOP_REASON_STALL_DETECTED:
+          comm_print("Motion completed: stall detected");
+          break;
+        case STOP_REASON_PROBE_TRIGGERED:
+          comm_print("Motion completed: probe triggered");
+          break;
+        case STOP_REASON_CANCELLED:
+          comm_print("Motion completed: cancelled");
+          // safety measures
+          pulser_deenergize();
+          comm_print("Pulser de-energized due to cancel");
+          break;
+        default:
+          comm_print("Motion completed: unknown reason");
+          break;
+      }
+      break;
+    }
+    k_sleep(K_MSEC(10));
+  }
 }

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "strutil.h"
+
 #include <zephyr/ztest.h>
 
 ZTEST(strutil, test_split_at) {
