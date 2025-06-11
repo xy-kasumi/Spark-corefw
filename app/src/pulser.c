@@ -132,23 +132,23 @@ static void edm_poll_timer_handler(struct k_timer* timer) {
 
 void pulser_init() {
   if (!i2c_dev) {
-    comm_print("Pulser init: I2C device not found");
+    comm_print("pulser: I2C device not found");
     return;
   }
 
   if (!device_is_ready(i2c_dev)) {
-    comm_print("Pulser init: I2C device not ready");
+    comm_print("pulser: init I2C device not ready");
     return;
   }
 
   if (!gpio_is_ready_dt(&gate_gpio)) {
-    comm_print("Pulser init: Gate GPIO not ready");
+    comm_print("pulser: init gate GPIO not ready");
     return;
   }
 
   int ret = gpio_pin_configure_dt(&gate_gpio, GPIO_OUTPUT_INACTIVE);
   if (ret < 0) {
-    comm_print("Pulser init: Failed to configure gate GPIO");
+    comm_print("pulser: init failed to configure gate GPIO");
     return;
   }
 
@@ -160,30 +160,28 @@ void pulser_init() {
   k_timer_start(&edm_poll_timer, K_MSEC(1), K_MSEC(1));
 
   init_success = true;
-  comm_print("Pulser initialized with 1ms polling via workqueue");
+  comm_print("pulser: init ok (1ms tick)");
 }
 
 void pulser_dump_status() {
-  comm_print("=== Pulser Status ===");
-  comm_print("Init: %s", init_success ? "OK" : "FAIL");
-  comm_print("I2C device: %s", i2c_dev ? "found" : "not found");
-  comm_print("Poll count: %u", poll_count);
+  if (!init_success) {
+    comm_print("status: init failed");
+    return;
+  }
+
+  comm_print("poll count: %u", poll_count);
   comm_print("EDM state: n_pulse=%u, r_pulse=%u, r_short=%u, r_open=%u",
              last_n_pulse, last_r_pulse, last_r_short, last_r_open);
   comm_print("EDM buffer: %u/%u entries (%.1f%% full)", edm_buffer_count,
              EDM_BUFFER_SIZE,
              (double)(edm_buffer_count * 100) / EDM_BUFFER_SIZE);
 
-  if (init_success) {
-    uint8_t temperature;
-    if (read_register(REG_TEMPERATURE, &temperature)) {
-      comm_print("Temperature: %u", temperature);
-      comm_print("I2C: OK");
-    } else {
-      comm_print("I2C: FAIL (register read failed)");
-    }
+  uint8_t temperature;
+  if (read_register(REG_TEMPERATURE, &temperature)) {
+    comm_print("temperature: %u", temperature);
+    comm_print("status: ok");
   } else {
-    comm_print("I2C: SKIP (init failed)");
+    comm_print("status: i2c read fail");
   }
 }
 

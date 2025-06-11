@@ -153,7 +153,7 @@ void motion_init() {
   k_timer_init(&motion_timer, motion_tick_handler, NULL);
   k_timer_start(&motion_timer, K_MSEC(1), K_MSEC(1));
 
-  comm_print("Motion initialized with 1ms tick");
+  comm_print("motion: init ok (1ms tick)");
 }
 
 pos_phys_t motion_get_current_pos() {

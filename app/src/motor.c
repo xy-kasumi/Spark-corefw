@@ -258,7 +258,7 @@ void motor_init() {
   // Check motor devices
   for (int i = 0; i < MOTOR_COUNT; i++) {
     if (!device_is_ready(motors[i])) {
-      comm_print_err("Motor%d device not ready", i);
+      comm_print_err("motor: mot%d not ready", i);
       return;
     }
   }
@@ -273,16 +273,17 @@ void motor_init() {
   counter_start(step_gen_cnt);
   int ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
   if (ret < 0) {
-    comm_print_err("Step generation timer init failed: %d", ret);
+    comm_print_err("motor: step gen timer init failed: %d", ret);
     return;
   }
-  comm_print("Step generation initialized");
 
   // Configure TCOOLTHRS for all motors
   for (int i = 0; i < MOTOR_COUNT; i++) {
     ret = tmc_set_tcoolthrs(motors[i], 750000);
     if (ret < 0) {
-      comm_print_err("Failed to set TCOOLTHRS for motor %d", i);
+      comm_print_err("motor: failed to set TCOOLTHRS for mot%d", i);
     }
   }
+
+  comm_print("motor: init ok (30us tick)");
 }

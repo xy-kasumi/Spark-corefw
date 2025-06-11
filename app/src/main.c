@@ -31,7 +31,7 @@ static void cmd_help(char* args) {
   comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
   comm_print("get <key> - Get specific variable value");
-  comm_print("download - Download EDM log data as base64url blob");
+  comm_print("download - Download EDM log data as blob");
   comm_print("! - Cancel current operation");
 }
 
@@ -209,7 +209,7 @@ int main() {
 
   // apply default settings
   settings_apply_all();
-  comm_print("Default settings applied");
+  comm_print("default settings applied");
 
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");
