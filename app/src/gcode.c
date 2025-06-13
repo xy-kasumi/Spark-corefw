@@ -116,7 +116,9 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       comm_print("probe triggered");
       break;
     case STOP_REASON_CANCELLED:
-      comm_print("motion cancelled (for safety, pulser de-energized & wirefeed stopped)");
+      comm_print(
+          "motion cancelled (for safety, pulser de-energized & wirefeed "
+          "stopped)");
       pulser_deenergize();  // for safety
       wirefeed_stop();      // for safety
       break;
