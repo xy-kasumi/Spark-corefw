@@ -31,12 +31,6 @@ static void wirefeed_tick_handler(struct k_timer* timer) {
     return;
   }
 
-  // Check for cancellation
-  if (g_cancel_requested) {
-    state = WIREFEED_STATE_STOPPED;
-    return;
-  }
-
   // Update position
   current_pos_mm += mm_per_tick;
 
