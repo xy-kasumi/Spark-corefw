@@ -155,17 +155,6 @@ void motor_deenergize_after(int motor_num, int timeout_ms) {
   }
 }
 
-void motor_set_target_pos_drv(pos_drv_t target) {
-  // Atomic update of all targets
-  motor_states[0].target_steps = target.m0;
-  motor_states[1].target_steps = target.m1;
-  motor_states[2].target_steps = target.m2;
-  motor_states[3].target_steps = target.m3;
-  motor_states[4].target_steps = target.m4;
-  motor_states[5].target_steps = target.m5;
-  motor_states[6].target_steps = target.m6;
-}
-
 void motor_set_target_steps(int motor_num, int target_steps) {
   if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
     return;  // Invalid motor number
@@ -173,15 +162,11 @@ void motor_set_target_steps(int motor_num, int target_steps) {
   motor_states[motor_num].target_steps = target_steps;
 }
 
-pos_drv_t motor_get_current_pos_drv() {
-  // Read current positions
-  return (pos_drv_t){.m0 = motor_states[0].current_steps,
-                     .m1 = motor_states[1].current_steps,
-                     .m2 = motor_states[2].current_steps,
-                     .m3 = motor_states[3].current_steps,
-                     .m4 = motor_states[4].current_steps,
-                     .m5 = motor_states[5].current_steps,
-                     .m6 = motor_states[6].current_steps};
+int motor_get_current_steps(int motor_num) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
+    return 0;  // Invalid motor number
+  }
+  return motor_states[motor_num].current_steps;
 }
 
 void motor_dump_status() {

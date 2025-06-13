@@ -10,14 +10,6 @@
 
 #define MOTOR_COUNT 7
 
-/**
- * Represents position in driver coordinates (microsteps).
- * Values are absolute microsteps since motion_init() was called.
- */
-typedef struct {
-  int m0, m1, m2, m3, m4, m5, m6;  // Absolute microsteps since motion_init()
-} pos_drv_t;
-
 /** (blocking) Initialize motor subsystem and step generation */
 void motor_init();
 
@@ -29,23 +21,18 @@ void motor_init();
 void queue_step(int motor_num, bool dir);
 
 /**
- * Set absolute target position in driver coordinates (microsteps)
- * Target can be any absolute position, but caller should ensure it's
- * "near enough" to current position for reasonable step rate.
- * If target is far from current position, motors will step as fast
- * as possible towards target.
- */
-void motor_set_target_pos_drv(pos_drv_t target);
-
-/**
  * Set absolute target position for a specific motor (microsteps)
  * @param motor_num Motor number (0-6)
  * @param target_steps Target position in microsteps
  */
 void motor_set_target_steps(int motor_num, int target_steps);
 
-/** Get current position in driver coordinates (microsteps) */
-pos_drv_t motor_get_current_pos_drv();
+/**
+ * Get current position for a specific motor (microsteps)
+ * @param motor_num Motor number (0-6)
+ * @return Current position in microsteps
+ */
+int motor_get_current_steps(int motor_num);
 
 /**
  * Get motor device by number (0-6). Returns NULL for invalid motor

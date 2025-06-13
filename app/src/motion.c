@@ -16,6 +16,11 @@ static const float VELOCITY_MM_PER_S = 10.0f;
 static const float EDM_INITIAL_VELOCITY_MM_PER_S = 0.5f;  // Start slow for EDM
 static const float TICK_PERIOD_S = 0.001f;  // 1ms tick period in seconds
 
+// Local position type for motion-controlled axes only
+typedef struct {
+  int m0, m1, m2;  // X, Y, Z axes in microsteps
+} pos_drv_t;
+
 // Motor configuration (pushed from settings)
 static float motor_unitsteps[MOTOR_COUNT] = {200.0f, 200.0f, 200.0f, 200.0f,
                                              200.0f, 200.0f, 200.0f};
@@ -26,7 +31,7 @@ static float home_sides[3] = {1.0f, 1.0f, 1.0f};
 
 // Homing offset: bridges gap between driver coords and physical coords
 // Updated after each successful home operation
-static pos_drv_t homing_offset = {0, 0, 0, 0, 0, 0, 0};
+static pos_drv_t homing_offset = {0, 0, 0};
 
 // Constants
 static const float MAX_TRAVEL_MM = 500.0f;
@@ -48,7 +53,9 @@ static pos_drv_t phys_to_drv(pos_phys_t phys) {
 // Update homing offset after successful homing
 static void update_homing_offset(int axis) {
   // Get current driver position (where we actually are)
-  pos_drv_t current_drv = motor_get_current_pos_drv();
+  pos_drv_t current_drv = {.m0 = motor_get_current_steps(0),
+                           .m1 = motor_get_current_steps(1),
+                           .m2 = motor_get_current_steps(2)};
 
   // Calculate where driver coordinates should be for the new physical origin
   pos_phys_t origin_phys = {home_origins[0], home_origins[1], home_origins[2]};
@@ -145,7 +152,9 @@ static void motion_tick_handler(struct k_timer* timer) {
 
   // Convert to driver coordinates and send to motors
   pos_drv_t target_drv = phys_to_drv(pos);
-  motor_set_target_pos_drv(target_drv);
+  motor_set_target_steps(0, target_drv.m0);
+  motor_set_target_steps(1, target_drv.m1);
+  motor_set_target_steps(2, target_drv.m2);
 }
 
 void motion_init() {
