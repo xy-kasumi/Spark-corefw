@@ -1,4 +1,62 @@
-# Supported G-Codes
+# G-code Spec
+
+## Machine Geometry
+
+The spark machine has following mandatory component
+* tool
+  * required: X,Y,Z translational axes
+  * optional: C axis
+* work
+  * optional: A, B rotaty axes
+* grinder
+  * controlled by M-code; no coordinate value
+
+Each of these components has its origin.
+With the machine origin (which is determined by axis limit sensing),
+there are 4 origins.
+
+We have 3 coordinate systems based on these origins:
+* Machine coordinate system (default on boot; G53)
+  * coordinate value = tool origin wrt. machine origin
+* Grinder coordinate system (G54)
+  * coordinate value = tool origin wrt. grinder origin
+* Work coordinate system (G55)
+  * coordinate value = tool origin wrt. work origin
+
+We do not provide "tool center point control".
+Management of current tool shape is G-code programs' responsibility.
+
+### Standard configuration
+For now, we have only one configuration of axes and we call it "standard".
+G-code, the firmware, and the software should be flexible enough to allow different configurations in future.
+
+![Axes in standard config](gcode-std-axes.png)
+![Origins in standard config](gcode-std-origins.png)
+
+
+## Syntax Difference from RS-274/NGC
+`;` is just a comment initiator. No distinction between line and "block".
+```
+G0 X0 ; G1 X1 <- this "G1..." part is just a comment
+```
+
+We don't support multiple G or M codes in single line.
+Valid Examples
+```
+G54
+G0 Y10
+G53
+G0 X10
+G54
+```
+Invalid Example
+```
+G54
+G0 Y10
+G53 G0 X10 ; this is not allowed
+```
+
+## Supported G-codes
 
 ### G0: Fast move
 Parameters: X, Y, Z (all optional, but at least one required)
@@ -28,7 +86,15 @@ Coordinates of homed axes will be set to origin value configured by
 When all-axis homing (`G28`) is instructed, `a.{x,y,z}.home.phase` will
 be used for grouping and ordering of axes.
 
-# Supported M-Codes
+
+### G53: Use machine coordinate
+
+### G54: Use grinder coordinate
+
+### G55: Use work coordinate
+
+
+## Supported M-codes
 
 ### M3: Energize, tool negative voltage
 Parameters: P (pulse time in µs), Q (current in A), R (duty cycle %)
