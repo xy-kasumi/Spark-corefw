@@ -13,6 +13,7 @@ target_sources(app PRIVATE
     src/gcode_base_test.c
     src/strutil_test.c
     src/motion_base_test.c
+    src/coords_test.c
 )
 
 # Include directories

@@ -4,5 +4,7 @@ tests:
     tags: unit_test
   spark.app.motion_base:
     tags: unit_test
+  spark.app.coords:
+    tags: unit_test
   spark.app.strutil:
     tags: unit_test
