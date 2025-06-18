@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "settings.h"
 
+#include "coords.h"
+#include "gcode.h"
 #include "motion.h"
 #include "motor.h"
 #include "strutil.h"
@@ -18,6 +20,9 @@ typedef struct {
   float value;
 } setting_entry_t;
 
+// Coordinate system offsets (accessible by gcode.c)
+static coord_offsets_t g_coord_offsets = {0};
+
 // Settings array with all 3 motors and axes (sorted by key)
 static setting_entry_t settings[] = {
     // Axis settings
@@ -27,6 +32,13 @@ static setting_entry_t settings[] = {
     {"a.y.side", -1.0f},
     {"a.z.origin", 0.0f},
     {"a.z.side", 1.0f},
+    // Coordinate system settings
+    {"cs.g.pos.x", 0.0f},
+    {"cs.g.pos.y", 0.0f},
+    {"cs.g.pos.z", 0.0f},
+    {"cs.w.pos.x", 0.0f},
+    {"cs.w.pos.y", 0.0f},
+    {"cs.w.pos.z", 0.0f},
     // Motor settings
     {"m.0.current", 30.0f},
     {"m.0.idlems", 200.0f},
@@ -159,6 +171,75 @@ static bool apply_axis(char* mut_key, float value) {
   return false;
 }
 
+// Coordinate system-specific setting application under "cs."
+static bool apply_cs(char* mut_key, float value) {
+  // Parse: {coord_system}.pos.{axis}
+  char* rest = split_at(mut_key, '.');
+  if (!rest || strcmp(rest, "pos") != 0) {
+    return false;  // Must be "pos"
+  }
+
+  // Parse coordinate system and axis
+  char* axis = split_at(rest, '.');
+  if (!axis) {
+    return false;
+  }
+
+  // Apply to appropriate coordinate system
+  coord_system_t cs_type;
+  int axis_index;
+
+  if (strcmp(mut_key, "g") == 0) {
+    cs_type = COORD_SYSTEM_GRINDER;
+  } else if (strcmp(mut_key, "w") == 0) {
+    cs_type = COORD_SYSTEM_WORK;
+  } else {
+    return false;
+  }
+
+  if (strcmp(axis, "x") == 0) {
+    axis_index = 0;
+  } else if (strcmp(axis, "y") == 0) {
+    axis_index = 1;
+  } else if (strcmp(axis, "z") == 0) {
+    axis_index = 2;
+  } else {
+    return false;
+  }
+
+  // Update local storage and push to gcode subsystem
+  gcode_set_coord_offset(cs_type, axis_index, value);
+
+  // Also update local storage for consistency
+  if (cs_type == COORD_SYSTEM_GRINDER) {
+    switch (axis_index) {
+      case 0:
+        g_coord_offsets.grinder_origin.x = value;
+        break;
+      case 1:
+        g_coord_offsets.grinder_origin.y = value;
+        break;
+      case 2:
+        g_coord_offsets.grinder_origin.z = value;
+        break;
+    }
+  } else {
+    switch (axis_index) {
+      case 0:
+        g_coord_offsets.work_origin.x = value;
+        break;
+      case 1:
+        g_coord_offsets.work_origin.y = value;
+        break;
+      case 2:
+        g_coord_offsets.work_origin.z = value;
+        break;
+    }
+  }
+
+  return true;
+}
+
 // Hierarchical apply dispatcher
 static bool apply_setting(const char* key, float value) {
   // Make mutable copy for parsing
@@ -176,6 +257,8 @@ static bool apply_setting(const char* key, float value) {
     return apply_motor(rest, value);
   } else if (strcmp(mut_key, "a") == 0) {
     return apply_axis(rest, value);
+  } else if (strcmp(mut_key, "cs") == 0) {
+    return apply_cs(rest, value);
   }
   return false;
 }

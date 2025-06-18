@@ -8,6 +8,8 @@
 
 #include <stdbool.h>
 
+#include "coords.h"
+
 // Positional resolution of EDM control in mm.
 // Internally, everything is handled by "notch" of this length along motion
 // path.
@@ -17,29 +19,6 @@
 // distance. e.g. if EDM_RESOLUTION_MM = 0.005, EDM_HISTORY_SIZE = 201, then
 // retraction up to 1.0 mm is possible.
 #define EDM_HISTORY_SIZE 201
-
-/** Represents a single physical coordinate. (i.e. coordinates specification in
- * G-code)
- */
-typedef struct {
-  float x;
-  float y;
-  float z;
-  // a, b, c etc.
-} pos_phys_t;
-
-/** Compute distance between two pos_phys_t points.
- * @return distance in mm
- */
-float posp_dist(const pos_phys_t* a, const pos_phys_t* b);
-
-/** Linearly interpolate between a (t=0), and b (t=1).
- * t can be outside of [0, 1] range, in which case it will be extrapolated.
- */
-void posp_interp(const pos_phys_t* a,
-                 const pos_phys_t* b,
-                 float t,
-                 pos_phys_t* out);
 
 // path_buffer_t represents a path and a current position, typed by pos_phys_t.
 //

@@ -5,6 +5,7 @@
  * Main command loop is executed here.
  */
 #include "comm.h"
+#include "coords.h"
 #include "gcode.h"
 #include "motion.h"
 #include "motor.h"
@@ -186,9 +187,23 @@ cleanup:
   g_machine_state = STATE_IDLE;
 
   // Print ready with current position
-  pos_phys_t current_pos = motion_get_current_pos();
-  comm_print("ready X%.3f Y%.3f Z%.3f", (double)current_pos.x,
-             (double)current_pos.y, (double)current_pos.z);
+  pos_phys_t machine_pos = motion_get_current_pos();
+  coord_system_t current_cs = gcode_get_current_coord_system();
+  const coord_offsets_t* offsets = gcode_get_coord_offsets();
+
+  if (current_cs == COORD_SYSTEM_MACHINE) {
+    comm_print("ready X%.3f Y%.3f Z%.3f (machine)", (double)machine_pos.x,
+               (double)machine_pos.y, (double)machine_pos.z);
+  } else {
+    // Convert machine position to current coordinate system for display
+    pos_phys_t cs_pos = coords_from_machine(&machine_pos, current_cs, offsets);
+    const char* cs_name =
+        (current_cs == COORD_SYSTEM_GRINDER) ? "grinder" : "work";
+    comm_print("ready X%.3f Y%.3f Z%.3f (%s) X%.3f Y%.3f Z%.3f (machine)",
+               (double)cs_pos.x, (double)cs_pos.y, (double)cs_pos.z, cs_name,
+               (double)machine_pos.x, (double)machine_pos.y,
+               (double)machine_pos.z);
+  }
 }
 
 int main() {

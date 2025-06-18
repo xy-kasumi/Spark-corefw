@@ -1,11 +1,20 @@
 // SPDX-FileCopyrightText: 2025 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * (Stateless) Coordinate system transformation utilities.
+ * (Stateless) Coordinate system transformation utilities and fundamental
+ * position type.
  */
 #pragma once
 
-#include "motion_base.h"
+/** Represents a single physical coordinate. (i.e. coordinates specification in
+ * G-code)
+ */
+typedef struct {
+  float x;
+  float y;
+  float z;
+  // a, b, c etc.
+} pos_phys_t;
 
 /** Supported coordinate systems */
 typedef enum {
@@ -29,8 +38,8 @@ typedef struct {
  * @return Position in machine coordinates
  */
 pos_phys_t coords_to_machine(const pos_phys_t* pos,
-                              coord_system_t from_cs,
-                              const coord_offsets_t* offsets);
+                             coord_system_t from_cs,
+                             const coord_offsets_t* offsets);
 
 /** Convert position from machine coordinates to specified coordinate system.
  * @param machine_pos Position in machine coordinates
@@ -39,5 +48,18 @@ pos_phys_t coords_to_machine(const pos_phys_t* pos,
  * @return Position in target coordinate system
  */
 pos_phys_t coords_from_machine(const pos_phys_t* machine_pos,
-                                coord_system_t to_cs,
-                                const coord_offsets_t* offsets);
+                               coord_system_t to_cs,
+                               const coord_offsets_t* offsets);
+
+/** Compute distance between two pos_phys_t points.
+ * @return distance in mm
+ */
+float posp_dist(const pos_phys_t* a, const pos_phys_t* b);
+
+/** Linearly interpolate between a (t=0), and b (t=1).
+ * t can be outside of [0, 1] range, in which case it will be extrapolated.
+ */
+void posp_interp(const pos_phys_t* a,
+                 const pos_phys_t* b,
+                 float t,
+                 pos_phys_t* out);

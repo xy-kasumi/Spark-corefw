@@ -35,7 +35,7 @@ but currently unavailable.
 		* 0, 1, 2... (nat-number)
 		* when auto-homing, phase is executed sequentially
 		* same-phase axes are homed simultaneously
-* (future) cs.{w,g}.pos.{x,y,z}
+* cs.{w,g}.pos.{x,y,z}
   * g: grinder's origin in machine coordinates
   * w: work's origin in machine coodinates
   * must be configured by user to match machine's spec

@@ -12,6 +12,8 @@
 
 #include <stdbool.h>
 
+#include "coords.h"
+
 /** (blocking) Set a setting value. Returns true on success. */
 bool settings_set(const char* key, float value);
 

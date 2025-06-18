@@ -5,22 +5,6 @@
 #include <math.h>
 #include <string.h>
 
-float posp_dist(const pos_phys_t* a, const pos_phys_t* b) {
-  float dx = b->x - a->x;
-  float dy = b->y - a->y;
-  float dz = b->z - a->z;
-  return sqrtf(dx * dx + dy * dy + dz * dz);
-}
-
-void posp_interp(const pos_phys_t* a,
-                 const pos_phys_t* b,
-                 float t,
-                 pos_phys_t* out) {
-  out->x = a->x + (b->x - a->x) * t;
-  out->y = a->y + (b->y - a->y) * t;
-  out->z = a->z + (b->z - a->z) * t;
-}
-
 void pb_init(path_buffer_t* pb,
              const pos_phys_t* src,
              const pos_phys_t* dst,

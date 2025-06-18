@@ -3,13 +3,19 @@
 #include "gcode.h"
 
 #include "comm.h"
+#include "coords.h"
 #include "gcode_base.h"
 #include "motion.h"
 #include "pulser.h"
+#include "settings.h"
 #include "system.h"
 #include "wirefeed.h"
 
 #include <zephyr/kernel.h>
+
+// Modal state for coordinate systems
+static coord_system_t current_coord_system = COORD_SYSTEM_MACHINE;
+static coord_offsets_t coord_offsets = {0};
 
 static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
   if (parsed->code == 0 && parsed->sub_code == -1) {
@@ -28,17 +34,27 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     }
 
     // Execute: move to specified coordinates
-    pos_phys_t p = motion_get_current_pos();
+    // Get current position in machine coordinates
+    pos_phys_t machine_pos = motion_get_current_pos();
+    // Convert to current coordinate system for updating
+    pos_phys_t target_pos =
+        coords_from_machine(&machine_pos, current_coord_system, &coord_offsets);
+
+    // Update with parsed values
     if (parsed->x_state == AXIS_WITH_VALUE) {
-      p.x = parsed->x;
+      target_pos.x = parsed->x;
     }
     if (parsed->y_state == AXIS_WITH_VALUE) {
-      p.y = parsed->y;
+      target_pos.y = parsed->y;
     }
     if (parsed->z_state == AXIS_WITH_VALUE) {
-      p.z = parsed->z;
+      target_pos.z = parsed->z;
     }
-    motion_enqueue_move(p);
+
+    // Convert back to machine coordinates for motion system
+    pos_phys_t machine_target =
+        coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
+    motion_enqueue_move(machine_target);
   } else if (parsed->code == 1 && parsed->sub_code == -1) {
     // G1 - controlled EDM move
     // Same validation as G0
@@ -55,17 +71,27 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     }
 
     // Execute: EDM move to specified coordinates
-    pos_phys_t p = motion_get_current_pos();
+    // Get current position in machine coordinates
+    pos_phys_t machine_pos = motion_get_current_pos();
+    // Convert to current coordinate system for updating
+    pos_phys_t target_pos =
+        coords_from_machine(&machine_pos, current_coord_system, &coord_offsets);
+
+    // Update with parsed values
     if (parsed->x_state == AXIS_WITH_VALUE) {
-      p.x = parsed->x;
+      target_pos.x = parsed->x;
     }
     if (parsed->y_state == AXIS_WITH_VALUE) {
-      p.y = parsed->y;
+      target_pos.y = parsed->y;
     }
     if (parsed->z_state == AXIS_WITH_VALUE) {
-      p.z = parsed->z;
+      target_pos.z = parsed->z;
     }
-    motion_enqueue_edm_move(p);
+
+    // Convert back to machine coordinates for motion system
+    pos_phys_t machine_target =
+        coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
+    motion_enqueue_edm_move(machine_target);
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
     // Validate: requires exactly one axis with AXIS_ONLY format
@@ -88,6 +114,21 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     } else if (z_specified) {
       motion_enqueue_home(2);  // Home Z axis
     }
+  } else if (parsed->code == 53 && parsed->sub_code == -1) {
+    // G53 - Use machine coordinate system
+    current_coord_system = COORD_SYSTEM_MACHINE;
+    comm_print("coordinate system: machine");
+    return;  // No motion, return early
+  } else if (parsed->code == 54 && parsed->sub_code == -1) {
+    // G54 - Use grinder coordinate system
+    current_coord_system = COORD_SYSTEM_GRINDER;
+    comm_print("coordinate system: grinder");
+    return;  // No motion, return early
+  } else if (parsed->code == 55 && parsed->sub_code == -1) {
+    // G55 - Use work coordinate system
+    current_coord_system = COORD_SYSTEM_WORK;
+    comm_print("coordinate system: work");
+    return;  // No motion, return early
   } else {
     if (parsed->sub_code != -1) {
       comm_print_err("Unsupported G-code: G%d.%d", parsed->code,
@@ -185,4 +226,39 @@ void exec_gcode(char* full_command) {
   } else if (parsed.cmd_type == CMD_TYPE_M) {
     exec_mcode_cmd(&parsed);
   }
+}
+
+coord_system_t gcode_get_current_coord_system() {
+  return current_coord_system;
+}
+
+void gcode_set_coord_offset(coord_system_t cs_type, int axis, float value) {
+  pos_phys_t* target_origin = NULL;
+
+  if (cs_type == COORD_SYSTEM_GRINDER) {
+    target_origin = &coord_offsets.grinder_origin;
+  } else if (cs_type == COORD_SYSTEM_WORK) {
+    target_origin = &coord_offsets.work_origin;
+  } else {
+    return;  // Invalid coordinate system
+  }
+
+  switch (axis) {
+    case 0:
+      target_origin->x = value;
+      break;
+    case 1:
+      target_origin->y = value;
+      break;
+    case 2:
+      target_origin->z = value;
+      break;
+    default:
+      // Invalid axis, do nothing
+      break;
+  }
+}
+
+const coord_offsets_t* gcode_get_coord_offsets() {
+  return &coord_offsets;
 }
