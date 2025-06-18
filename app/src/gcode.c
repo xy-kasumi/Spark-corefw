@@ -7,7 +7,6 @@
 #include "gcode_base.h"
 #include "motion.h"
 #include "pulser.h"
-#include "settings.h"
 #include "system.h"
 #include "wirefeed.h"
 

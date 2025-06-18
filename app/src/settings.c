@@ -20,9 +20,6 @@ typedef struct {
   float value;
 } setting_entry_t;
 
-// Coordinate system offsets (accessible by gcode.c)
-static coord_offsets_t g_coord_offsets = {0};
-
 // Settings array with all 3 motors and axes (sorted by key)
 static setting_entry_t settings[] = {
     // Axis settings
@@ -207,36 +204,7 @@ static bool apply_cs(char* mut_key, float value) {
     return false;
   }
 
-  // Update local storage and push to gcode subsystem
   gcode_set_coord_offset(cs_type, axis_index, value);
-
-  // Also update local storage for consistency
-  if (cs_type == COORD_SYSTEM_GRINDER) {
-    switch (axis_index) {
-      case 0:
-        g_coord_offsets.grinder_origin.x = value;
-        break;
-      case 1:
-        g_coord_offsets.grinder_origin.y = value;
-        break;
-      case 2:
-        g_coord_offsets.grinder_origin.z = value;
-        break;
-    }
-  } else {
-    switch (axis_index) {
-      case 0:
-        g_coord_offsets.work_origin.x = value;
-        break;
-      case 1:
-        g_coord_offsets.work_origin.y = value;
-        break;
-      case 2:
-        g_coord_offsets.work_origin.z = value;
-        break;
-    }
-  }
-
   return true;
 }
 
