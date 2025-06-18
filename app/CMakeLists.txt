@@ -17,6 +17,7 @@ target_sources(app PRIVATE
   src/motor.c
   src/pulser.c
   src/wirefeed.c
+  src/coords.c
 )
 
 # Include driver (headers & build)

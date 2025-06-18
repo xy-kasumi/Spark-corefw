@@ -88,10 +88,13 @@ be used for grouping and ordering of axes.
 
 
 ### G53: Use machine coordinate
+Interpret following commands' coordinates in machine coordinate system.
 
 ### G54: Use grinder coordinate
+Interpret following commands' coordinates in grinder coordinate system.
 
 ### G55: Use work coordinate
+Interpret following commands' coordinates in work coordinate system.
 
 
 ## Supported M-codes

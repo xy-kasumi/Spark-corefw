@@ -35,3 +35,11 @@ but currently unavailable.
 		* 0, 1, 2... (nat-number)
 		* when auto-homing, phase is executed sequentially
 		* same-phase axes are homed simultaneously
+* (future) cs.{w,g}.pos.{x,y,z}
+  * g: grinder's origin in machine coordinates
+  * w: work's origin in machine coodinates
+  * must be configured by user to match machine's spec
+* (future) cs.{w,g}.ofs.{x,y,z}
+  * grinder's origin offset in machine coordinates
+  * auto-adjusted by calibration motion (G-code TBD)
+  * offset must be at most a few mm; otherwise calibration will fail
