@@ -3,6 +3,7 @@
 #include "motion.h"
 
 #include "comm.h"
+#include "coords.h"
 #include "motor.h"
 #include "pulser.h"
 #include "system.h"
@@ -18,20 +19,20 @@ static const float TICK_PERIOD_S = 0.001f;  // 1ms tick period in seconds
 
 // Local position type for motion-controlled axes only
 typedef struct {
-  int m0, m1, m2;  // X, Y, Z axes in microsteps
+  int m0, m1, m2, m5;  // microsteps. (for infinite rotary axes, it's modulo)
 } pos_drv_t;
 
 // Motor configuration (pushed from settings)
 static float motor_unitsteps[MOTOR_COUNT] = {200.0f, 200.0f, 200.0f, 200.0f,
                                              200.0f, 200.0f, 200.0f};
 
-// Home configuration (pushed from settings)
+// Home configuration (pushed from settings) - X, Y, Z only
 static float home_origins[3] = {0.0f, 0.0f, 0.0f};
 static float home_sides[3] = {1.0f, 1.0f, 1.0f};
 
 // Homing offset: bridges gap between driver coords and physical coords
-// Updated after each successful home operation
-static pos_drv_t homing_offset = {0, 0, 0};
+// Updated after each successful home operation (X, Y, Z only - C has no home)
+static pos_drv_t homing_offset = {0, 0, 0, 0};
 
 // Constants
 static const float MAX_TRAVEL_MM = 500.0f;
@@ -42,15 +43,17 @@ static pos_drv_t phys_to_drv(pos_phys_t phys) {
   pos_drv_t raw_drv = {
       .m0 = (int)(phys.x * motor_unitsteps[0]),   // X maps to motor 0
       .m1 = (int)(phys.y * motor_unitsteps[1]),   // Y maps to motor 1
-      .m2 = (int)(phys.z * motor_unitsteps[2])};  // Z maps to motor 2
+      .m2 = (int)(phys.z * motor_unitsteps[2]),   // Z maps to motor 2
+      .m5 = (int)(phys.c * motor_unitsteps[5])};  // C maps to motor 5
 
-  // Apply homing offset to align with current coordinate system
+  // Apply homing offset to linear axes only (C has no home)
   return (pos_drv_t){.m0 = raw_drv.m0 + homing_offset.m0,
                      .m1 = raw_drv.m1 + homing_offset.m1,
-                     .m2 = raw_drv.m2 + homing_offset.m2};
+                     .m2 = raw_drv.m2 + homing_offset.m2,
+                     .m5 = raw_drv.m5};  // No offset for C-axis
 }
 
-// Update homing offset after successful homing
+// Update homing offset after successful homing (X, Y, Z only)
 static void update_homing_offset(int axis) {
   // Get current driver position (where we actually are)
   pos_drv_t current_drv = {.m0 = motor_get_current_steps(0),
@@ -58,7 +61,8 @@ static void update_homing_offset(int axis) {
                            .m2 = motor_get_current_steps(2)};
 
   // Calculate where driver coordinates should be for the new physical origin
-  pos_phys_t origin_phys = {home_origins[0], home_origins[1], home_origins[2]};
+  pos_phys_t origin_phys = {home_origins[0], home_origins[1], home_origins[2],
+                            0.0f};
   pos_drv_t raw_expected = {.m0 = (int)(origin_phys.x * motor_unitsteps[0]),
                             .m1 = (int)(origin_phys.y * motor_unitsteps[1]),
                             .m2 = (int)(origin_phys.z * motor_unitsteps[2])};
@@ -155,6 +159,11 @@ static void motion_tick_handler(struct k_timer* timer) {
   motor_set_target_steps(0, target_drv.m0);
   motor_set_target_steps(1, target_drv.m1);
   motor_set_target_steps(2, target_drv.m2);
+
+  // C-axis uses modulo logic for shortest path
+  int c_modulo_steps =
+      (int)motor_unitsteps[5];  // 1 turn = motor_unitsteps[5] steps
+  motor_set_target_steps_with_modulo(5, target_drv.m5, c_modulo_steps);
 }
 
 void motion_init() {
@@ -254,7 +263,7 @@ void motion_enqueue_home(int axis) {
     return;
   }
 
-  // Validate axis
+  // Validate axis (X, Y, Z only - C has no home)
   if (axis < 0 || axis >= 3) {
     return;
   }

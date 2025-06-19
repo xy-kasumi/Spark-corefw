@@ -28,6 +28,17 @@ void queue_step(int motor_num, bool dir);
 void motor_set_target_steps(int motor_num, int target_steps);
 
 /**
+ * Set target position for rotary motor using shortest path and modulo logic
+ * @param motor_num Motor number (0-6)
+ * @param target_steps Target position in microsteps
+ * @param modulo_steps Modulo value in microsteps (e.g., steps per full
+ * rotation)
+ */
+void motor_set_target_steps_with_modulo(int motor_num,
+                                        int target_steps,
+                                        int modulo_steps);
+
+/**
  * Get current position for a specific motor (microsteps)
  * @param motor_num Motor number (0-6)
  * @return Current position in microsteps

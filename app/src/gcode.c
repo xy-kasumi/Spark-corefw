@@ -21,13 +21,14 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     // G0 - rapid positioning
     // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
     if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
-        parsed->z_state == AXIS_ONLY) {
+        parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
       comm_print_err("G0 requires axis values (e.g., X10.5), not bare axes");
       return;
     }
     if (parsed->x_state == AXIS_NOT_SPECIFIED &&
         parsed->y_state == AXIS_NOT_SPECIFIED &&
-        parsed->z_state == AXIS_NOT_SPECIFIED) {
+        parsed->z_state == AXIS_NOT_SPECIFIED &&
+        parsed->c_state == AXIS_NOT_SPECIFIED) {
       comm_print_err("G0 requires at least one axis parameter");
       return;
     }
@@ -49,6 +50,9 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     if (parsed->z_state == AXIS_WITH_VALUE) {
       target_pos.z = parsed->z;
     }
+    if (parsed->c_state == AXIS_WITH_VALUE) {
+      target_pos.c = degrees_to_turns(parsed->c);  // Convert degrees to turns
+    }
 
     // Convert back to machine coordinates for motion system
     pos_phys_t machine_target =
@@ -58,13 +62,14 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     // G1 - controlled EDM move
     // Same validation as G0
     if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
-        parsed->z_state == AXIS_ONLY) {
+        parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
       comm_print_err("G1 requires axis values (e.g., X10.5), not bare axes");
       return;
     }
     if (parsed->x_state == AXIS_NOT_SPECIFIED &&
         parsed->y_state == AXIS_NOT_SPECIFIED &&
-        parsed->z_state == AXIS_NOT_SPECIFIED) {
+        parsed->z_state == AXIS_NOT_SPECIFIED &&
+        parsed->c_state == AXIS_NOT_SPECIFIED) {
       comm_print_err("G1 requires at least one axis parameter");
       return;
     }
@@ -86,6 +91,9 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     if (parsed->z_state == AXIS_WITH_VALUE) {
       target_pos.z = parsed->z;
     }
+    if (parsed->c_state == AXIS_WITH_VALUE) {
+      target_pos.c = degrees_to_turns(parsed->c);  // Convert degrees to turns
+    }
 
     // Convert back to machine coordinates for motion system
     pos_phys_t machine_target =
@@ -93,11 +101,17 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     motion_enqueue_edm_move(machine_target);
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
-    // Validate: requires exactly one axis with AXIS_ONLY format
+    // Validate: requires exactly one axis with AXIS_ONLY format (X, Y, Z only)
     bool x_specified = (parsed->x_state == AXIS_ONLY);
     bool y_specified = (parsed->y_state == AXIS_ONLY);
     bool z_specified = (parsed->z_state == AXIS_ONLY);
-    int axis_count = x_specified + y_specified + z_specified;
+    bool c_specified = (parsed->c_state == AXIS_ONLY);
+    int axis_count = x_specified + y_specified + z_specified + c_specified;
+
+    if (c_specified) {
+      comm_print_err("G28 C not supported (C-axis has no home position)");
+      return;
+    }
 
     if (axis_count != 1) {
       comm_print_err(
@@ -251,6 +265,9 @@ void gcode_set_coord_offset(coord_system_t cs_type, int axis, float value) {
       break;
     case 2:
       target_origin->z = value;
+      break;
+    case 5:
+      target_origin->c = degrees_to_turns(value);  // Convert degrees to turns
       break;
     default:
       // Invalid axis, do nothing

@@ -61,10 +61,13 @@ pos_phys_t coords_from_machine(const pos_phys_t* machine_pos,
 }
 
 float posp_dist(const pos_phys_t* a, const pos_phys_t* b) {
+  const float PI = 3.14159265f;
   float dx = b->x - a->x;
   float dy = b->y - a->y;
   float dz = b->z - a->z;
-  return sqrtf(dx * dx + dy * dy + dz * dz);
+  float dc = c_axis_shortest_path_turns(a->c, b->c);
+  dc *= 2 * PI * 2;  // assume radius=2mm distance for C-axis
+  return sqrtf(dx * dx + dy * dy + dz * dz + dc * dc);
 }
 
 void posp_interp(const pos_phys_t* a,
@@ -74,4 +77,39 @@ void posp_interp(const pos_phys_t* a,
   out->x = a->x + (b->x - a->x) * t;
   out->y = a->y + (b->y - a->y) * t;
   out->z = a->z + (b->z - a->z) * t;
+
+  // For C-axis, use shortest path interpolation
+  float c_delta = c_axis_shortest_path_turns(a->c, b->c);
+  out->c = normalize_c_axis_turns(a->c + c_delta * t);
+}
+
+float degrees_to_turns(float degrees) {
+  return degrees / 360.0f;
+}
+
+float turns_to_degrees(float turns) {
+  return turns * 360.0f;
+}
+
+float normalize_c_axis_turns(float c) {
+  // Normalize to [0, 1) range
+  float result = fmodf(c, 1.0f);
+  if (result < 0.0f) {
+    result += 1.0f;
+  }
+  return result;
+}
+
+float c_axis_shortest_path_turns(float current, float target) {
+  // Calculate direct delta
+  float delta = target - current;
+
+  // Normalize to (-0.5, 0.5] range for shortest path
+  if (delta > 0.5f) {
+    delta -= 1.0f;
+  } else if (delta <= -0.5f) {
+    delta += 1.0f;
+  }
+
+  return delta;
 }

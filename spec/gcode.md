@@ -59,14 +59,27 @@ G53 G0 X10 ; this is not allowed
 ## Supported G-codes
 
 ### G0: Fast move
-Parameters: X, Y, Z (all optional, but at least one required)
+Parameters: X, Y, Z, C (all optional, but at least one required)
 
 Examples:
 ```
 G0 X12.3
 G0 Z123.5 Y-23.5
+G0 X10 Y20 C45.5  ; Move with tool rotation
 
 G0  ; error
+```
+
+### G1: Controlled EDM move
+Parameters: X, Y, Z, C (all optional, but at least one required)
+
+Examples:
+```
+G1 X10 Y20
+G1 Z-5 C90  ; Move with tool rotation
+G1 X5 Y10 Z15 C180  ; Move all axes
+
+G1  ; error
 ```
 
 ### G28: Home

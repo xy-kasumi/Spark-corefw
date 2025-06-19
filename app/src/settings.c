@@ -66,7 +66,7 @@ static setting_entry_t settings[] = {
     {"m.5.idlems", 200.0f},
     {"m.5.microstep", 32.0f},
     {"m.5.thresh", 2.0f},
-    {"m.5.unitsteps", 200.0f},
+    {"m.5.unitsteps", 6400.0f},
     {"m.6.current", 30.0f},
     {"m.6.idlems", 5000.0f},
     {"m.6.microstep", 32.0f},
@@ -200,6 +200,8 @@ static bool apply_cs(char* mut_key, float value) {
     axis_index = 1;
   } else if (strcmp(axis, "z") == 0) {
     axis_index = 2;
+  } else if (strcmp(axis, "c") == 0) {
+    axis_index = 5;
   } else {
     return false;
   }

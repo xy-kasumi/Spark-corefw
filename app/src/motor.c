@@ -162,6 +162,42 @@ void motor_set_target_steps(int motor_num, int target_steps) {
   motor_states[motor_num].target_steps = target_steps;
 }
 
+void motor_set_target_steps_with_modulo(int motor_num,
+                                        int target_steps,
+                                        int modulo_steps) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT || modulo_steps <= 0) {
+    return;  // Invalid parameters
+  }
+
+  // Get current motor position
+  int current_steps = motor_states[motor_num].current_steps;
+
+  // Normalize target to modulo range
+  int normalized_target = target_steps % modulo_steps;
+  if (normalized_target < 0) {
+    normalized_target += modulo_steps;
+  }
+
+  // Calculate current position in modulo range
+  int current_modulo = current_steps % modulo_steps;
+  if (current_modulo < 0) {
+    current_modulo += modulo_steps;
+  }
+
+  // Calculate shortest path delta
+  int delta = normalized_target - current_modulo;
+
+  // Adjust for shortest path
+  if (delta > modulo_steps / 2) {
+    delta -= modulo_steps;
+  } else if (delta <= -modulo_steps / 2) {
+    delta += modulo_steps;
+  }
+
+  // Set target to current position + shortest delta
+  motor_states[motor_num].target_steps = current_steps + delta;
+}
+
 int motor_get_current_steps(int motor_num) {
   if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
     return 0;  // Invalid motor number

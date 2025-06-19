@@ -13,7 +13,7 @@ typedef struct {
   float x;
   float y;
   float z;
-  // a, b, c etc.
+  float c;  // turns in [0, 1)
 } pos_phys_t;
 
 /** Supported coordinate systems */
@@ -52,6 +52,8 @@ pos_phys_t coords_from_machine(const pos_phys_t* machine_pos,
                                const coord_offsets_t* offsets);
 
 /** Compute distance between two pos_phys_t points.
+ * 
+ * TODO: definition of "distance" is very weird.
  * @return distance in mm
  */
 float posp_dist(const pos_phys_t* a, const pos_phys_t* b);
@@ -63,3 +65,28 @@ void posp_interp(const pos_phys_t* a,
                  const pos_phys_t* b,
                  float t,
                  pos_phys_t* out);
+
+/** Convert degrees to turns.
+ * @param degrees Angle in degrees
+ * @return Angle in turns
+ */
+float degrees_to_turns(float degrees);
+
+/** Convert turns to degrees.
+ * @param turns Angle in turns
+ * @return Angle in degrees
+ */
+float turns_to_degrees(float turns);
+
+/** Normalize C-axis value to [0, 1) range.
+ * @param c C-axis value in turns
+ * @return Normalized value in [0, 1) range
+ */
+float normalize_c_axis_turns(float c);
+
+/** Calculate shortest path rotation from current to target C-axis position.
+ * @param current Current C-axis position in [0, 1)
+ * @param target Target C-axis position in [0, 1)
+ * @return Shortest rotation delta (-0.5, 0.5]
+ */
+float c_axis_shortest_path_turns(float current, float target);

@@ -127,6 +127,10 @@ bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
       if (!parse_axis_param(token, 'Z', &parsed->z_state, &parsed->z)) {
         return false;
       }
+    } else if (param == 'C') {
+      if (!parse_axis_param(token, 'C', &parsed->c_state, &parsed->c)) {
+        return false;
+      }
     }
     // Try P/Q/R parameters (for M-codes)
     else if (param == 'P') {

@@ -43,8 +43,8 @@ typedef struct {
   int sub_code;         // Minor number: 2 for G38.2, -1 if not specified
 
   // Axis parameters (G-codes)
-  axis_state_t x_state, y_state, z_state;
-  float x, y, z;
+  axis_state_t x_state, y_state, z_state, c_state;
+  float x, y, z, c;
 
   // M-code parameters
   param_state_t p_state, q_state, r_state;
