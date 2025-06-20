@@ -98,8 +98,7 @@ static float edm_current_speed = 0.0f;  // mm/s
 static bool stop_at_stall;
 static bool stop_at_probe;
 static motion_stop_reason_t last_stop_reason;
-static axis_t
-    homing_axis;  // Which axis is being homed (AXIS_NONE if not homing)
+static axis_t homing_axis;  // Valid only when stop_at_stall is true
 
 // Timer for periodic tick
 static struct k_timer motion_timer;
@@ -117,7 +116,7 @@ static void motion_tick_handler(struct k_timer* timer) {
   }
 
   // Check for stall condition (homing)
-  if (stop_at_stall && homing_axis != AXIS_NONE) {
+  if (stop_at_stall) {
     const struct device* motor = motor_get_device(homing_axis);
     if (motor && tmc_stalled(motor)) {
       // Homing completed - stall detected
@@ -203,7 +202,6 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   // Clear stop conditions (normal move)
   stop_at_stall = false;
   stop_at_probe = false;
-  homing_axis = AXIS_NONE;
   is_edm_move = false;
 
   // Start moving
@@ -232,7 +230,6 @@ void motion_enqueue_edm_move(pos_phys_t to_pos) {
   // Clear stop conditions
   stop_at_stall = false;
   stop_at_probe = false;
-  homing_axis = AXIS_NONE;
 
   // Start moving
   state = MOTION_STATE_MOVING;

@@ -8,7 +8,6 @@
 
 /** Represents a single axis */
 typedef enum {
-  AXIS_NONE = -1,  // No axis / invalid axis
   AXIS_X = 0,
   AXIS_Y = 1,
   AXIS_Z = 2,
