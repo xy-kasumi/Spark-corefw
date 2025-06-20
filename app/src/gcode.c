@@ -51,7 +51,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       target_pos.z = parsed->z;
     }
     if (parsed->c_state == AXIS_WITH_VALUE) {
-      target_pos.c = degrees_to_turns(parsed->c);  // Convert degrees to turns
+      target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
     }
 
     // Convert back to machine coordinates for motion system
@@ -92,7 +92,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       target_pos.z = parsed->z;
     }
     if (parsed->c_state == AXIS_WITH_VALUE) {
-      target_pos.c = degrees_to_turns(parsed->c);  // Convert degrees to turns
+      target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
     }
 
     // Convert back to machine coordinates for motion system
@@ -267,7 +267,7 @@ void gcode_set_coord_offset(coord_system_t cs_type, axis_t axis, float value) {
       target_origin->z = value;
       break;
     case AXIS_C:
-      target_origin->c = degrees_to_turns(value);  // Convert degrees to turns
+      target_origin->c = value / 360.0f;  // Convert degrees to turns
       break;
     default:
       // Invalid axis, do nothing

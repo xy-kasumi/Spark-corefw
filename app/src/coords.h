@@ -74,27 +74,15 @@ void posp_interp(const pos_phys_t* a,
                  float t,
                  pos_phys_t* out);
 
-/** Convert degrees to turns.
- * @param degrees Angle in degrees
- * @return Angle in turns
+/** Wrap turn value to [0, 1) range.
+ * @param turns Turn value
+ * @return Wrapped value in [0, 1) range
  */
-float degrees_to_turns(float degrees);
+float wrap_turns(float turns);
 
-/** Convert turns to degrees.
- * @param turns Angle in turns
- * @return Angle in degrees
+/** Calculate shortest rotational delta between two turn positions.
+ * @param current Current position in turns
+ * @param target Target position in turns
+ * @return Delta in turns to reach target via shortest path (-0.5, 0.5]
  */
-float turns_to_degrees(float turns);
-
-/** Normalize C-axis value to [0, 1) range.
- * @param c C-axis value in turns
- * @return Normalized value in [0, 1) range
- */
-float normalize_c_axis_turns(float c);
-
-/** Calculate shortest path rotation from current to target C-axis position.
- * @param current Current C-axis position in [0, 1)
- * @param target Target C-axis position in [0, 1)
- * @return Shortest rotation delta (-0.5, 0.5]
- */
-float c_axis_shortest_path_turns(float current, float target);
+float shortest_turn_delta(float current, float target);

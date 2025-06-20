@@ -65,7 +65,7 @@ float posp_dist(const pos_phys_t* a, const pos_phys_t* b) {
   float dx = b->x - a->x;
   float dy = b->y - a->y;
   float dz = b->z - a->z;
-  float dc = c_axis_shortest_path_turns(a->c, b->c);
+  float dc = shortest_turn_delta(a->c, b->c);
   dc *= 2 * PI * 2;  // assume radius=2mm distance for C-axis
   return sqrtf(dx * dx + dy * dy + dz * dz + dc * dc);
 }
@@ -79,32 +79,24 @@ void posp_interp(const pos_phys_t* a,
   out->z = a->z + (b->z - a->z) * t;
 
   // For C-axis, use shortest path interpolation
-  float c_delta = c_axis_shortest_path_turns(a->c, b->c);
-  out->c = normalize_c_axis_turns(a->c + c_delta * t);
+  float c_delta = shortest_turn_delta(a->c, b->c);
+  out->c = wrap_turns(a->c + c_delta * t);
 }
 
-float degrees_to_turns(float degrees) {
-  return degrees / 360.0f;
-}
-
-float turns_to_degrees(float turns) {
-  return turns * 360.0f;
-}
-
-float normalize_c_axis_turns(float c) {
-  // Normalize to [0, 1) range
-  float result = fmodf(c, 1.0f);
+float wrap_turns(float turns) {
+  // Wrap to [0, 1) range
+  float result = fmodf(turns, 1.0f);
   if (result < 0.0f) {
     result += 1.0f;
   }
   return result;
 }
 
-float c_axis_shortest_path_turns(float current, float target) {
+float shortest_turn_delta(float current, float target) {
   // Calculate direct delta
   float delta = target - current;
 
-  // Normalize to (-0.5, 0.5] range for shortest path
+  // Wrap to (-0.5, 0.5] range for shortest path
   if (delta > 0.5f) {
     delta -= 1.0f;
   } else if (delta <= -0.5f) {
