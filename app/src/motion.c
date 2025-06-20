@@ -12,6 +12,12 @@
 #include <math.h>
 #include <zephyr/kernel.h>
 
+// Motor-axis mapping
+#define MOTOR_X 0
+#define MOTOR_Y 1
+#define MOTOR_Z 2
+#define MOTOR_C 5
+
 // Motion constants
 static const float VELOCITY_MM_PER_S = 10.0f;
 static const float EDM_INITIAL_VELOCITY_MM_PER_S = 0.5f;  // Start slow for EDM
@@ -19,7 +25,7 @@ static const float TICK_PERIOD_S = 0.001f;  // 1ms tick period in seconds
 
 // Local position type for motion-controlled axes only
 typedef struct {
-  int m0, m1, m2, m5;  // microsteps. (for infinite rotary axes, it's modulo)
+  int x, y, z, c;  // microsteps. (for infinite rotary axes, it's modulo)
 } pos_drv_t;
 
 // Motor configuration (pushed from settings)
@@ -40,40 +46,40 @@ static const float MAX_TRAVEL_MM = 500.0f;
 // Convert physical position to driver coordinates (microsteps)
 static pos_drv_t phys_to_drv(pos_phys_t phys) {
   // Convert to raw driver steps
-  pos_drv_t raw_drv = {
-      .m0 = (int)(phys.x * motor_unitsteps[0]),   // X maps to motor 0
-      .m1 = (int)(phys.y * motor_unitsteps[1]),   // Y maps to motor 1
-      .m2 = (int)(phys.z * motor_unitsteps[2]),   // Z maps to motor 2
-      .m5 = (int)(phys.c * motor_unitsteps[5])};  // C maps to motor 5
+  pos_drv_t raw_drv = {.x = (int)(phys.x * motor_unitsteps[MOTOR_X]),
+                       .y = (int)(phys.y * motor_unitsteps[MOTOR_Y]),
+                       .z = (int)(phys.z * motor_unitsteps[MOTOR_Z]),
+                       .c = (int)(phys.c * motor_unitsteps[MOTOR_C])};
 
   // Apply homing offset to linear axes only (C has no home)
-  return (pos_drv_t){.m0 = raw_drv.m0 + homing_offset.m0,
-                     .m1 = raw_drv.m1 + homing_offset.m1,
-                     .m2 = raw_drv.m2 + homing_offset.m2,
-                     .m5 = raw_drv.m5};  // No offset for C-axis
+  return (pos_drv_t){.x = raw_drv.x + homing_offset.x,
+                     .y = raw_drv.y + homing_offset.y,
+                     .z = raw_drv.z + homing_offset.z,
+                     .c = raw_drv.c};  // No offset for C-axis
 }
 
 // Update homing offset after successful homing (X, Y, Z only)
 static void update_homing_offset(axis_t axis) {
   // Get current driver position (where we actually are)
-  pos_drv_t current_drv = {.m0 = motor_get_current_steps(0),
-                           .m1 = motor_get_current_steps(1),
-                           .m2 = motor_get_current_steps(2)};
+  pos_drv_t current_drv = {.x = motor_get_current_steps(MOTOR_X),
+                           .y = motor_get_current_steps(MOTOR_Y),
+                           .z = motor_get_current_steps(MOTOR_Z)};
 
   // Calculate where driver coordinates should be for the new physical origin
   pos_phys_t origin_phys = {home_origins[0], home_origins[1], home_origins[2],
                             0.0f};
-  pos_drv_t raw_expected = {.m0 = (int)(origin_phys.x * motor_unitsteps[0]),
-                            .m1 = (int)(origin_phys.y * motor_unitsteps[1]),
-                            .m2 = (int)(origin_phys.z * motor_unitsteps[2])};
+  pos_drv_t raw_expected = {
+      .x = (int)(origin_phys.x * motor_unitsteps[MOTOR_X]),
+      .y = (int)(origin_phys.y * motor_unitsteps[MOTOR_Y]),
+      .z = (int)(origin_phys.z * motor_unitsteps[MOTOR_Z])};
 
   // Update offset for the homed axis so current driver position maps to origin
   if (axis == AXIS_X) {
-    homing_offset.m0 = current_drv.m0 - raw_expected.m0;
+    homing_offset.x = current_drv.x - raw_expected.x;
   } else if (axis == AXIS_Y) {
-    homing_offset.m1 = current_drv.m1 - raw_expected.m1;
+    homing_offset.y = current_drv.y - raw_expected.y;
   } else if (axis == AXIS_Z) {
-    homing_offset.m2 = current_drv.m2 - raw_expected.m2;
+    homing_offset.z = current_drv.z - raw_expected.z;
   }
 }
 
@@ -157,14 +163,14 @@ static void motion_tick_handler(struct k_timer* timer) {
 
   // Convert to driver coordinates and send to motors
   pos_drv_t target_drv = phys_to_drv(pos);
-  motor_set_target_steps(0, target_drv.m0);
-  motor_set_target_steps(1, target_drv.m1);
-  motor_set_target_steps(2, target_drv.m2);
+  motor_set_target_steps(MOTOR_X, target_drv.x);
+  motor_set_target_steps(MOTOR_Y, target_drv.y);
+  motor_set_target_steps(MOTOR_Z, target_drv.z);
 
   // C-axis uses modulo logic for shortest path
   int c_modulo_steps =
-      (int)motor_unitsteps[5];  // 1 turn = motor_unitsteps[5] steps
-  motor_set_target_steps_with_modulo(5, target_drv.m5, c_modulo_steps);
+      (int)motor_unitsteps[MOTOR_C];  // 1 turn = motor_unitsteps[MOTOR_C] steps
+  motor_set_target_steps_with_modulo(MOTOR_C, target_drv.c, c_modulo_steps);
 }
 
 void motion_init() {
