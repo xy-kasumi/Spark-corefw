@@ -192,17 +192,20 @@ cleanup:
   const coord_offsets_t* offsets = gcode_get_coord_offsets();
 
   if (current_cs == COORD_SYSTEM_MACHINE) {
-    comm_print("ready X%.3f Y%.3f Z%.3f (machine)", (double)machine_pos.x,
-               (double)machine_pos.y, (double)machine_pos.z);
+    comm_print("ready X%.3f Y%.3f Z%.3f C%.3f (machine)", (double)machine_pos.x,
+               (double)machine_pos.y, (double)machine_pos.z,
+               (double)(machine_pos.c * 360.0f));
   } else {
     // Convert machine position to current coordinate system for display
     pos_phys_t cs_pos = coords_from_machine(&machine_pos, current_cs, offsets);
     const char* cs_name =
         (current_cs == COORD_SYSTEM_GRINDER) ? "grinder" : "work";
-    comm_print("ready X%.3f Y%.3f Z%.3f (%s) X%.3f Y%.3f Z%.3f (machine)",
-               (double)cs_pos.x, (double)cs_pos.y, (double)cs_pos.z, cs_name,
-               (double)machine_pos.x, (double)machine_pos.y,
-               (double)machine_pos.z);
+    comm_print(
+        "ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f C%.3f (machine)",
+        (double)cs_pos.x, (double)cs_pos.y, (double)cs_pos.z,
+        (double)(cs_pos.c * 360.0f), cs_name, (double)machine_pos.x,
+        (double)machine_pos.y, (double)machine_pos.z,
+        (double)(machine_pos.c * 360.0f));
   }
 }
 
