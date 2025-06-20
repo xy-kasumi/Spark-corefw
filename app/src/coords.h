@@ -6,6 +6,15 @@
  */
 #pragma once
 
+/** Represents a single axis */
+typedef enum {
+  AXIS_NONE = -1,  // No axis / invalid axis
+  AXIS_X = 0,
+  AXIS_Y = 1,
+  AXIS_Z = 2,
+  AXIS_C = 3,
+} axis_t;
+
 /** Represents a single physical coordinate. (i.e. coordinates specification in
  * G-code)
  */
@@ -52,7 +61,7 @@ pos_phys_t coords_from_machine(const pos_phys_t* machine_pos,
                                const coord_offsets_t* offsets);
 
 /** Compute distance between two pos_phys_t points.
- * 
+ *
  * TODO: definition of "distance" is very weird.
  * @return distance in mm
  */

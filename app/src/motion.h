@@ -33,7 +33,11 @@ void motion_init();
 pos_phys_t motion_get_current_pos();
 void motion_enqueue_move(pos_phys_t to_pos);
 void motion_enqueue_edm_move(pos_phys_t to_pos);
-void motion_enqueue_home(int axis);
+/**
+ * Enqueue a homing move for the specified axis.
+ * @param axis Axis to home (X, Y, or Z only - C axis has no home)
+ */
+void motion_enqueue_home(axis_t axis);
 motion_state_t motion_get_current_state();
 motion_stop_reason_t motion_get_last_stop_reason();
 
@@ -44,6 +48,16 @@ motion_stop_reason_t motion_get_last_stop_reason();
  */
 void motion_set_motor_unitsteps(int motor_num, float unitsteps);
 
-/** Called by settings system when home settings change */
-void motion_set_home_origin(int axis, float origin_mm);
-void motion_set_home_side(int axis, float side);
+/**
+ * Set home origin position for an axis (called by settings system).
+ * @param axis Axis to configure (X, Y, or Z only)
+ * @param origin_mm Origin position in mm
+ */
+void motion_set_home_origin(axis_t axis, float origin_mm);
+
+/**
+ * Set home side/direction for an axis (called by settings system).
+ * @param axis Axis to configure (X, Y, or Z only)
+ * @param side Direction to move for homing (+1 or -1)
+ */
+void motion_set_home_side(axis_t axis, float side);

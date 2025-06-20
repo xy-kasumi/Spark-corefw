@@ -245,7 +245,7 @@ coord_system_t gcode_get_current_coord_system() {
   return current_coord_system;
 }
 
-void gcode_set_coord_offset(coord_system_t cs_type, int axis, float value) {
+void gcode_set_coord_offset(coord_system_t cs_type, axis_t axis, float value) {
   pos_phys_t* target_origin = NULL;
 
   if (cs_type == COORD_SYSTEM_GRINDER) {
@@ -257,16 +257,16 @@ void gcode_set_coord_offset(coord_system_t cs_type, int axis, float value) {
   }
 
   switch (axis) {
-    case 0:
+    case AXIS_X:
       target_origin->x = value;
       break;
-    case 1:
+    case AXIS_Y:
       target_origin->y = value;
       break;
-    case 2:
+    case AXIS_Z:
       target_origin->z = value;
       break;
-    case 5:
+    case AXIS_C:
       target_origin->c = degrees_to_turns(value);  // Convert degrees to turns
       break;
     default:

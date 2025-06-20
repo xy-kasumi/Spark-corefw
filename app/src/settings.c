@@ -145,13 +145,13 @@ static bool apply_axis(char* mut_key, float value) {
   }
 
   // Get axis number from name
-  int axis_num = -1;
+  axis_t axis_num;
   if (strcmp(mut_key, "x") == 0) {
-    axis_num = 0;
+    axis_num = AXIS_X;
   } else if (strcmp(mut_key, "y") == 0) {
-    axis_num = 1;
+    axis_num = AXIS_Y;
   } else if (strcmp(mut_key, "z") == 0) {
-    axis_num = 2;
+    axis_num = AXIS_Z;
   } else {
     return false;  // Invalid axis name
   }
@@ -184,7 +184,7 @@ static bool apply_cs(char* mut_key, float value) {
 
   // Apply to appropriate coordinate system
   coord_system_t cs_type;
-  int axis_index;
+  axis_t axis_index;
 
   if (strcmp(mut_key, "g") == 0) {
     cs_type = COORD_SYSTEM_GRINDER;
@@ -195,13 +195,13 @@ static bool apply_cs(char* mut_key, float value) {
   }
 
   if (strcmp(axis, "x") == 0) {
-    axis_index = 0;
+    axis_index = AXIS_X;
   } else if (strcmp(axis, "y") == 0) {
-    axis_index = 1;
+    axis_index = AXIS_Y;
   } else if (strcmp(axis, "z") == 0) {
-    axis_index = 2;
+    axis_index = AXIS_Z;
   } else if (strcmp(axis, "c") == 0) {
-    axis_index = 5;
+    axis_index = AXIS_C;
   } else {
     return false;
   }

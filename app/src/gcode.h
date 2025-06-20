@@ -22,10 +22,10 @@ coord_system_t gcode_get_current_coord_system();
 /**
  * Set a single coordinate system offset value (called by settings system).
  * @param cs_type Coordinate system (COORD_SYSTEM_GRINDER or COORD_SYSTEM_WORK)
- * @param axis 0=x, 1=y, 2=z
+ * @param axis Axis to set
  * @param value Offset value in machine coordinates
  */
-void gcode_set_coord_offset(coord_system_t cs_type, int axis, float value);
+void gcode_set_coord_offset(coord_system_t cs_type, axis_t axis, float value);
 
 /**
  * Get current coordinate system offsets.

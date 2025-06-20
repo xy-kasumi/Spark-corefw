@@ -54,7 +54,7 @@ static pos_drv_t phys_to_drv(pos_phys_t phys) {
 }
 
 // Update homing offset after successful homing (X, Y, Z only)
-static void update_homing_offset(int axis) {
+static void update_homing_offset(axis_t axis) {
   // Get current driver position (where we actually are)
   pos_drv_t current_drv = {.m0 = motor_get_current_steps(0),
                            .m1 = motor_get_current_steps(1),
@@ -68,11 +68,11 @@ static void update_homing_offset(int axis) {
                             .m2 = (int)(origin_phys.z * motor_unitsteps[2])};
 
   // Update offset for the homed axis so current driver position maps to origin
-  if (axis == 0) {  // X axis
+  if (axis == AXIS_X) {
     homing_offset.m0 = current_drv.m0 - raw_expected.m0;
-  } else if (axis == 1) {  // Y axis
+  } else if (axis == AXIS_Y) {
     homing_offset.m1 = current_drv.m1 - raw_expected.m1;
-  } else if (axis == 2) {  // Z axis
+  } else if (axis == AXIS_Z) {
     homing_offset.m2 = current_drv.m2 - raw_expected.m2;
   }
 }
@@ -92,7 +92,8 @@ static float edm_current_speed = 0.0f;  // mm/s
 static bool stop_at_stall;
 static bool stop_at_probe;
 static motion_stop_reason_t last_stop_reason;
-static int homing_axis;  // Which axis is being homed (-1 if not homing)
+static axis_t
+    homing_axis;  // Which axis is being homed (AXIS_NONE if not homing)
 
 // Timer for periodic tick
 static struct k_timer motion_timer;
@@ -110,7 +111,7 @@ static void motion_tick_handler(struct k_timer* timer) {
   }
 
   // Check for stall condition (homing)
-  if (stop_at_stall && homing_axis >= 0) {
+  if (stop_at_stall && homing_axis != AXIS_NONE) {
     const struct device* motor = motor_get_device(homing_axis);
     if (motor && tmc_stalled(motor)) {
       // Homing completed - stall detected
@@ -118,9 +119,9 @@ static void motion_tick_handler(struct k_timer* timer) {
       update_homing_offset(homing_axis);
 
       // Set physical position to homing origin
-      pos.x = (homing_axis == 0) ? home_origins[0] : pos.x;
-      pos.y = (homing_axis == 1) ? home_origins[1] : pos.y;
-      pos.z = (homing_axis == 2) ? home_origins[2] : pos.z;
+      pos.x = (homing_axis == AXIS_X) ? home_origins[AXIS_X] : pos.x;
+      pos.y = (homing_axis == AXIS_Y) ? home_origins[AXIS_Y] : pos.y;
+      pos.z = (homing_axis == AXIS_Z) ? home_origins[AXIS_Z] : pos.z;
 
       last_stop_reason = STOP_REASON_STALL_DETECTED;
       state = MOTION_STATE_STOPPED;
@@ -196,7 +197,7 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   // Clear stop conditions (normal move)
   stop_at_stall = false;
   stop_at_probe = false;
-  homing_axis = -1;
+  homing_axis = AXIS_NONE;
   is_edm_move = false;
 
   // Start moving
@@ -225,7 +226,7 @@ void motion_enqueue_edm_move(pos_phys_t to_pos) {
   // Clear stop conditions
   stop_at_stall = false;
   stop_at_probe = false;
-  homing_axis = -1;
+  homing_axis = AXIS_NONE;
 
   // Start moving
   state = MOTION_STATE_MOVING;
@@ -241,14 +242,14 @@ void motion_set_motor_unitsteps(int motor_num, float unitsteps) {
   }
 }
 
-void motion_set_home_origin(int axis, float origin_mm) {
-  if (axis >= 0 && axis < 3) {
+void motion_set_home_origin(axis_t axis, float origin_mm) {
+  if (axis == AXIS_X || axis == AXIS_Y || axis == AXIS_Z) {
     home_origins[axis] = origin_mm;
   }
 }
 
-void motion_set_home_side(int axis, float side) {
-  if (axis >= 0 && axis < 3) {
+void motion_set_home_side(axis_t axis, float side) {
+  if (axis == AXIS_X || axis == AXIS_Y || axis == AXIS_Z) {
     home_sides[axis] = side;
   }
 }
@@ -257,25 +258,25 @@ motion_stop_reason_t motion_get_last_stop_reason() {
   return last_stop_reason;
 }
 
-void motion_enqueue_home(int axis) {
+void motion_enqueue_home(axis_t axis) {
   // Don't start new move if already moving
   if (state == MOTION_STATE_MOVING) {
     return;
   }
 
   // Validate axis (X, Y, Z only - C has no home)
-  if (axis < 0 || axis >= 3) {
+  if (axis != AXIS_X && axis != AXIS_Y && axis != AXIS_Z) {
     return;
   }
 
   // Calculate target position for homing
   pos_phys_t home_target = pos;
   float side = home_sides[axis];
-  if (axis == 0) {
+  if (axis == AXIS_X) {
     home_target.x += side * MAX_TRAVEL_MM;
-  } else if (axis == 1) {
+  } else if (axis == AXIS_Y) {
     home_target.y += side * MAX_TRAVEL_MM;
-  } else if (axis == 2) {
+  } else if (axis == AXIS_Z) {
     home_target.z += side * MAX_TRAVEL_MM;
   }
 
