@@ -14,4 +14,4 @@ if [ ! -f "app/src/main.c" ]; then
     exit 1
 fi
 
-west build --pristine auto --board octopus_pro app
+west flash

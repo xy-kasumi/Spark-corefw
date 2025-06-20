@@ -22,14 +22,10 @@ The firmware is built on Zephyr RTOS. /spark is our repository, and it's located
 - Run ./format_all.sh when you're done editing code.
 
 
-## Build
-- you can use build.sh for "west build"
-
-## Test
-- you can verify that test builds by, `west build -p -b octopus_pro -s tests/app`
-- you can run unit tests on the real board by  `west twister --device-testing --device-serial=COM3 --platform=octopus_pro --testsuite-root=./tests --board-root=./ --clobber-output --inline-logs`
-  - will take about 1 minute and slows you down. don't run unless the user explictly asks for it. if it's end of your task, ask user to run it instead.
-  - if the test failed for seemingly no reason, the user might be using serial port.
+## Build, Test
+- you can `build.sh` or `test.sh`
+  - `build.sh` is much quicker than `test.sh` to check for compilation error.
+  - only run `test.sh` after `build.sh` is succeesful.
 
 ## Code Tips
 - We use own comm.h throughout. Don't use LOG* or printk().

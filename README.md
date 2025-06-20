@@ -62,3 +62,4 @@ I'm using `tio /dev/ttyACM0 --local-echo`
 
 ### Tips
 * To make VSCode IntelliSense work, open `~/zephyr-ws-spark` folder
+* I'm running claude at `~/zephyr-ws-spark/Spark-corefw` rather than the workspace.
