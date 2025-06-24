@@ -21,6 +21,7 @@ typedef struct {
 } setting_entry_t;
 
 // Settings array with all 3 motors and axes (sorted by key)
+// TODO: Move machine-specific config to spooler.
 static setting_entry_t settings[] = {
     // Axis settings
     {"a.x.origin", 0.0f},
@@ -33,9 +34,9 @@ static setting_entry_t settings[] = {
     {"cs.g.pos.x", 0.0f},
     {"cs.g.pos.y", 0.0f},
     {"cs.g.pos.z", 0.0f},
-    {"cs.w.pos.x", 0.0f},
-    {"cs.w.pos.y", 0.0f},
-    {"cs.w.pos.z", 0.0f},
+    {"cs.w.pos.x", -58.f},
+    {"cs.w.pos.y", 17.f},
+    {"cs.w.pos.z", -89.f},
     // Motor settings
     {"m.0.current", 30.0f},
     {"m.0.idlems", 200.0f},
