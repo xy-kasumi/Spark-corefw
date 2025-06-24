@@ -73,6 +73,9 @@ G0  ; error
 ### G1: Controlled EDM move
 Parameters: X, Y, Z, C (all optional, but at least one required)
 
+Automatically energizes pulser at start and de-energizes at completion.
+Uses parameters configured by M3/M4, or defaults if not configured.
+
 Examples:
 ```
 G1 X10 Y20
@@ -102,6 +105,9 @@ be used for grouping and ordering of axes.
 ### G38.3: Probe towards target, no error
 Parameters: X, Y, Z, C (all optional, but at least one required)
 
+Automatically energizes pulser at start and de-energizes when probe triggers or motion completes.
+Uses parameters configured by M3/M4, or defaults if not configured.
+
 Examples:
 ```
 G38.3 X10 Y3.5
@@ -121,10 +127,10 @@ Interpret following commands' coordinates in work coordinate system.
 
 ## Supported M-codes
 
-### M3: Energize, tool negative voltage
+### M3: Configure EDM parameters, tool negative voltage
 Parameters: P (pulse time in µs), Q (current in A), R (duty cycle %)
 
-TODO: Document expected behavior, safety limits, interaction with motion
+Configures EDM parameters but does not energize. Energization occurs automatically during G1 and G38.3 moves.
 
 Default values:
 - P: 500µs
@@ -138,10 +144,10 @@ M3 P750 Q1.5    ; 750µs pulses, 1.5A current, default duty
 M3 Q2.0 R30     ; 2A current, 30% duty, default pulse time
 ```
 
-### M4: Energize, tool positive voltage
+### M4: Configure EDM parameters, tool positive voltage
 Parameters: P (pulse time in µs), Q (current in A), R (duty cycle %)
 
-TODO: Document expected behavior, safety limits, interaction with motion
+Configures EDM parameters but does not energize. Energization occurs automatically during G1 and G38.3 moves.
 
 Default values same as M3.
 
@@ -149,16 +155,6 @@ Examples:
 ```
 M4              ; Use all defaults
 M4 P1000 Q0.8   ; 1000µs pulses, 0.8A current, default duty
-```
-
-### M5: De-energize
-Parameters: None
-
-TODO: Document shutdown behavior, safety procedures
-
-Examples:
-```
-M5              ; Stop all EDM activity
 ```
 
 TODO: Document M-code interaction with motion system, error handling, safety interlocks

@@ -16,6 +16,19 @@
 static coord_system_t current_coord_system = COORD_SYSTEM_MACHINE;
 static coord_offsets_t coord_offsets = {0};
 
+// Pulser configuration state
+typedef struct {
+  bool tool_negative;
+  float pulse_us;
+  float current_a;
+  float duty_pct;
+} pulser_config_t;
+
+static pulser_config_t pulser_config = {.tool_negative = true,
+                                        .pulse_us = 500.0f,
+                                        .current_a = 1.0f,
+                                        .duty_pct = 25.0f};
+
 static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
   if (parsed->code == 0 && parsed->sub_code == -1) {
     // G0 - rapid positioning
@@ -98,6 +111,11 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     // Convert back to machine coordinates for motion system
     pos_phys_t machine_target =
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
+
+    // Energize pulser with current config (configured or defaults)
+    pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
+                    pulser_config.current_a, pulser_config.duty_pct);
+
     motion_enqueue_edm_move(machine_target);
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
@@ -167,6 +185,11 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     // Convert back to machine coordinates for motion system
     pos_phys_t machine_target =
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
+
+    // Energize pulser with current config (configured or defaults)
+    pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
+                    pulser_config.current_a, pulser_config.duty_pct);
+
     motion_enqueue_probe(machine_target);
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
     // G53 - Use machine coordinate system
@@ -200,6 +223,10 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     }
     k_sleep(K_MSEC(10));
   }
+
+  // Always de-energize after motion.
+  pulser_deenergize();
+
   switch (motion_get_last_stop_reason()) {
     case STOP_REASON_TARGET_REACHED:
       comm_print("motion completed");
@@ -211,11 +238,8 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       comm_print("probe triggered");
       break;
     case STOP_REASON_CANCELLED:
-      comm_print(
-          "motion cancelled (for safety, pulser de-energized & wirefeed "
-          "stopped)");
-      pulser_deenergize();  // for safety
-      wirefeed_stop();      // for safety
+      comm_print("motion cancelled (for safety, wirefeed stopped)");
+      wirefeed_stop();  // for safety
       break;
     default:
       comm_print_err("motion ended for unknown reason");
@@ -225,34 +249,35 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
 
 static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
   if (parsed->code == 3 && parsed->sub_code == -1) {
-    // M3 - Energize, tool negative voltage
+    // M3 - Configure EDM parameters, tool negative voltage
     // Validate: P (pulse time), Q (current), R (duty) are optional
-    float pulse_time_us = (parsed->p_state == PARAM_SPECIFIED)
-                              ? parsed->p
-                              : 500.0f;  // Default 500us
-    float pulse_current_a =
+    pulser_config.tool_negative = true;
+    pulser_config.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
+                                 ? parsed->p
+                                 : 500.0f;  // Default 500us
+    pulser_config.current_a =
         (parsed->q_state == PARAM_SPECIFIED) ? parsed->q : 1.0f;  // Default 1A
-    float max_duty_pct = (parsed->r_state == PARAM_SPECIFIED)
-                             ? parsed->r
-                             : 25.0f;  // Default 25%
-
-    pulser_energize(true, pulse_time_us, pulse_current_a, max_duty_pct);
+    pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
+                                 ? parsed->r
+                                 : 25.0f;  // Default 25%
+    comm_print("M3: pulser configured (T-, %.0fµs, %.1fA, %.0f%%)",
+               (double)pulser_config.pulse_us, (double)pulser_config.current_a,
+               (double)pulser_config.duty_pct);
   } else if (parsed->code == 4 && parsed->sub_code == -1) {
-    // M4 - Energize, tool positive voltage
+    // M4 - Configure EDM parameters, tool positive voltage
     // Validate: P (pulse time), Q (current), R (duty) are optional
-    float pulse_time_us = (parsed->p_state == PARAM_SPECIFIED)
-                              ? parsed->p
-                              : 500.0f;  // Default 500us
-    float pulse_current_a =
+    pulser_config.tool_negative = false;
+    pulser_config.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
+                                 ? parsed->p
+                                 : 500.0f;  // Default 500us
+    pulser_config.current_a =
         (parsed->q_state == PARAM_SPECIFIED) ? parsed->q : 1.0f;  // Default 1A
-    float max_duty_pct = (parsed->r_state == PARAM_SPECIFIED)
-                             ? parsed->r
-                             : 25.0f;  // Default 25%
-
-    pulser_energize(false, pulse_time_us, pulse_current_a, max_duty_pct);
-  } else if (parsed->code == 5 && parsed->sub_code == -1) {
-    // M5 - De-energize
-    pulser_deenergize();
+    pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
+                                 ? parsed->r
+                                 : 25.0f;  // Default 25%
+    comm_print("M4: pulser configured (T+, %.0fµs, %.1fA, %.0f%%)",
+               (double)pulser_config.pulse_us, (double)pulser_config.current_a,
+               (double)pulser_config.duty_pct);
   } else if (parsed->code == 10 && parsed->sub_code == -1) {
     // M10 - Start wire feeding
     if (parsed->r_state != PARAM_SPECIFIED) {

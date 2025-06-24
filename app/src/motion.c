@@ -145,9 +145,6 @@ static void motion_tick_handler(struct k_timer* timer) {
   // Check for probe trigger (if enabled)
   if (stop_at_probe) {
     if (pulser_has_discharge()) {
-      // TODO: stop discharge.
-      
-
       last_stop_reason = STOP_REASON_PROBE_TRIGGERED;
       state = MOTION_STATE_STOPPED;
       return;
