@@ -287,10 +287,8 @@ void motion_enqueue_home(axis_t axis) {
     home_target.z += side * MAX_TRAVEL_MM;
   }
 
-  // Set homing axis before starting motion
+  // Execute
   homing_axis = axis;
-
-  // Use internal function with stall detection enabled
   motion_enqueue_internal(home_target, MOVEMENT_CONSTANT_VELOCITY,
                           VELOCITY_MM_PER_S, true, false);
 }

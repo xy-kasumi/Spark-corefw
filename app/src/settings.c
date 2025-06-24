@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "settings.h"
 
+#include "comm.h"
 #include "coords.h"
 #include "gcode.h"
 #include "motion.h"
@@ -160,14 +161,14 @@ static bool apply_axis(char* mut_key, float value) {
     return false;  // Invalid axis name
   }
 
-  // Parse home.{property}
-  if (strcmp(rest, "home") != 0) {
-    return false;  // Must be "home"
-  }
-
+  // Parse {subsystem}.{property} (e.g., "home.origin")
   char* property = split_at(rest, '.');
   if (!property) {
     return false;
+  }
+
+  if (strcmp(rest, "home") != 0) {
+    return false;  // Must be "home"
   }
 
   // Apply setting
@@ -189,14 +190,18 @@ static bool apply_axis(char* mut_key, float value) {
 static bool apply_cs(char* mut_key, float value) {
   // Parse: {coord_system}.pos.{axis}
   char* rest = split_at(mut_key, '.');
-  if (!rest || strcmp(rest, "pos") != 0) {
-    return false;  // Must be "pos"
+  if (!rest) {
+    return false;
   }
 
   // Parse coordinate system and axis
   char* axis = split_at(rest, '.');
   if (!axis) {
     return false;
+  }
+
+  if (strcmp(rest, "pos") != 0) {
+    return false;  // Must be "pos"
   }
 
   // Apply to appropriate coordinate system
@@ -286,7 +291,17 @@ bool settings_get_by_index(int index, const char** key, float* value) {
 }
 
 void settings_apply_all() {
+  bool success = true;
   for (int i = 0; i < SETTINGS_COUNT; i++) {
-    (void)apply_setting(settings[i].key, settings[i].value);
+    bool res = apply_setting(settings[i].key, settings[i].value);
+    if (!res) {
+      comm_print_err("Failed to apply setting %s", settings[i].key);
+      success = false;
+    }
+  }
+  if (success) {
+    comm_print("settings: init ok");
+  } else {
+    comm_print_err("settings: some settings broken (firmware bug)");
   }
 }

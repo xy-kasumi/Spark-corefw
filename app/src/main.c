@@ -224,7 +224,6 @@ int main() {
 
   // apply default settings
   settings_apply_all();
-  comm_print("default settings applied");
 
   // main command processing loop
   comm_print("Spark corefw: Type 'help' for commands");

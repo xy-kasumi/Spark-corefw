@@ -165,6 +165,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       get_home_order(home_order);
 
       for (int i = 0; i < 3; i++) {
+        comm_print("homing axis %c", axis_to_letter(home_order[i]));
         motion_enqueue_home(home_order[i]);
 
         // Wait for motion completion
@@ -189,13 +190,8 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       return;
     } else if (axis_count == 1) {
       // Execute: home the specified axis
-      if (x_specified) {
-        motion_enqueue_home(AXIS_X);
-      } else if (y_specified) {
-        motion_enqueue_home(AXIS_Y);
-      } else if (z_specified) {
-        motion_enqueue_home(AXIS_Z);
-      }
+      axis_t target_axis = x_specified ? AXIS_X : y_specified ? AXIS_Y : AXIS_Z;
+      motion_enqueue_home(target_axis);
     } else {
       comm_print_err(
           "G28 requires no parameters (all axes) or exactly one axis");

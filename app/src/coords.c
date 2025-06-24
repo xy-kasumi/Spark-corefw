@@ -105,3 +105,18 @@ float shortest_turn_delta(float current, float target) {
 
   return delta;
 }
+
+char axis_to_letter(axis_t axis) {
+  switch (axis) {
+    case AXIS_X:
+      return 'X';
+    case AXIS_Y:
+      return 'Y';
+    case AXIS_Z:
+      return 'Z';
+    case AXIS_C:
+      return 'C';
+    default:
+      return '?';
+  }
+}

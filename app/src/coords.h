@@ -86,3 +86,9 @@ float wrap_turns(float turns);
  * @return Delta in turns to reach target via shortest path (-0.5, 0.5]
  */
 float shortest_turn_delta(float current, float target);
+
+/** Convert axis enum to letter character.
+ * @param axis Axis enum value
+ * @return Axis letter ('X', 'Y', 'Z', 'C') or '?' for invalid axis
+ */
+char axis_to_letter(axis_t axis);
