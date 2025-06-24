@@ -35,9 +35,9 @@ static setting_entry_t settings[] = {
     {"a.z.home.phase", 0.0f},
     {"a.z.home.side", 1.0f},
     // Coordinate system settings
-    {"cs.g.pos.x", 0.0f},
-    {"cs.g.pos.y", 0.0f},
-    {"cs.g.pos.z", 0.0f},
+    {"cs.g.pos.x", -55.f},
+    {"cs.g.pos.y", 78.f},
+    {"cs.g.pos.z", -84.5f},
     {"cs.w.pos.x", -58.f},
     {"cs.w.pos.y", 17.f},
     {"cs.w.pos.z", -89.f},
