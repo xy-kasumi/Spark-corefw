@@ -99,6 +99,15 @@ Coordinates of homed axes will be set to origin value configured by
 When all-axis homing (`G28`) is instructed, `a.{x,y,z}.home.phase` will
 be used for grouping and ordering of axes.
 
+### G38.3: Probe towards target, no error
+Parameters: X, Y, Z, C (all optional, but at least one required)
+
+Examples:
+```
+G38.3 X10 Y3.5
+
+G38.3  ; error
+```
 
 ### G53: Use machine coordinate
 Interpret following commands' coordinates in machine coordinate system.

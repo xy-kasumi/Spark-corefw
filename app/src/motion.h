@@ -33,6 +33,8 @@ void motion_init();
 pos_phys_t motion_get_current_pos();
 void motion_enqueue_move(pos_phys_t to_pos);
 void motion_enqueue_edm_move(pos_phys_t to_pos);
+void motion_enqueue_probe(pos_phys_t to_pos);
+
 /**
  * Enqueue a homing move for the specified axis.
  * @param axis Axis to home (X, Y, or Z only - C axis has no home)

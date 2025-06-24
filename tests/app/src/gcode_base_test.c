@@ -34,6 +34,21 @@ ZTEST(gcode_base, test_g38_2_command) {
                 "Z should not be specified");
 }
 
+ZTEST(gcode_base, test_g38_3_command) {
+  gcode_parsed_t parsed;
+  bool result = parse_gcode("G38.3", &parsed);
+
+  zassert_true(result, "G38.3 command should parse successfully");
+  zassert_equal(parsed.code, 38, "Code should be 38 for G38.3");
+  zassert_equal(parsed.sub_code, 3, "Sub-code should be 3 for G38.3");
+  zassert_equal(parsed.x_state, AXIS_NOT_SPECIFIED,
+                "X should not be specified");
+  zassert_equal(parsed.y_state, AXIS_NOT_SPECIFIED,
+                "Y should not be specified");
+  zassert_equal(parsed.z_state, AXIS_NOT_SPECIFIED,
+                "Z should not be specified");
+}
+
 ZTEST(gcode_base, test_g1_with_coordinates) {
   gcode_parsed_t parsed;
   bool result = parse_gcode("G1 X10.5 Y-20.3 Z5", &parsed);

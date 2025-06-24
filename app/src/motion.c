@@ -21,6 +21,7 @@
 // Motion constants
 static const float VELOCITY_MM_PER_S = 10.0f;
 static const float EDM_INITIAL_VELOCITY_MM_PER_S = 0.5f;  // Start slow for EDM
+static const float PROBE_VELOCITY_MM_PER_S = 1.0f;
 static const float TICK_PERIOD_S = 0.001f;  // 1ms tick period in seconds
 
 // Local position type for motion-controlled axes only
@@ -90,14 +91,21 @@ static motion_state_t state = MOTION_STATE_STOPPED;
 // Motion planning state
 static path_buffer_t motion_path;
 
-// EDM control state
-static bool is_edm_move = false;
-static float edm_current_speed = 0.0f;  // mm/s
+// Movement type
+typedef enum {
+  MOVEMENT_CONSTANT_VELOCITY,
+  MOVEMENT_EDM_CONTROL,
+} movement_type_t;
+
+// Movement control state (orthogonal to stop conditions)
+static movement_type_t movement_type;
+static float movement_velocity;         // For MOVEMENT_CONSTANT_VELOCITY
+static float edm_current_speed = 0.0f;  // For MOVEMENT_EDM_CONTROL
 
 // Stop condition flags
-static bool stop_at_stall;
-static bool stop_at_probe;
 static motion_stop_reason_t last_stop_reason;
+static bool stop_at_probe;
+static bool stop_at_stall;
 static axis_t homing_axis;  // Valid only when stop_at_stall is true
 
 // Timer for periodic tick
@@ -134,8 +142,14 @@ static void motion_tick_handler(struct k_timer* timer) {
     }
   }
 
-  // Move along path based on move type
-  if (is_edm_move) {
+  // Check for probe trigger (if enabled)
+  if (stop_at_probe) {
+    // TODO: Add actual probe detection logic when probe hardware is available
+    // For now, probe moves will only stop at path end
+  }
+
+  // Movement control
+  if (movement_type == MOVEMENT_EDM_CONTROL) {
     // EDM control logic
     uint8_t open_rate = pulser_get_open_rate();
     uint8_t short_rate = pulser_get_short_rate();
@@ -148,8 +162,8 @@ static void motion_tick_handler(struct k_timer* timer) {
       pb_move(&motion_path, -5e-3f);  // -5 um / tick (-> -5mm/s max)
     }
   } else {
-    // Normal move
-    pb_move(&motion_path, VELOCITY_MM_PER_S * TICK_PERIOD_S);
+    // Constant velocity movement
+    pb_move(&motion_path, movement_velocity * TICK_PERIOD_S);
   }
   pos = pb_get_pos(&motion_path);
 
@@ -184,7 +198,12 @@ pos_phys_t motion_get_current_pos() {
   return pos;
 }
 
-void motion_enqueue_move(pos_phys_t to_pos) {
+// Unified internal motion enqueue function
+static void motion_enqueue_internal(pos_phys_t to_pos,
+                                    movement_type_t move_type,
+                                    float velocity,
+                                    bool enable_stall_stop,
+                                    bool enable_probe_stop) {
   // Don't start new move if already moving
   if (state == MOTION_STATE_MOVING) {
     return;
@@ -199,37 +218,13 @@ void motion_enqueue_move(pos_phys_t to_pos) {
   // Initialize path buffer with single segment
   pb_init(&motion_path, &pos, &to_pos, true);  // Single segment, end=true
 
-  // Clear stop conditions (normal move)
-  stop_at_stall = false;
-  stop_at_probe = false;
-  is_edm_move = false;
+  // Set movement type and velocity
+  movement_type = move_type;
+  movement_velocity = velocity;
 
-  // Start moving
-  state = MOTION_STATE_MOVING;
-}
-
-void motion_enqueue_edm_move(pos_phys_t to_pos) {
-  // Don't start new move if already moving
-  if (state == MOTION_STATE_MOVING) {
-    return;
-  }
-
-  // Skip if no movement needed
-  float distance = posp_dist(&pos, &to_pos);
-  if (distance < 0.001f) {
-    return;
-  }
-
-  // Initialize path buffer with single segment
-  pb_init(&motion_path, &pos, &to_pos, true);  // Single segment, end=true
-
-  // Set EDM mode
-  is_edm_move = true;
-  edm_current_speed = EDM_INITIAL_VELOCITY_MM_PER_S;
-
-  // Clear stop conditions
-  stop_at_stall = false;
-  stop_at_probe = false;
+  // Set stop conditions
+  stop_at_stall = enable_stall_stop;
+  stop_at_probe = enable_probe_stop;
 
   // Start moving
   state = MOTION_STATE_MOVING;
@@ -257,16 +252,22 @@ void motion_set_home_side(axis_t axis, float side) {
   }
 }
 
-motion_stop_reason_t motion_get_last_stop_reason() {
-  return last_stop_reason;
+void motion_enqueue_move(pos_phys_t to_pos) {
+  motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY, VELOCITY_MM_PER_S,
+                          false, false);
+}
+
+void motion_enqueue_edm_move(pos_phys_t to_pos) {
+  edm_current_speed = EDM_INITIAL_VELOCITY_MM_PER_S;
+  motion_enqueue_internal(to_pos, MOVEMENT_EDM_CONTROL, 0.0f, false, false);
+}
+
+void motion_enqueue_probe(pos_phys_t to_pos) {
+  motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY,
+                          PROBE_VELOCITY_MM_PER_S, false, true);
 }
 
 void motion_enqueue_home(axis_t axis) {
-  // Don't start new move if already moving
-  if (state == MOTION_STATE_MOVING) {
-    return;
-  }
-
   // Validate axis (X, Y, Z only - C has no home)
   if (axis != AXIS_X && axis != AXIS_Y && axis != AXIS_Z) {
     return;
@@ -283,21 +284,14 @@ void motion_enqueue_home(axis_t axis) {
     home_target.z += side * MAX_TRAVEL_MM;
   }
 
-  // Skip if no movement needed
-  float distance = posp_dist(&pos, &home_target);
-  if (distance < 0.001f) {
-    return;
-  }
-
-  // Initialize path buffer with single segment
-  pb_init(&motion_path, &pos, &home_target, true);  // Single segment, end=true
-
-  // Set stop conditions for homing
-  stop_at_stall = true;
-  stop_at_probe = false;
+  // Set homing axis before starting motion
   homing_axis = axis;
-  is_edm_move = false;
 
-  // Start homing
-  state = MOTION_STATE_MOVING;
+  // Use internal function with stall detection enabled
+  motion_enqueue_internal(home_target, MOVEMENT_CONSTANT_VELOCITY,
+                          VELOCITY_MM_PER_S, true, false);
+}
+
+motion_stop_reason_t motion_get_last_stop_reason() {
+  return last_stop_reason;
 }

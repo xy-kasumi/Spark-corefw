@@ -127,6 +127,47 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     } else if (z_specified) {
       motion_enqueue_home(2);  // Home Z axis
     }
+  } else if (parsed->code == 38 && parsed->sub_code == 3) {
+    // G38.3 - probe towards target, no error
+    // Same validation as G0/G1
+    if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
+        parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
+      comm_print_err("G38.3 requires axis values (e.g., X10.5), not bare axes");
+      return;
+    }
+    if (parsed->x_state == AXIS_NOT_SPECIFIED &&
+        parsed->y_state == AXIS_NOT_SPECIFIED &&
+        parsed->z_state == AXIS_NOT_SPECIFIED &&
+        parsed->c_state == AXIS_NOT_SPECIFIED) {
+      comm_print_err("G38.3 requires at least one axis parameter");
+      return;
+    }
+
+    // Execute: probe move to specified coordinates
+    // Get current position in machine coordinates
+    pos_phys_t machine_pos = motion_get_current_pos();
+    // Convert to current coordinate system for updating
+    pos_phys_t target_pos =
+        coords_from_machine(&machine_pos, current_coord_system, &coord_offsets);
+
+    // Update with parsed values
+    if (parsed->x_state == AXIS_WITH_VALUE) {
+      target_pos.x = parsed->x;
+    }
+    if (parsed->y_state == AXIS_WITH_VALUE) {
+      target_pos.y = parsed->y;
+    }
+    if (parsed->z_state == AXIS_WITH_VALUE) {
+      target_pos.z = parsed->z;
+    }
+    if (parsed->c_state == AXIS_WITH_VALUE) {
+      target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
+    }
+
+    // Convert back to machine coordinates for motion system
+    pos_phys_t machine_target =
+        coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
+    motion_enqueue_probe(machine_target);
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
     // G53 - Use machine coordinate system
     current_coord_system = COORD_SYSTEM_MACHINE;
