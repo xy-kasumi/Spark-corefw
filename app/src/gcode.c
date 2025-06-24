@@ -10,11 +10,15 @@
 #include "system.h"
 #include "wirefeed.h"
 
+#include <stdlib.h>
 #include <zephyr/kernel.h>
 
 // Modal state for coordinate systems
 static coord_system_t current_coord_system = COORD_SYSTEM_MACHINE;
 static coord_offsets_t coord_offsets = {0};
+
+// Home phase configuration (pushed from settings) - X, Y, Z only
+static int home_phases[3] = {0, 0, 0};
 
 // Pulser configuration state
 typedef struct {
@@ -28,6 +32,30 @@ static pulser_config_t pulser_config = {.tool_negative = true,
                                         .pulse_us = 500.0f,
                                         .current_a = 1.0f,
                                         .duty_pct = 25.0f};
+
+typedef struct {
+  axis_t axis;
+  int phase;
+} axis_phase_t;
+
+static int compare_axis_phase(const void* a, const void* b) {
+  const axis_phase_t* axis_a = (const axis_phase_t*)a;
+  const axis_phase_t* axis_b = (const axis_phase_t*)b;
+  return axis_a->phase - axis_b->phase;
+}
+
+// Get axes sorted by home phase (lower phase = earlier)
+static void get_home_order(axis_t result[3]) {
+  axis_phase_t axes[3] = {{AXIS_X, home_phases[AXIS_X]},
+                          {AXIS_Y, home_phases[AXIS_Y]},
+                          {AXIS_Z, home_phases[AXIS_Z]}};
+
+  qsort(axes, 3, sizeof(axis_phase_t), compare_axis_phase);
+
+  for (int i = 0; i < 3; i++) {
+    result[i] = axes[i].axis;
+  }
+}
 
 static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
   if (parsed->code == 0 && parsed->sub_code == -1) {
@@ -119,7 +147,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     motion_enqueue_edm_move(machine_target);
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
-    // Validate: requires exactly one axis with AXIS_ONLY format (X, Y, Z only)
+    // Validate: no axis specified (home all) or exactly one axis (X, Y, Z only)
     bool x_specified = (parsed->x_state == AXIS_ONLY);
     bool y_specified = (parsed->y_state == AXIS_ONLY);
     bool z_specified = (parsed->z_state == AXIS_ONLY);
@@ -131,19 +159,47 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       return;
     }
 
-    if (axis_count != 1) {
-      comm_print_err(
-          "G28 requires exactly one axis without value (X, Y, or Z)");
-      return;
-    }
+    if (axis_count == 0) {
+      // Home all axes in phase order
+      axis_t home_order[3];
+      get_home_order(home_order);
 
-    // Execute: home the specified axis
-    if (x_specified) {
-      motion_enqueue_home(0);  // Home X axis
-    } else if (y_specified) {
-      motion_enqueue_home(1);  // Home Y axis
-    } else if (z_specified) {
-      motion_enqueue_home(2);  // Home Z axis
+      for (int i = 0; i < 3; i++) {
+        motion_enqueue_home(home_order[i]);
+
+        // Wait for motion completion
+        while (true) {
+          if (motion_get_current_state() == MOTION_STATE_STOPPED) {
+            break;
+          }
+          k_sleep(K_MSEC(10));
+        }
+
+        // Check stop reason
+        motion_stop_reason_t stop_reason = motion_get_last_stop_reason();
+        if (stop_reason == STOP_REASON_CANCELLED) {
+          comm_print("homing cancelled");
+          return;
+        } else if (stop_reason != STOP_REASON_STALL_DETECTED) {
+          comm_print_err("homing failed for axis %d", home_order[i]);
+          return;
+        }
+      }
+      comm_print("all axes homed");
+      return;
+    } else if (axis_count == 1) {
+      // Execute: home the specified axis
+      if (x_specified) {
+        motion_enqueue_home(AXIS_X);
+      } else if (y_specified) {
+        motion_enqueue_home(AXIS_Y);
+      } else if (z_specified) {
+        motion_enqueue_home(AXIS_Z);
+      }
+    } else {
+      comm_print_err(
+          "G28 requires no parameters (all axes) or exactly one axis");
+      return;
     }
   } else if (parsed->code == 38 && parsed->sub_code == 3) {
     // G38.3 - probe towards target, no error
@@ -343,4 +399,10 @@ void gcode_set_coord_offset(coord_system_t cs_type, axis_t axis, float value) {
 
 const coord_offsets_t* gcode_get_coord_offsets() {
   return &coord_offsets;
+}
+
+void gcode_set_home_phase(axis_t axis, int phase) {
+  if (axis == AXIS_X || axis == AXIS_Y || axis == AXIS_Z) {
+    home_phases[axis] = phase;
+  }
 }

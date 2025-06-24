@@ -32,3 +32,10 @@ void gcode_set_coord_offset(coord_system_t cs_type, axis_t axis, float value);
  * @return Current coordinate system offsets
  */
 const coord_offsets_t* gcode_get_coord_offsets();
+
+/**
+ * Set home phase for an axis (called by settings system).
+ * @param axis Axis to configure (X, Y, or Z only)
+ * @param phase Phase value for homing order (lower = earlier)
+ */
+void gcode_set_home_phase(axis_t axis, int phase);

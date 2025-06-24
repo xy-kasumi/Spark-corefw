@@ -24,12 +24,15 @@ typedef struct {
 // TODO: Move machine-specific config to spooler.
 static setting_entry_t settings[] = {
     // Axis settings
-    {"a.x.origin", 0.0f},
-    {"a.x.side", 1.0f},
-    {"a.y.origin", 0.0f},
-    {"a.y.side", -1.0f},
-    {"a.z.origin", 0.0f},
-    {"a.z.side", 1.0f},
+    {"a.x.home.origin", 0.0f},
+    {"a.x.home.phase", 1.0f},
+    {"a.x.home.side", 1.0f},
+    {"a.y.home.origin", 0.0f},
+    {"a.y.home.phase", 2.0f},
+    {"a.y.home.side", -1.0f},
+    {"a.z.home.origin", 0.0f},
+    {"a.z.home.phase", 0.0f},
+    {"a.z.home.side", 1.0f},
     // Coordinate system settings
     {"cs.g.pos.x", 0.0f},
     {"cs.g.pos.y", 0.0f},
@@ -157,12 +160,25 @@ static bool apply_axis(char* mut_key, float value) {
     return false;  // Invalid axis name
   }
 
+  // Parse home.{property}
+  if (strcmp(rest, "home") != 0) {
+    return false;  // Must be "home"
+  }
+
+  char* property = split_at(rest, '.');
+  if (!property) {
+    return false;
+  }
+
   // Apply setting
-  if (strcmp(rest, "origin") == 0) {
+  if (strcmp(property, "origin") == 0) {
     motion_set_home_origin(axis_num, value);
     return true;
-  } else if (strcmp(rest, "side") == 0) {
+  } else if (strcmp(property, "side") == 0) {
     motion_set_home_side(axis_num, value);
+    return true;
+  } else if (strcmp(property, "phase") == 0) {
+    gcode_set_home_phase(axis_num, (int)value);
     return true;
   }
 
