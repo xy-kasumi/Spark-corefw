@@ -161,15 +161,16 @@ TODO: Document M-code interaction with motion system, error handling, safety int
 
 ### (future) M8: Start pump
 ### (future) M9: Stop pump
-### (future) M10: Start grinder wire feeding
+
+### M10: Start grinder wire feeding
 Parameters: R (feed rate in mm/min, required)
 
 Examples:
 ```
-M10 R0.1 ; start with wire feed rate of 15mm/min
+M10 R120 ; start with wire feed rate of 120mm/min
 ```
 
-### (future) M11: Stop grinder wire feeding
+### M11: Stop grinder wire feeding
 Parameters: None
 
 Examples:
