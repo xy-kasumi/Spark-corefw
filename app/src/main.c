@@ -27,11 +27,12 @@ static void cmd_help(char* args) {
   comm_print("help - Show this help");
   comm_print(
       "stat <subsystem> - Show subsystem status (motor, pulser, wirefeed)");
-  comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
-  comm_print("set <key> <value> - Set variable to value");
   comm_print("get - List all variables with values");
   comm_print("get <key> - Get specific variable value");
+  comm_print("set <key> <value> - Set variable to value");
+  comm_print("ping - Connection test (no-op)");
   comm_print("download - Download EDM log data as blob");
+  comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
   comm_print("! - Cancel current operation");
 }
 
@@ -176,6 +177,8 @@ static void handle_console_command(char* command) {
     cmd_get(args);
   } else if (strcmp(cmd, "download") == 0) {
     cmd_download(args);
+  } else if (strcmp(cmd, "ping") == 0) {
+    // Do nothing
   } else {
     comm_print_err("unknown command: %s; type 'help' for available commands",
                    cmd);
