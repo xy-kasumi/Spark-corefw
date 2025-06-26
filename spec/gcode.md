@@ -165,6 +165,8 @@ TODO: Document M-code interaction with motion system, error handling, safety int
 ### M10: Start grinder wire feeding
 Parameters: R (feed rate in mm/min, required)
 
+Starts grinder wire feeding and wait until tension stabilizes.
+
 Examples:
 ```
 M10 R120 ; start with wire feed rate of 120mm/min

@@ -337,6 +337,8 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
       return;
     }
     wirefeed_start(parsed->r);
+    // Wait 2 seconds for tension stabilization
+    k_sleep(K_MSEC(2000));
   } else if (parsed->code == 11 && parsed->sub_code == -1) {
     // M11 - Stop wire feeding
     wirefeed_stop();
