@@ -3,7 +3,7 @@
 Keys marked with `(future)` will be candidates for future addition,
 but currently unavailable.
 
-* m.{0,1,2}.{thresh,microstep,current,unitsteps,idlems}
+* m.{0,1,2,3,4,5,6}.{thresh,microstep,current,unitsteps,idlems}
 	* thresh = Stall detection threshold for StallGuard
 	    * >= 0
 		* lower value = more load needed for stall detection
@@ -25,7 +25,7 @@ but currently unavailable.
 	* mm/sec
 * (future) a.{x,y,z}.{maxacc}
 	* mm/sec2
-* a.{x,y,z}.home.{side,origin, (future)phase}
+* a.{x,y,z}.home.{side,origin, phase}
 	* side
 		* -1: home towards negative side
 		* 1: home towards positive side
