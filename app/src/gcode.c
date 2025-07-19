@@ -269,10 +269,21 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
   }
 
   // Wait for motion completion
+  int64_t last_print_time = k_uptime_get();
   while (true) {
     if (motion_get_current_state() == MOTION_STATE_STOPPED) {
       break;
     }
+
+    // Print status every 1 second
+    int64_t current_time = k_uptime_get();
+    if (current_time - last_print_time >= 1000) {
+      pos_phys_t current_pos = motion_get_current_pos();
+      comm_print("moving X%.3f Y%.3f Z%.3f", (double)current_pos.x,
+                 (double)current_pos.y, (double)current_pos.z);
+      last_print_time = current_time;
+    }
+
     k_sleep(K_MSEC(10));
   }
 
