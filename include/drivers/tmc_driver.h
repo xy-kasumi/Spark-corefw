@@ -17,9 +17,10 @@
  * Read TMC register from device.
  * @param dev TMC device instance
  * @param addr Register address
- * @return Register value, 0 on communication error
+ * @param value Pointer to store register value
+ * @return 0 on success, negative error code on failure
  */
-uint32_t tmc_regread(const struct device* dev, uint8_t addr);
+int tmc_regread(const struct device* dev, uint8_t addr, uint32_t* value);
 
 /**
  * Write TMC register to device.

@@ -173,7 +173,11 @@ static int tmc2209_init(const struct device* dev) {
 
 // Device-based API implementations (new infrastructure)
 
-uint32_t tmc_regread(const struct device* dev, uint8_t addr) {
+int tmc_regread(const struct device* dev, uint8_t addr, uint32_t* value) {
+  if (!value) {
+    return -EINVAL;
+  }
+
   const struct tmc2209_config* config = dev->config;
 
   tmc_uart_request_read_datagram_t request = {
@@ -185,22 +189,23 @@ uint32_t tmc_regread(const struct device* dev, uint8_t addr) {
   request.crc = tmc_uart_crc((uint8_t*)&request, sizeof(request) - 1);
   if (uart1wire_write(&config->uart_gpio, (uint8_t*)&request, sizeof(request)) <
       0) {
-    return 0;  // comm error
+    return -EIO;  // comm error
   }
 
   tmc_uart_reply_datagram_t reply;
   if (uart1wire_read(&config->uart_gpio, (uint8_t*)&reply, sizeof(reply)) < 0) {
-    return 0;  // comm error
+    return -EIO;  // comm error
   }
   uint8_t expected_crc = tmc_uart_crc((uint8_t*)&reply, sizeof(reply) - 1);
   if (reply.crc != expected_crc) {
-    return 0;  // CRC error
+    return -EIO;  // CRC error
   }
   if (reply.reg_addr != addr || reply.master_addr != 0xff) {
-    return 0;  // Wrong reply
+    return -EIO;  // Wrong reply
   }
   k_sleep(K_MSEC(10));  // ensure bus returns to idle
-  return sys_be32_to_cpu(reply.value);
+  *value = sys_be32_to_cpu(reply.value);
+  return 0;
 }
 
 int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
@@ -229,9 +234,13 @@ int tmc_set_microstep(const struct device* dev, int microstep) {
   }
 
   // Enable MRES from register in GCONF
-  uint32_t gconf = tmc_regread(dev, REG_GCONF);
+  uint32_t gconf;
+  int ret = tmc_regread(dev, REG_GCONF, &gconf);
+  if (ret < 0) {
+    return ret;
+  }
   gconf |= (1u << 7);  // mstep_reg_select = 1
-  int ret = tmc_regwrite(dev, REG_GCONF, gconf);
+  ret = tmc_regwrite(dev, REG_GCONF, gconf);
   if (ret < 0) {
     return ret;
   }
@@ -240,7 +249,11 @@ int tmc_set_microstep(const struct device* dev, int microstep) {
   uint8_t mres_bits = 8 - (uint8_t)__builtin_ctz(microstep);
 
   // Update CHOPCONF register
-  uint32_t chopconf = tmc_regread(dev, REG_CHOPCONF);
+  uint32_t chopconf;
+  ret = tmc_regread(dev, REG_CHOPCONF, &chopconf);
+  if (ret < 0) {
+    return ret;
+  }
   chopconf &= 0xF0FFFFFF;                   // Clear MRES[27:24]
   chopconf |= ((uint32_t)mres_bits << 24);  // Set new MRES
   ret = tmc_regwrite(dev, REG_CHOPCONF, chopconf);
@@ -301,7 +314,11 @@ int tmc_set_stallguard_threshold(const struct device* dev, uint8_t threshold) {
 }
 
 int tmc_sgresult(const struct device* dev) {
-  uint32_t result = tmc_regread(dev, REG_SG_RESULT);
+  uint32_t result;
+  int ret = tmc_regread(dev, REG_SG_RESULT, &result);
+  if (ret < 0) {
+    return 0;  // return arbitrary number on error
+  }
   return (int)(result & 0x3FF);  // SG_RESULT is 10-bit value in bits [9:0]
 }
 
@@ -318,14 +335,43 @@ int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
     return -EINVAL;
   }
 
-  // Note: write-only registers are not listed here.
-  int ret = snprintf(
-      buf, buf_size,
-      "TMC2209 GCONF:0x%08x IOIN:0x%08x SG_RESULT:0x%08x CHOPCONF:0x%08x",
-      tmc_regread(dev, REG_GCONF), tmc_regread(dev, REG_IOIN),
-      tmc_regread(dev, REG_SG_RESULT), tmc_regread(dev, REG_CHOPCONF));
+  uint32_t gconf;
+  bool gconf_ok = tmc_regread(dev, REG_GCONF, &gconf) == 0;
 
-  if (ret >= buf_size) {
+  uint32_t ioin;
+  bool ioin_ok = tmc_regread(dev, REG_IOIN, &ioin) == 0;
+
+  uint32_t sg_result;
+  bool sg_result_ok = tmc_regread(dev, REG_SG_RESULT, &sg_result) == 0;
+
+  uint32_t chopconf;
+  bool chopconf_ok = tmc_regread(dev, REG_CHOPCONF, &chopconf) == 0;
+
+  // Note: write-only registers are not listed here.
+  int offset = snprintf(buf, buf_size, "TMC2209");
+
+  int n = gconf_ok ? snprintf(buf + offset, buf_size - offset, " GCONF:0x%08x",
+                              gconf)
+                   : snprintf(buf + offset, buf_size - offset, " GCONF:ERROR");
+  offset += n;
+
+  n = ioin_ok ? snprintf(buf + offset, buf_size - offset, " IOIN:0x%08x", ioin)
+              : snprintf(buf + offset, buf_size - offset, " IOIN:ERROR");
+  offset += n;
+
+  n = sg_result_ok
+          ? snprintf(buf + offset, buf_size - offset, " SG_RESULT:0x%08x",
+                     sg_result)
+          : snprintf(buf + offset, buf_size - offset, " SG_RESULT:ERROR");
+  offset += n;
+
+  n = chopconf_ok
+          ? snprintf(buf + offset, buf_size - offset, " CHOPCONF:0x%08x",
+                     chopconf)
+          : snprintf(buf + offset, buf_size - offset, " CHOPCONF:ERROR");
+  offset += n;
+
+  if (offset >= buf_size) {
     return -ENOSPC;  // Buffer too small
   }
 
