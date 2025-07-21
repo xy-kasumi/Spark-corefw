@@ -15,6 +15,7 @@
 #define DT_DRV_COMPAT adi_tmc2209_uart
 
 #define TMC_REG_READ_MAX_RETRIES 5
+#define TMC_REG_WRITE_MAX_RETRIES 5
 
 // Forward declarations for Zephyr device model
 struct tmc2209_config;
@@ -35,10 +36,14 @@ struct tmc2209_data {
   // Runtime state will go here
   uint32_t num_reg_reads;
   uint32_t num_reg_read_errors;
+  uint32_t num_reg_writes;
+  uint32_t num_reg_write_errors;
+  uint8_t ifcnt;  // Last known IFCNT value
 };
 
 // Device driver API function prototypes (new infrastructure)
 static int tmc2209_init(const struct device* dev);
+int tmc_regread_raw(const struct device* dev, uint8_t addr, uint32_t* value);
 
 // Device driver registration (new infrastructure)
 #define TMC2209_DEVICE_INIT(inst)                                       \
@@ -46,6 +51,9 @@ static int tmc2209_init(const struct device* dev);
       .initialized = false,                                             \
       .num_reg_reads = 0,                                               \
       .num_reg_read_errors = 0,                                         \
+      .num_reg_writes = 0,                                              \
+      .num_reg_write_errors = 0,                                        \
+      .ifcnt = 0,                                                       \
   };                                                                    \
   static const struct tmc2209_config tmc2209_config_##inst = {          \
       .step_gpio = GPIO_DT_SPEC_INST_GET(inst, step_gpios),             \
@@ -62,6 +70,7 @@ static int tmc2209_init(const struct device* dev);
 DT_INST_FOREACH_STATUS_OKAY(TMC2209_DEVICE_INIT)
 
 #define REG_GCONF 0x00
+#define REG_IFCNT 0x02
 #define REG_IOIN 0x06
 #define REG_IHOLD_IRUN 0x10
 #define REG_TCOOLTHRS 0x14
@@ -173,6 +182,14 @@ static int tmc2209_init(const struct device* dev) {
     return ret;
   }
 
+  // Read initial IFCNT value
+  uint32_t ifcnt_reg;
+  ret = tmc_regread(dev, REG_IFCNT, &ifcnt_reg);
+  if (ret < 0) {
+    return ret;
+  }
+  data->ifcnt = (uint8_t)(ifcnt_reg & 0xFF);
+
   data->initialized = true;
   return 0;
 }
@@ -232,7 +249,7 @@ int tmc_regread(const struct device* dev, uint8_t addr, uint32_t* value) {
   return ret;  // Return last error
 }
 
-int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
+int tmc_regwrite_raw(const struct device* dev, uint8_t addr, uint32_t value) {
   const struct tmc2209_config* config = dev->config;
 
   tmc_uart_request_write_datagram_t request = {
@@ -250,6 +267,51 @@ int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
   }
   k_sleep(K_MSEC(10));  // ensure bus returns to idle
   return 0;
+}
+
+int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
+  struct tmc2209_data* data = dev->data;
+
+  for (int retry = 0; retry < TMC_REG_WRITE_MAX_RETRIES; retry++) {
+    // Send the write command
+    int ret = tmc_regwrite_raw(dev, addr, value);
+    data->num_reg_writes++;
+    if (ret < 0) {
+      data->num_reg_write_errors++;
+      k_sleep(K_MSEC(5));
+      continue;
+    }
+
+    // Read IFCNT to verify write success
+    uint32_t new_ifcnt_reg;
+    ret = tmc_regread(dev, REG_IFCNT, &new_ifcnt_reg);
+    if (ret < 0) {
+      return ret;
+    }
+
+    uint8_t new_ifcnt = (uint8_t)(new_ifcnt_reg & 0xFF);
+    uint8_t expected_ifcnt = (uint8_t)((data->ifcnt + 1) & 0xFF);
+
+    if (new_ifcnt == expected_ifcnt) {
+      // Success
+      data->ifcnt = new_ifcnt;
+      return 0;
+    } else if (new_ifcnt == data->ifcnt) {
+      // Write didn't go through, retry
+      data->num_reg_write_errors++;
+      k_sleep(K_MSEC(5));
+      continue;
+    } else {
+      // Something weird happened
+      data->num_reg_write_errors++;
+      // Update ifcnt anyway to stay in sync
+      data->ifcnt = new_ifcnt;
+      return -EIO;
+    }
+  }
+
+  // All retries failed
+  return -EIO;
 }
 
 int tmc_set_microstep(const struct device* dev, int microstep) {
@@ -397,9 +459,11 @@ int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
           : snprintf(buf + offset, buf_size - offset, " CHOPCONF:ERROR");
   offset += n;
 
-  // Add read statistics
-  n = snprintf(buf + offset, buf_size - offset, " #READS:%u (ERR:%u) #WRITES:?",
-               data->num_reg_reads, data->num_reg_read_errors);
+  // Add read/write statistics
+  n = snprintf(buf + offset, buf_size - offset,
+               " #READS:%u (ERR:%u) #WRITES:%u (ERR:%u)", data->num_reg_reads,
+               data->num_reg_read_errors, data->num_reg_writes,
+               data->num_reg_write_errors);
   offset += n;
 
   if (offset >= buf_size) {
