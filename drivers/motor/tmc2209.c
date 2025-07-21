@@ -14,6 +14,8 @@
 
 #define DT_DRV_COMPAT adi_tmc2209_uart
 
+#define TMC_REG_READ_MAX_RETRIES 5
+
 // Forward declarations for Zephyr device model
 struct tmc2209_config;
 struct tmc2209_data;
@@ -31,6 +33,8 @@ struct tmc2209_config {
 struct tmc2209_data {
   bool initialized;
   // Runtime state will go here
+  uint32_t num_reg_reads;
+  uint32_t num_reg_read_errors;
 };
 
 // Device driver API function prototypes (new infrastructure)
@@ -40,6 +44,8 @@ static int tmc2209_init(const struct device* dev);
 #define TMC2209_DEVICE_INIT(inst)                                       \
   static struct tmc2209_data tmc2209_data_##inst = {                    \
       .initialized = false,                                             \
+      .num_reg_reads = 0,                                               \
+      .num_reg_read_errors = 0,                                         \
   };                                                                    \
   static const struct tmc2209_config tmc2209_config_##inst = {          \
       .step_gpio = GPIO_DT_SPEC_INST_GET(inst, step_gpios),             \
@@ -173,7 +179,7 @@ static int tmc2209_init(const struct device* dev) {
 
 // Device-based API implementations (new infrastructure)
 
-int tmc_regread(const struct device* dev, uint8_t addr, uint32_t* value) {
+int tmc_regread_raw(const struct device* dev, uint8_t addr, uint32_t* value) {
   if (!value) {
     return -EINVAL;
   }
@@ -206,6 +212,24 @@ int tmc_regread(const struct device* dev, uint8_t addr, uint32_t* value) {
   k_sleep(K_MSEC(10));  // ensure bus returns to idle
   *value = sys_be32_to_cpu(reply.value);
   return 0;
+}
+
+int tmc_regread(const struct device* dev, uint8_t addr, uint32_t* value) {
+  struct tmc2209_data* data = dev->data;
+
+  int ret;
+  for (int retry = 0; retry < TMC_REG_READ_MAX_RETRIES; retry++) {
+    ret = tmc_regread_raw(dev, addr, value);
+    data->num_reg_reads++;
+    if (ret == 0) {
+      return 0;  // Success
+    }
+
+    data->num_reg_read_errors++;
+    // Small delay before retry
+    k_sleep(K_MSEC(5));
+  }
+  return ret;  // Return last error
 }
 
 int tmc_regwrite(const struct device* dev, uint8_t addr, uint32_t value) {
@@ -335,6 +359,8 @@ int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
     return -EINVAL;
   }
 
+  struct tmc2209_data* data = dev->data;
+
   uint32_t gconf;
   bool gconf_ok = tmc_regread(dev, REG_GCONF, &gconf) == 0;
 
@@ -369,6 +395,11 @@ int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
           ? snprintf(buf + offset, buf_size - offset, " CHOPCONF:0x%08x",
                      chopconf)
           : snprintf(buf + offset, buf_size - offset, " CHOPCONF:ERROR");
+  offset += n;
+
+  // Add read statistics
+  n = snprintf(buf + offset, buf_size - offset, " #READS:%u (ERR:%u) #WRITES:?",
+               data->num_reg_reads, data->num_reg_read_errors);
   offset += n;
 
   if (offset >= buf_size) {

@@ -14,7 +14,7 @@
 // Device-based TMC driver API
 
 /**
- * Read TMC register from device.
+ * Read TMC register with retries.
  * @param dev TMC device instance
  * @param addr Register address
  * @param value Pointer to store register value
