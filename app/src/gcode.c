@@ -415,3 +415,28 @@ void gcode_set_home_phase(axis_t axis, int phase) {
     home_phases[axis] = phase;
   }
 }
+
+void exec_test_pulser(int dur_sec) {
+  pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
+                  pulser_config.current_a, pulser_config.duty_pct);
+
+  for (int i = 0; i < dur_sec * 10; i++) {
+    if (g_cancel_requested) {
+      comm_print("test pulser: cancelled");
+      break;
+    }
+
+    // Print rates every second (every 10 iterations)
+    if (i > 0 && i % 10 == 0) {
+      uint8_t short_rate = pulser_get_short_rate();
+      uint8_t open_rate = pulser_get_open_rate();
+      comm_print("pulser short_rate=%.2f open_rate=%.2f", short_rate / 255.0,
+                 open_rate / 255.0);
+    }
+
+    k_sleep(K_MSEC(100));
+  }
+
+  // De-energize pulser
+  pulser_deenergize();
+}

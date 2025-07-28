@@ -39,3 +39,9 @@ const coord_offsets_t* gcode_get_coord_offsets();
  * @param phase Phase value for homing order (lower = earlier)
  */
 void gcode_set_home_phase(axis_t axis, int phase);
+
+/**
+ * Test pulser for specified duration.
+ * @param dur_sec Duration in seconds
+ */
+void exec_test_pulser(int dur_sec);

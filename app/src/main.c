@@ -27,6 +27,7 @@ static void cmd_help(char* args) {
   comm_print("help - Show this help");
   comm_print(
       "stat <subsystem> - Show subsystem status (motor, pulser, wirefeed)");
+  comm_print("test pulser <dur> - Activate pulser for <dur> seconds");
   comm_print("get - List all variables with values");
   comm_print("get <key> - Get specific variable value");
   comm_print("set <key> <value> - Set variable to value");
@@ -133,6 +134,36 @@ static void cmd_download(char* args) {
   comm_print_blob(download_buffer, download_buffer_size);
 }
 
+// Command: test
+static void cmd_test(char* args) {
+  if (!args || strlen(args) == 0) {
+    comm_print_err("Usage: test <target> <params...>");
+    return;
+  }
+
+  // Split target from rest of args
+  char* target = args;
+  char* params = split_at(target, ' ');
+
+  if (strcmp(target, "pulser") == 0) {
+    // Parse duration parameter
+    if (!params || strlen(params) == 0) {
+      comm_print_err("Usage: test pulser <duration_sec>");
+      return;
+    }
+
+    int duration;
+    if (!parse_int(params, &duration) || duration <= 0) {
+      comm_print_err("Invalid duration: %s", params);
+      return;
+    }
+
+    exec_test_pulser(duration);
+  } else {
+    comm_print_err("Unknown test target: %s", target);
+  }
+}
+
 static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
   comm_print_ack();
@@ -158,6 +189,8 @@ static void handle_console_command(char* command) {
     cmd_get(args);
   } else if (strcmp(cmd, "download") == 0) {
     cmd_download(args);
+  } else if (strcmp(cmd, "test") == 0) {
+    cmd_test(args);
   } else if (strcmp(cmd, "ping") == 0) {
     // Do nothing
   } else {
