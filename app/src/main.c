@@ -32,7 +32,6 @@ static void cmd_help(char* args) {
   comm_print("set <key> <value> - Set variable to value");
   comm_print("ping - Connection test (no-op)");
   comm_print("download - Download EDM log data as blob");
-  comm_print("steptest <motor_num> - Step motor test (0, 1, or 2)");
   comm_print("! - Cancel current operation");
 }
 
@@ -117,22 +116,6 @@ static void cmd_stat(char* args) {
   }
 }
 
-// Command: steptest
-static void cmd_steptest(char* args) {
-  if (!args || strlen(args) == 0) {
-    comm_print_err("Usage: steptest <motor_num>");
-    return;
-  }
-
-  int motor_num;
-  if (!parse_int(args, &motor_num)) {
-    comm_print_err("Invalid motor number: %s", args);
-    return;
-  }
-
-  motor_run_steptest(motor_num);
-}
-
 // Command: download
 static void cmd_download(char* args) {
   // Copy EDM log data to download buffer
@@ -169,8 +152,6 @@ static void handle_console_command(char* command) {
     cmd_help(args);
   } else if (strcmp(cmd, "stat") == 0) {
     cmd_stat(args);
-  } else if (strcmp(cmd, "steptest") == 0) {
-    cmd_steptest(args);
   } else if (strcmp(cmd, "set") == 0) {
     cmd_set(args);
   } else if (strcmp(cmd, "get") == 0) {

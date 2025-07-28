@@ -60,6 +60,3 @@ void motor_deenergize_after(int motor_num, int timeout_ms);
 
 /** (blocking) Dump motor subsystem status for debugging. */
 void motor_dump_status();
-
-/** (blocking) Run step test on specified motor (0-6) */
-void motor_run_steptest(int motor_num);

@@ -225,41 +225,6 @@ void motor_dump_status() {
   }
 }
 
-void motor_run_steptest(int motor_num) {
-  const struct device* motor = motor_get_device(motor_num);
-  if (!motor) {
-    comm_print_err("Invalid motor number: %d", motor_num);
-    return;
-  }
-
-  comm_print("Running steptest on motor %d", motor_num);
-  tmc_energize(motor, true);
-
-  for (int i = 0; i < 2 * 200 * 32; i++) {  // 2 rotations at 32 microsteps
-    // Check for cancel request
-    if (g_cancel_requested) {
-      comm_print("Steptest cancelled at step %d", i);
-      break;
-    }
-
-    queue_step(motor_num, true);
-    k_sleep(K_USEC(250));
-
-    // Print SG_RESULT every 100 steps (50ms intervals at 500us/step)
-    if (i % 100 == 0) {
-      int sg_result = tmc_sgresult(motor);
-      comm_print("SG:%d", sg_result);
-    }
-
-    if (tmc_stalled(motor)) {
-      comm_print("Stall detected at step %d", i);
-      break;
-    }
-  }
-
-  tmc_energize(motor, false);
-}
-
 void motor_init() {
   // Initialize motor state arrays with default 200ms timeout
   uint32_t default_timeout_ticks = (200 * 1000) / STEP_ISR_PERIOD_US;
