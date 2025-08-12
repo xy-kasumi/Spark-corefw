@@ -106,13 +106,6 @@
 		uart-timer = <&sw_uart_cnt>;
 	};
 	*/
-
-	pulser: pulser {
-		compatible = "gpio-leds";
-		gate {
-			gpios = <&gpioa 15 GPIO_ACTIVE_HIGH>;
-		};
-	};
 };
 
 

@@ -5,7 +5,6 @@
 #include "comm.h"
 
 #include <zephyr/device.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
@@ -20,23 +19,16 @@
 #define REG_TEMPERATURE 0x03    // R:  heatsink temperature in °C
 #define REG_PULSE_DUR 0x04      // RW: pulse duration in 10us units (5-100)
 #define REG_MAX_DUTY 0x05       // RW: max duty factor in percent (1-95)
-#define REG_CKP_N_PULSE 0x10    // R:  number of pulses (checkpoint read)
-#define REG_T_IGNITION 0x11     // R:  avg ignition time in 5us units
-#define REG_T_IGNITION_SD 0x12  // R:  std dev of ignition time in 5us units
-#define REG_R_PULSE 0x13        // R:  ratio spent discharging (0-255)
-#define REG_R_SHORT 0x14        // R:  ratio spent shorted (0-255)
-#define REG_R_OPEN 0x15         // R:  ratio spent waiting (0-255)
+#define REG_CKP_PS 0x10         // R (special): rate of pulse & short
 
 // I2C device from device tree
 static const struct device* i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c1));
 
-// Gate GPIO from device tree
-static const struct gpio_dt_spec gate_gpio =
-    GPIO_DT_SPEC_GET(DT_PATH(pulser, gate), gpios);
-
 // Status tracking
 static bool init_success = false;
 static uint32_t poll_count = 0;
+
+static bool energized = false;
 
 // EDM state from latest poll
 static uint8_t last_r_pulse = 0;
@@ -86,29 +78,21 @@ static bool write_register(uint8_t reg_addr, uint8_t value) {
   return (ret == 0);
 }
 
-// Set gate GPIO state
-static void set_gate(bool on) {
-  gpio_pin_set_dt(&gate_gpio, on);
-}
-
 // Work handler for EDM status polling (runs in system workqueue)
 static void edm_poll_work_handler(struct k_work* work) {
-  if (!init_success) {
-    return;
-  }
-
-  // Read 6 registers starting from REG_CKP_N_PULSE
-  uint8_t buf[REG_R_OPEN - REG_CKP_N_PULSE + 1];
-  int ret = i2c_burst_read(i2c_dev, PULSER_I2C_ADDR, REG_CKP_N_PULSE, buf, 6);
+  // Read REG_CKP_PS
+  uint8_t val_ps = 0;
+  int ret =
+      i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &last_n_pulse);
   if (ret != 0) {
     return;
   }
 
   // Update state from registers
-  last_n_pulse = buf[REG_CKP_N_PULSE - REG_CKP_N_PULSE];
-  last_r_pulse = buf[REG_R_PULSE - REG_CKP_N_PULSE];
-  last_r_short = buf[REG_R_SHORT - REG_CKP_N_PULSE];
-  last_r_open = buf[REG_R_OPEN - REG_CKP_N_PULSE];
+  last_n_pulse = 0;  // TODO: deprecate
+  last_r_pulse = (val_ps >> 4) * 16;
+  last_r_short = (val_ps & 0xf) * 16;
+  last_r_open = 255 - (last_r_pulse + last_r_short);
   poll_count++;
 
   // Record (r_short, r_open, num_pulse) in ring buffer if not copying
@@ -127,6 +111,12 @@ static void edm_poll_work_handler(struct k_work* work) {
 
 // Timer callback - schedules EDM polling work
 static void edm_poll_timer_handler(struct k_timer* timer) {
+  if (!init_success) {
+    return;
+  }
+  if (!energized) {
+    return;
+  }
   k_work_submit(&edm_poll_work);
 }
 
@@ -138,17 +128,6 @@ void pulser_init() {
 
   if (!device_is_ready(i2c_dev)) {
     comm_print("pulser: init I2C device not ready");
-    return;
-  }
-
-  if (!gpio_is_ready_dt(&gate_gpio)) {
-    comm_print("pulser: init gate GPIO not ready");
-    return;
-  }
-
-  int ret = gpio_pin_configure_dt(&gate_gpio, GPIO_OUTPUT_INACTIVE);
-  if (ret < 0) {
-    comm_print("pulser: init failed to configure gate GPIO");
     return;
   }
 
@@ -219,8 +198,7 @@ void pulser_energize(bool negative,
     return;
   }
 
-  // Enable gate
-  set_gate(true);
+  energized = true;
   comm_print("pulser: energized (%s, %.0fµs, %.1fA, %.0f%%)",
              negative ? "T-" : "T+", (double)pulse_us, (double)current_a,
              (double)duty_pct);
@@ -231,8 +209,7 @@ void pulser_deenergize() {
     return;
   }
 
-  // Disable gate first
-  set_gate(false);
+  energized = false;
 
   // Write polarity register to off
   bool ok = write_register(REG_POLARITY, 0);
