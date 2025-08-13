@@ -37,6 +37,13 @@ void pulser_deenergize();
 uint8_t pulser_get_short_rate();
 
 /**
+ * Get latest pulse rate from EDM polling
+ * @return pulse rate (0-255).
+ */
+uint8_t pulser_get_pulse_rate();
+
+
+/**
  * Get latest open rate from EDM polling
  * @return open rate (0-255)
  */

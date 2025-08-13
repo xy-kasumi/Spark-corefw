@@ -429,9 +429,9 @@ void exec_test_pulser(int dur_sec) {
     // Print rates every second (every 10 iterations)
     if (i > 0 && i % 10 == 0) {
       uint8_t short_rate = pulser_get_short_rate();
+      uint8_t pulse_rate = pulser_get_pulse_rate();
       uint8_t open_rate = pulser_get_open_rate();
-      comm_print("pulser short_rate=%.2f open_rate=%.2f", short_rate / 255.0,
-                 open_rate / 255.0);
+      comm_print("pulser short=%.2f pulse=%.2f open=%.2f", short_rate / 255.0, pulse_rate / 255.0, open_rate / 255.0);
     }
 
     k_sleep(K_MSEC(100));

@@ -34,7 +34,6 @@ static bool energized = false;
 static uint8_t last_r_pulse = 0;
 static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
-static uint8_t last_n_pulse = 0;
 
 // Ring buffer for EDM polling data
 #define EDM_BUFFER_SIZE 10000
@@ -82,24 +81,30 @@ static bool write_register(uint8_t reg_addr, uint8_t value) {
 static void edm_poll_work_handler(struct k_work* work) {
   // Read REG_CKP_PS
   uint8_t val_ps = 0;
-  int ret =
-      i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &last_n_pulse);
+  int ret = i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &val_ps);
   if (ret != 0) {
     return;
   }
 
+  uint8_t val_p = (val_ps >> 4) & 0xf;
+  uint8_t val_s = val_ps & 0xf;
+  if (val_p + val_s > 15) {
+    // should not happen according to the protcol. maybe data was corrupted due
+    // to I2C noise. handle like comm failure.
+    return;
+  }
+
   // Update state from registers
-  last_n_pulse = 0;  // TODO: deprecate
-  last_r_pulse = (val_ps >> 4) * 16;
-  last_r_short = (val_ps & 0xf) * 16;
-  last_r_open = 255 - (last_r_pulse + last_r_short);
+  last_r_pulse = ((int)val_p * 255) / 15;
+  last_r_short = ((int)val_s * 255) / 15;
+  last_r_open = ((int)(15 - (val_p + val_s)) * 255) / 15;
   poll_count++;
 
   // Record (r_short, r_open, num_pulse) in ring buffer if not copying
   if (atomic_get(&copying_flag) == 0) {
     edm_buffer[edm_buffer_head].r_short = last_r_short;
     edm_buffer[edm_buffer_head].r_open = last_r_open;
-    edm_buffer[edm_buffer_head].num_pulse = last_n_pulse;
+    edm_buffer[edm_buffer_head].num_pulse = 0;
     edm_buffer[edm_buffer_head].reserved = 0;
     edm_buffer_head = (edm_buffer_head + 1) % EDM_BUFFER_SIZE;
 
@@ -156,8 +161,8 @@ void pulser_dump_status() {
   }
 
   comm_print("poll count: %u", poll_count);
-  comm_print("EDM state: n_pulse=%u, r_pulse=%u, r_short=%u, r_open=%u",
-             last_n_pulse, last_r_pulse, last_r_short, last_r_open);
+  comm_print("EDM state: r_pulse=%u, r_short=%u, r_open=%u", last_r_pulse,
+             last_r_short, last_r_open);
   comm_print("EDM buffer: %u/%u entries (%.1f%% full)", edm_buffer_count,
              EDM_BUFFER_SIZE,
              (double)(edm_buffer_count * 100) / EDM_BUFFER_SIZE);
@@ -264,6 +269,10 @@ void pulser_clear_buffer() {
 
 uint8_t pulser_get_short_rate() {
   return last_r_short;
+}
+
+uint8_t pulser_get_pulse_rate() {
+  return last_r_pulse;
 }
 
 uint8_t pulser_get_open_rate() {
