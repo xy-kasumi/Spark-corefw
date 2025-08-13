@@ -57,7 +57,7 @@ static struct k_timer edm_poll_timer;
 // Atomic flag to prevent buffer writes during copy
 static atomic_t copying_flag = ATOMIC_INIT(0);
 
-// Read single register from pulser board
+// Read single register from pulser board, returns true on success
 static bool read_register(uint8_t reg_addr, uint8_t* value) {
   if (!i2c_dev) {
     return false;
@@ -68,7 +68,7 @@ static bool read_register(uint8_t reg_addr, uint8_t* value) {
   return (ret == 0);
 }
 
-// Write single register to pulser board
+// Write single register to pulser board, returns true on success
 static bool write_register(uint8_t reg_addr, uint8_t value) {
   if (!i2c_dev) {
     return false;
@@ -128,6 +128,13 @@ void pulser_init() {
 
   if (!device_is_ready(i2c_dev)) {
     comm_print("pulser: init I2C device not ready");
+    return;
+  }
+
+  // Check comm by reading temperature.
+  uint8_t temp = 0;
+  if (!read_register(REG_TEMPERATURE, &temp)) {
+    comm_print("pulser: init failed (I2C read failed)");
     return;
   }
 
