@@ -10,7 +10,7 @@
 #include <zephyr/kernel.h>
 
 static const struct device* pwm_dev = DEVICE_DT_GET(DT_NODELABEL(pwm1));
-static const uint32_t pwm_channel = 0; /* PE9 is TIM1_CH1, but 0-indexed */
+static const uint32_t pwm_channel = 1;
 
 static float servo_on_ms_open = 0.0f;
 static float servo_on_ms_closed = 100.0f;
@@ -26,7 +26,7 @@ void toolsupply_init() {
     comm_print("toolsupply: init failed (PWM failed)");
     return;
   }
-  if (!set_servo(1.45)) {
+  if (set_servo(1.45)) {
     comm_print("toolsupply: init failed (PWM failed)");
     return;
   }
