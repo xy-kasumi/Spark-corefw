@@ -16,6 +16,7 @@ target_sources(app PRIVATE
   src/motion_base.c
   src/motor.c
   src/pulser.c
+  src/toolsupply.c
   src/wirefeed.c
   src/coords.c
 )

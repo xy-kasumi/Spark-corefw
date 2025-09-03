@@ -24,6 +24,7 @@
 	 * - TMC2209: Trinamic stepper drivers with stallGuard and UART interface
 	 * - Pulser: External EDM discharge control board via I2C
 	 */
+
 	motor0: motor0 {
 		compatible = "adi,tmc2209-uart";
 		step-gpios = <&gpiof 13 GPIO_ACTIVE_HIGH>;
@@ -108,6 +109,15 @@
 	*/
 };
 
+&timers1 {
+	status = "okay";
+	pwm1: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim1_ch1_pe9>;
+		pinctrl-names = "default";
+		#pwm-cells = <3>;
+	};
+};
 
 &timers2 {
 	status = "okay";
@@ -205,6 +215,11 @@
 };
 
 &pinctrl {
+	tim1_ch1_pe9: tim1_ch1_pe9 {
+		pinmux = <STM32_PINMUX('E', 9, AF1)>;
+		drive-push-pull;
+	};
+
 	/* USART2 can use PD5 (TX) and PD6 (RX) */
 	usart2_tx_pd5: usart2_tx_pd5 {
 		pinmux = <STM32_PINMUX('D', 5, AF7)>;

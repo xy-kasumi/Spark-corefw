@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "strutil.h"
 #include "system.h"
+#include "toolsupply.h"
 #include "wirefeed.h"
 
 #include <stdlib.h>
@@ -234,6 +235,7 @@ int main() {
   // init hardware
   motor_init();
   pulser_init();
+  toolsupply_init();
 
   // init modules
   motion_init();

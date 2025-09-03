@@ -8,6 +8,7 @@
 #include "motion.h"
 #include "motor.h"
 #include "strutil.h"
+#include "toolsupply.h"
 #include "wirefeed.h"
 
 #include <drivers/tmc_driver.h>
@@ -77,6 +78,9 @@ static setting_entry_t settings[] = {
     {"m.6.microstep", 32.0f},
     {"m.6.thresh", 2.0f},
     {"m.6.unitsteps", 203.8f},
+    // Tool supply servo positions
+    {"ts.servo.closems", 1.3f},
+    {"ts.servo.openms", 1.6f},
 };
 
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
@@ -232,6 +236,30 @@ static bool apply_cs(char* mut_key, float value) {
   return true;
 }
 
+// Tool supply-specific setting application under "ts."
+static bool apply_ts(char* mut_key, float value) {
+  // Parse: servo.{open|close}
+  char* rest = split_at(mut_key, '.');
+  if (!rest) {
+    return false;
+  }
+
+  if (strcmp(mut_key, "servo") != 0) {
+    return false;  // Must be "servo"
+  }
+
+  // Apply setting
+  if (strcmp(rest, "openms") == 0) {
+    configure_tool_supply_servo_on(TOOL_SUPPLY_OPEN, value);
+    return true;
+  } else if (strcmp(rest, "closems") == 0) {
+    configure_tool_supply_servo_on(TOOL_SUPPLY_CLOSED, value);
+    return true;
+  }
+
+  return false;
+}
+
 // Hierarchical apply dispatcher
 static bool apply_setting(const char* key, float value) {
   // Make mutable copy for parsing
@@ -251,6 +279,8 @@ static bool apply_setting(const char* key, float value) {
     return apply_axis(rest, value);
   } else if (strcmp(mut_key, "cs") == 0) {
     return apply_cs(rest, value);
+  } else if (strcmp(mut_key, "ts") == 0) {
+    return apply_ts(rest, value);
   }
   return false;
 }

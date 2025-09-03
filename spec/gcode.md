@@ -158,6 +158,14 @@ M4              ; Use all defaults
 M4 P1000 Q0.8   ; 1000µs pulses, 0.8A current, default duty
 ```
 
+### (future) M6: Tool change
+Eject current tool and get new tool.
+Position will be moved and coordinate system can change.
+
+Not implemented yet.
+
+Internally, position movement + M60 + M61.
+
 ### (future) M8: Start pump
 ### (future) M9: Stop pump
 
@@ -178,3 +186,9 @@ Examples:
 ```
 M11  ; Stop wire feed
 ```
+
+### M60: Open tool supply
+Open the tool supply for the head to pick up.
+
+### M61: Close tool supply
+Cloes the tool supply for normal operation.

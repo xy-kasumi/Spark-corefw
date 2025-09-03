@@ -43,3 +43,7 @@ but currently unavailable.
   * grinder's origin offset in machine coordinates
   * auto-adjusted by calibration motion (G-code TBD)
   * offset must be at most a few mm; otherwise calibration will fail
+* ts.servo.{openms, closems}
+  * Configure tool supply's servo position (on-cycle time) in msec (float).
+  	* For SG90, valid value is 0.5~2.4.
+  * Period is fixed 20ms (50Hz).

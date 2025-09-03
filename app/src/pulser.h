@@ -42,7 +42,6 @@ uint8_t pulser_get_short_rate();
  */
 uint8_t pulser_get_pulse_rate();
 
-
 /**
  * Get latest open rate from EDM polling
  * @return open rate (0-255)

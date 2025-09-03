@@ -8,6 +8,7 @@
 #include "motion.h"
 #include "pulser.h"
 #include "system.h"
+#include "toolsupply.h"
 #include "wirefeed.h"
 
 #include <stdlib.h>
@@ -353,6 +354,14 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
   } else if (parsed->code == 11 && parsed->sub_code == -1) {
     // M11 - Stop wire feeding
     wirefeed_stop();
+  } else if (parsed->code == 60 && parsed->sub_code == -1) {
+    // M60 - Open tool supply
+    set_tool_supply_state(TOOL_SUPPLY_OPEN);
+    comm_print("tool supply opened");
+  } else if (parsed->code == 61 && parsed->sub_code == -1) {
+    // M61 - Close tool supply
+    set_tool_supply_state(TOOL_SUPPLY_CLOSED);
+    comm_print("tool supply closed");
   } else {
     comm_print_err("Unsupported M-code: M%d", parsed->code);
   }
@@ -431,7 +440,8 @@ void exec_test_pulser(int dur_sec) {
       uint8_t short_rate = pulser_get_short_rate();
       uint8_t pulse_rate = pulser_get_pulse_rate();
       uint8_t open_rate = pulser_get_open_rate();
-      comm_print("pulser short=%.2f pulse=%.2f open=%.2f", short_rate / 255.0, pulse_rate / 255.0, open_rate / 255.0);
+      comm_print("pulser short=%.2f pulse=%.2f open=%.2f", short_rate / 255.0,
+                 pulse_rate / 255.0, open_rate / 255.0);
     }
 
     k_sleep(K_MSEC(100));
