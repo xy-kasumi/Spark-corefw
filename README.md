@@ -60,6 +60,9 @@ You need to use terminal emulator inside WSL2.
 
 I'm using `tio /dev/ttyACM0 --local-echo`
 
+### Board Physical Connection
+See [photo for Octopus Pro](boards/btt/octopus_pro/board_pins.png)
+
 ### Tips
 * To make VSCode IntelliSense work, open `~/zephyr-ws-spark` folder
 * I'm running claude at `~/zephyr-ws-spark/Spark-corefw` rather than the workspace.
