@@ -36,12 +36,14 @@ G-code, the firmware, and the software should be flexible enough to allow differ
 
 ## Syntax Difference from RS-274/NGC
 `;` is just a comment initiator. No distinction between line and "block".
+In the following G-code, ` G1 X1` part after `;` is just a comment.
 ```
-G0 X0 ; G1 X1 <- this "G1..." part is just a comment
+G0 X0 ; G1 X1
 ```
 
 We don't support multiple G or M codes in single line.
-Valid Examples
+
+Valid Example using multiple coordinate systems
 ```
 G54
 G0 Y10
@@ -51,9 +53,8 @@ G54
 ```
 Invalid Example
 ```
-G54
-G0 Y10
-G53 G0 X10 ; this is not allowed
+G54 G0 Y10
+G53 G0 X10
 ```
 
 ## Supported G-codes
@@ -156,8 +157,6 @@ Examples:
 M4              ; Use all defaults
 M4 P1000 Q0.8   ; 1000µs pulses, 0.8A current, default duty
 ```
-
-TODO: Document M-code interaction with motion system, error handling, safety interlocks
 
 ### (future) M8: Start pump
 ### (future) M9: Stop pump
