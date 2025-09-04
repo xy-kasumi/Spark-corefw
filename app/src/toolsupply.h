@@ -5,10 +5,7 @@
  */
 #pragma once
 
-typedef enum {
-    TOOL_SUPPLY_OPEN,
-    TOOL_SUPPLY_CLOSED
-} tool_supply_state_t;
+typedef enum { TOOL_SUPPLY_OPEN, TOOL_SUPPLY_CLOSED } tool_supply_state_t;
 
 /** Initialize tool supply PWM servo. */
 void toolsupply_init();

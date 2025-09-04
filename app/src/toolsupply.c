@@ -12,8 +12,15 @@
 static const struct device* pwm_dev = DEVICE_DT_GET(DT_NODELABEL(pwm1));
 static const uint32_t pwm_channel = 1;
 
-static float servo_on_ms_open = 0.0f;
-static float servo_on_ms_closed = 100.0f;
+static float servo_on_ms_open = 1.3f;
+static float servo_on_ms_closed = 1.6f;
+
+static tool_supply_state_t current_state = TOOL_SUPPLY_CLOSED;
+static float current_servo_on_ms = 1.6f;
+
+static inline float lerp(float a, float b, float t) {
+  return a + t * (b - a);
+}
 
 static int set_servo(float on_ms) {
   uint32_t period = PWM_MSEC(20);  // 50Hz
@@ -26,7 +33,7 @@ void toolsupply_init() {
     comm_print("toolsupply: init failed (PWM failed)");
     return;
   }
-  if (set_servo(1.45)) {
+  if (set_servo(current_servo_on_ms)) {
     comm_print("toolsupply: init failed (PWM failed)");
     return;
   }
@@ -42,11 +49,22 @@ void configure_tool_supply_servo_on(tool_supply_state_t state, float pos) {
       servo_on_ms_closed = pos;
       break;
   }
+  // Apply potentially changed target position.
+  set_tool_supply_state(current_state);
 }
 
 void set_tool_supply_state(tool_supply_state_t target) {
-  float on_ms =
+  const int num_cycles = 100;
+  float src = current_servo_on_ms;
+  float dst =
       (target == TOOL_SUPPLY_OPEN) ? servo_on_ms_open : servo_on_ms_closed;
-  set_servo(on_ms);
-  k_sleep(K_MSEC(500));  // wait for movement completion
+
+  for (int cycle = 1; cycle <= num_cycles; cycle++) {
+    float t = (float)cycle / (float)num_cycles;
+    float on_ms = lerp(src, dst, t);
+    set_servo(on_ms);
+    k_sleep(K_MSEC(10));
+  }
+  current_servo_on_ms = dst;
+  current_state = target;
 }
