@@ -169,37 +169,35 @@ static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
   comm_print_ack();
 
-  // Check for G-code or M-code before destructive parsing
+  // G-code or command?
   if (command[0] == 'G' || command[0] == 'M') {
-    cmd_gcode(command);  // Pass full command for G/M-code parsing
-    goto cleanup;
-  }
-
-  // Destructive parse: split command and arguments
-  char* cmd = command;
-  char* args = split_at(cmd, ' ');
-
-  // Dispatch to command handler
-  if (strcmp(cmd, "help") == 0) {
-    cmd_help(args);
-  } else if (strcmp(cmd, "stat") == 0) {
-    cmd_stat(args);
-  } else if (strcmp(cmd, "set") == 0) {
-    cmd_set(args);
-  } else if (strcmp(cmd, "get") == 0) {
-    cmd_get(args);
-  } else if (strcmp(cmd, "download") == 0) {
-    cmd_download(args);
-  } else if (strcmp(cmd, "test") == 0) {
-    cmd_test(args);
-  } else if (strcmp(cmd, "ping") == 0) {
-    // Do nothing
+    cmd_gcode(command);
   } else {
-    comm_print_err("unknown command: %s; type 'help' for available commands",
-                   cmd);
+    // Destructive parse: split command and arguments
+    char* cmd = command;
+    char* args = split_at(cmd, ' ');
+
+    // Dispatch to command handler
+    if (strcmp(cmd, "help") == 0) {
+      cmd_help(args);
+    } else if (strcmp(cmd, "stat") == 0) {
+      cmd_stat(args);
+    } else if (strcmp(cmd, "set") == 0) {
+      cmd_set(args);
+    } else if (strcmp(cmd, "get") == 0) {
+      cmd_get(args);
+    } else if (strcmp(cmd, "download") == 0) {
+      cmd_download(args);
+    } else if (strcmp(cmd, "test") == 0) {
+      cmd_test(args);
+    } else if (strcmp(cmd, "ping") == 0) {
+      // Do nothing
+    } else {
+      comm_print_err("unknown command: %s; type 'help' for available commands",
+                     cmd);
+    }
   }
 
-cleanup:
   // Clear cancel flag and return to IDLE
   g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
