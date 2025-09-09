@@ -4,6 +4,18 @@
 
 #include <math.h>
 
+static void add_offset_xyz(pos_phys_t* dst, const pos_phys_t* offset) {
+  dst->x += offset->x;
+  dst->y += offset->y;
+  dst->z += offset->z;
+}
+
+static void sub_offset_xyz(pos_phys_t* dst, const pos_phys_t* offset) {
+  dst->x -= offset->x;
+  dst->y -= offset->y;
+  dst->z -= offset->z;
+}
+
 pos_phys_t coords_to_machine(const pos_phys_t* pos,
                              coord_system_t from_cs,
                              const coord_offsets_t* offsets) {
@@ -11,28 +23,16 @@ pos_phys_t coords_to_machine(const pos_phys_t* pos,
 
   switch (from_cs) {
     case COORD_SYSTEM_MACHINE:
-      // Already in machine coordinates
+      // no conversion needed
       break;
-
     case COORD_SYSTEM_GRINDER:
-      // Convert from grinder to machine: add grinder origin
-      result.x += offsets->grinder_origin.x;
-      result.y += offsets->grinder_origin.y;
-      result.z += offsets->grinder_origin.z;
+      add_offset_xyz(&result, &offsets->grinder_origin);
       break;
-
     case COORD_SYSTEM_WORK:
-      // Convert from work to machine: add work origin
-      result.x += offsets->work_origin.x;
-      result.y += offsets->work_origin.y;
-      result.z += offsets->work_origin.z;
+      add_offset_xyz(&result, &offsets->work_origin);
       break;
-
     case COORD_SYSTEM_TOOLSUPPLY:
-      // Convert from tool supply to machine: add tool supply origin
-      result.x += offsets->toolsupply_origin.x;
-      result.y += offsets->toolsupply_origin.y;
-      result.z += offsets->toolsupply_origin.z;
+      add_offset_xyz(&result, &offsets->toolsupply_origin);
       break;
   }
 
@@ -46,28 +46,16 @@ pos_phys_t coords_from_machine(const pos_phys_t* machine_pos,
 
   switch (to_cs) {
     case COORD_SYSTEM_MACHINE:
-      // Already in machine coordinates
+      // no conversion needed
       break;
-
     case COORD_SYSTEM_GRINDER:
-      // Convert from machine to grinder: subtract grinder origin
-      result.x -= offsets->grinder_origin.x;
-      result.y -= offsets->grinder_origin.y;
-      result.z -= offsets->grinder_origin.z;
+      sub_offset_xyz(&result, &offsets->grinder_origin);
       break;
-
     case COORD_SYSTEM_WORK:
-      // Convert from machine to work: subtract work origin
-      result.x -= offsets->work_origin.x;
-      result.y -= offsets->work_origin.y;
-      result.z -= offsets->work_origin.z;
+      sub_offset_xyz(&result, &offsets->work_origin);
       break;
-
     case COORD_SYSTEM_TOOLSUPPLY:
-      // Convert from machine to tool supply: subtract tool supply origin
-      result.x -= offsets->toolsupply_origin.x;
-      result.y -= offsets->toolsupply_origin.y;
-      result.z -= offsets->toolsupply_origin.z;
+      sub_offset_xyz(&result, &offsets->toolsupply_origin);
       break;
   }
 

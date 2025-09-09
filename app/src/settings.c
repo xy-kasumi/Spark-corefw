@@ -123,12 +123,7 @@ static bool apply_motor(char* mut_key, float value) {
   if (strcmp(rest, "microstep") == 0) {
     ret = tmc_set_microstep(motor, (int)value);
   } else if (strcmp(rest, "current") == 0) {
-    // if (motor_num == 6) {
-    // same hold current as move current
     ret = tmc_set_current(motor, (int)value, (int)value);
-    //} else {
-    //      ret = tmc_set_current(motor, (int)value, 0);
-    //  }
   } else if (strcmp(rest, "thresh") == 0) {
     ret = tmc_set_stallguard_threshold(motor, (int)value);
   } else if (strcmp(rest, "unitsteps") == 0) {
