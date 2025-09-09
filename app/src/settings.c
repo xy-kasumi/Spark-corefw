@@ -42,6 +42,9 @@ static setting_entry_t settings[] = {
     {"cs.w.pos.x", 0.0f},
     {"cs.w.pos.y", 0.0f},
     {"cs.w.pos.z", 0.0f},
+    {"cs.ts.pos.x", 0.0f},
+    {"cs.ts.pos.y", 0.0f},
+    {"cs.ts.pos.z", 0.0f},
     // Motor settings
     {"m.0.current", 30.0f},
     {"m.0.idlems", 200.0f},
@@ -216,6 +219,8 @@ static bool apply_cs(char* mut_key, float value) {
     cs_type = COORD_SYSTEM_GRINDER;
   } else if (strcmp(mut_key, "w") == 0) {
     cs_type = COORD_SYSTEM_WORK;
+  } else if (strcmp(mut_key, "ts") == 0) {
+    cs_type = COORD_SYSTEM_TOOLSUPPLY;
   } else {
     return false;
   }

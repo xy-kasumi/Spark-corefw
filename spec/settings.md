@@ -58,8 +58,8 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 * (future) **maxacc**
 	* mm/sec2
 
-### **cs.{w,g}** Coordinates
-`w` is work coordinates, `g` is grinder coordinates.
+### **cs.{w,g,ts}** Coordinates
+`w` is work coordinate system, `g` is grinder coordinate system, `ts` is tool supply coordinate system.
 
 * **pos.{x,y,z}** origin of specified (work or grinder) coordinates in machine coordinates
 	* valid: any

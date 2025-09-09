@@ -27,6 +27,13 @@ pos_phys_t coords_to_machine(const pos_phys_t* pos,
       result.y += offsets->work_origin.y;
       result.z += offsets->work_origin.z;
       break;
+
+    case COORD_SYSTEM_TOOLSUPPLY:
+      // Convert from tool supply to machine: add tool supply origin
+      result.x += offsets->toolsupply_origin.x;
+      result.y += offsets->toolsupply_origin.y;
+      result.z += offsets->toolsupply_origin.z;
+      break;
   }
 
   return result;
@@ -54,6 +61,13 @@ pos_phys_t coords_from_machine(const pos_phys_t* machine_pos,
       result.x -= offsets->work_origin.x;
       result.y -= offsets->work_origin.y;
       result.z -= offsets->work_origin.z;
+      break;
+
+    case COORD_SYSTEM_TOOLSUPPLY:
+      // Convert from machine to tool supply: subtract tool supply origin
+      result.x -= offsets->toolsupply_origin.x;
+      result.y -= offsets->toolsupply_origin.y;
+      result.z -= offsets->toolsupply_origin.z;
       break;
   }
 

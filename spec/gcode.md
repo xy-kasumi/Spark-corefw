@@ -15,13 +15,15 @@ Each of these components has its origin.
 With the machine origin (which is determined by axis limit sensing),
 there are 4 origins.
 
-We have 3 coordinate systems based on these origins:
+We have 4 coordinate systems based on these origins:
 * Machine coordinate system (default on boot; G53)
-  * coordinate value = tool origin wrt. machine origin
+  * coordinates = tool origin wrt. machine origin
 * Grinder coordinate system (G54)
-  * coordinate value = tool origin wrt. grinder origin
+  * coordinates = tool origin wrt. grinder origin
 * Work coordinate system (G55)
-  * coordinate value = tool origin wrt. work origin
+  * coordinates = tool origin wrt. work origin
+* Tool supply coordinate system (G56)
+  * coordinates = TBD
 
 We do not provide "tool center point control".
 Management of current tool shape is G-code programs' responsibility.
@@ -116,15 +118,18 @@ G38.3 X10 Y3.5
 G38.3  ; error
 ```
 
-### G53: Use machine coordinate
+### G53: Use machine coordinate system
 Interpret following commands' coordinates in machine coordinate system.
+Machine coordinate system is the default coordinate system after reboot.
 
-### G54: Use grinder coordinate
+### G54: Use grinder coordinate system
 Interpret following commands' coordinates in grinder coordinate system.
 
-### G55: Use work coordinate
+### G55: Use work coordinate system
 Interpret following commands' coordinates in work coordinate system.
 
+### G56: Use tool supply coordinate system
+Interpret following commands' coordinates in tool supply coordinate system.
 
 ## Supported M-codes
 

@@ -259,6 +259,11 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     current_coord_system = COORD_SYSTEM_WORK;
     comm_print("coordinate system: work");
     return;  // No motion, return early
+  } else if (parsed->code == 56 && parsed->sub_code == -1) {
+    // G56 - Use tool supply coordinate system
+    current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
+    comm_print("coordinate system: tool supply");
+    return;  // No motion, return early
   } else {
     if (parsed->sub_code != -1) {
       comm_print_err("Unsupported G-code: G%d.%d", parsed->code,
@@ -392,6 +397,8 @@ void gcode_set_coord_offset(coord_system_t cs_type, axis_t axis, float value) {
     target_origin = &coord_offsets.grinder_origin;
   } else if (cs_type == COORD_SYSTEM_WORK) {
     target_origin = &coord_offsets.work_origin;
+  } else if (cs_type == COORD_SYSTEM_TOOLSUPPLY) {
+    target_origin = &coord_offsets.toolsupply_origin;
   } else {
     return;  // Invalid coordinate system
   }

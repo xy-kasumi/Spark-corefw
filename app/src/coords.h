@@ -26,17 +26,19 @@ typedef struct {
 
 /** Supported coordinate systems */
 typedef enum {
-  COORD_SYSTEM_MACHINE,  // G53 - Machine coordinates (default)
-  COORD_SYSTEM_GRINDER,  // G54 - Grinder coordinates
-  COORD_SYSTEM_WORK,     // G55 - Work coordinates
+  COORD_SYSTEM_MACHINE,     // G53 - Machine coordinates (default)
+  COORD_SYSTEM_GRINDER,     // G54 - Grinder coordinates
+  COORD_SYSTEM_WORK,        // G55 - Work coordinates
+  COORD_SYSTEM_TOOLSUPPLY,  // G56 - Tool supply coordinates
 } coord_system_t;
 
 /** Coordinate system offsets.
  * All origins are stored in machine coordinates.
  */
 typedef struct {
-  pos_phys_t grinder_origin;  // G54 origin in machine coords
-  pos_phys_t work_origin;     // G55 origin in machine coords
+  pos_phys_t grinder_origin;     // G54 origin in machine coords
+  pos_phys_t work_origin;        // G55 origin in machine coords
+  pos_phys_t toolsupply_origin;  // G56 origin in machine coords
 } coord_offsets_t;
 
 /** Convert position from specified coordinate system to machine coordinates.

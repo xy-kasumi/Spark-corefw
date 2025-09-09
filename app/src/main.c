@@ -214,8 +214,20 @@ static void handle_console_command(char* command) {
   } else {
     // Convert machine position to current coordinate system for display
     pos_phys_t cs_pos = coords_from_machine(&machine_pos, current_cs, offsets);
-    const char* cs_name =
-        (current_cs == COORD_SYSTEM_GRINDER) ? "grinder" : "work";
+    const char* cs_name = "";
+    switch (current_cs) {
+      case COORD_SYSTEM_GRINDER:
+        cs_name = "grinder";
+        break;
+      case COORD_SYSTEM_WORK:
+        cs_name = "work";
+        break;
+      case COORD_SYSTEM_TOOLSUPPLY:
+        cs_name = "toolsupply";
+        break;
+      case COORD_SYSTEM_MACHINE:
+        // shouldn't happen
+    }
     comm_print(
         "ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f C%.3f (machine)",
         (double)cs_pos.x, (double)cs_pos.y, (double)cs_pos.z,
