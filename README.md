@@ -4,6 +4,10 @@ WIP
 
 Zephyr-based firmware for https://github.com/xy-kasumi/Spark.
 
+See
+* [spec/gcode.md](spec/gcode.md) Supported G-code
+* [spec/settings.md](spec/settings.md) Supported settings
+* [spec/protocol.md](spec/protocol.md) Serial communication protocol
 
 ## Licenses
 * Main app code (app/src, tests/app/src): AGPL-3.0-or-later
