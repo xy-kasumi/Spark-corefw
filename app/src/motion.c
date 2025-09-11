@@ -36,13 +36,11 @@ static float motor_unitsteps[MOTOR_COUNT] = {200.0f, 200.0f, 200.0f, 200.0f,
 // Home configuration (pushed from settings) - X, Y, Z only
 static float home_origins[3] = {0.0f, 0.0f, 0.0f};
 static float home_sides[3] = {1.0f, 1.0f, 1.0f};
+static float home_travels[3] = {500.0f, 500.0f, 500.0f};
 
 // Homing offset: bridges gap between driver coords and physical coords
 // Updated after each successful home operation (X, Y, Z only - C has no home)
 static pos_drv_t homing_offset = {0, 0, 0, 0};
-
-// Constants
-static const float MAX_TRAVEL_MM = 500.0f;
 
 // Convert physical position to driver coordinates (microsteps)
 static pos_drv_t phys_to_drv(pos_phys_t phys) {
@@ -255,6 +253,12 @@ void motion_set_home_side(axis_t axis, float side) {
   }
 }
 
+void motion_set_home_travel(axis_t axis, float travel_mm) {
+  if (axis == AXIS_X || axis == AXIS_Y || axis == AXIS_Z) {
+    home_travels[axis] = travel_mm;
+  }
+}
+
 void motion_enqueue_move(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY, VELOCITY_MM_PER_S,
                           false, false);
@@ -279,12 +283,13 @@ void motion_enqueue_home(axis_t axis) {
   // Calculate target position for homing
   pos_phys_t home_target = pos;
   float side = home_sides[axis];
+  float travel = home_travels[axis];
   if (axis == AXIS_X) {
-    home_target.x += side * MAX_TRAVEL_MM;
+    home_target.x += side * travel;
   } else if (axis == AXIS_Y) {
-    home_target.y += side * MAX_TRAVEL_MM;
+    home_target.y += side * travel;
   } else if (axis == AXIS_Z) {
-    home_target.z += side * MAX_TRAVEL_MM;
+    home_target.z += side * travel;
   }
 
   // Execute

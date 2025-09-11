@@ -37,7 +37,7 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 		* 0 or positive: msec to wait (max is 1000)
 
 ### **a.{x,y,z}** Axis
-* **home.{side,origin,phase}**
+* **home.{side,origin,phase,travel}**
 	* **side**
 		* valid: -1, 1
 		* -1: home towards negative side
@@ -49,14 +49,9 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 		* valid: 0, 1, 2... (natural number)
 		* when auto-homing, phase is executed sequentially
 		* same-phase axes are homed simultaneously
-* (future) **maxtravel**
-	* mm
-	* 0: infinite
-	* violation of this is serious error (results in auto-cancel)
-* (future) **maxvel**
-	* mm/sec
-* (future) **maxacc**
-	* mm/sec2
+	* **travel**
+		* valid: > 0
+		* max distance (mm) to travel when homing
 
 ### **cs.{w,g,ts}** Coordinates
 `w` is work coordinate system, `g` is grinder coordinate system, `ts` is tool supply coordinate system.

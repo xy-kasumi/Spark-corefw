@@ -29,12 +29,15 @@ static setting_entry_t settings[] = {
     {"a.x.home.origin", 0.0f},
     {"a.x.home.phase", 1.0f},
     {"a.x.home.side", 1.0f},
+    {"a.x.home.travel", 500.0f},
     {"a.y.home.origin", 0.0f},
     {"a.y.home.phase", 2.0f},
     {"a.y.home.side", -1.0f},
+    {"a.y.home.travel", 500.0f},
     {"a.z.home.origin", 0.0f},
     {"a.z.home.phase", 0.0f},
     {"a.z.home.side", 1.0f},
+    {"a.z.home.travel", 500.0f},
     // Coordinate system settings
     {"cs.g.pos.x", 0.0f},
     {"cs.g.pos.y", 0.0f},
@@ -182,6 +185,9 @@ static bool apply_axis(char* mut_key, float value) {
     return true;
   } else if (strcmp(property, "phase") == 0) {
     gcode_set_home_phase(axis_num, (int)value);
+    return true;
+  } else if (strcmp(property, "travel") == 0) {
+    motion_set_home_travel(axis_num, value);
     return true;
   }
 

@@ -63,3 +63,10 @@ void motion_set_home_origin(axis_t axis, float origin_mm);
  * @param side Direction to move for homing (+1 or -1)
  */
 void motion_set_home_side(axis_t axis, float side);
+
+/**
+ * Set home travel distance for an axis (called by settings system).
+ * @param axis Axis to configure (X, Y, or Z only)
+ * @param travel_mm Maximum distance (mm) to travel when homing
+ */
+void motion_set_home_travel(axis_t axis, float travel_mm);
