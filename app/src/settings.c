@@ -128,7 +128,11 @@ static bool apply_motor(char* mut_key, float value) {
   } else if (strcmp(rest, "current") == 0) {
     ret = tmc_set_current(motor, (int)value, (int)value);
   } else if (strcmp(rest, "thresh") == 0) {
-    ret = tmc_set_stallguard_threshold(motor, (int)value);
+    bool enable_stall_detection = value >= 0;
+    motor_set_stall_detection(motor_num, enable_stall_detection);
+    if (enable_stall_detection) {
+      ret = tmc_set_stallguard_threshold(motor, (int)value);
+    }
   } else if (strcmp(rest, "unitsteps") == 0) {
     motion_set_motor_unitsteps(motor_num, value);
     // Also update wirefeed if this is motor6

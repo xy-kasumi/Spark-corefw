@@ -182,9 +182,6 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
         if (stop_reason == STOP_REASON_CANCELLED) {
           comm_print("homing cancelled");
           return;
-        } else if (stop_reason != STOP_REASON_STALL_DETECTED) {
-          comm_print_err("homing failed for axis %d", home_order[i]);
-          return;
         }
       }
       comm_print("all axes homed");

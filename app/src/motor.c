@@ -32,19 +32,21 @@ static const uint32_t STEP_ISR_PERIOD_US = 30;  // ISR period in microseconds
 
 // Per-motor step generation state
 typedef struct {
-  const struct device* device;  // Motor device reference
+  const struct device* device;
 
   volatile int target_steps;   // Target position in microsteps
   volatile int current_steps;  // Current position in microsteps
 
-  bool current_direction;   // Current direction state
-  step_state_t step_state;  // Current state machine state
+  bool current_direction;
+  step_state_t step_state;
 
   bool always_energized;        // If true, never de-energize due to timeout
   uint32_t idle_timeout_ticks;  // Timeout in ticks (only used if
                                 // !always_energized)
   bool energized;               // Current energization state
   uint32_t idle_ticks;          // Ticks since motor became idle
+
+  bool stall_detection_enabled;
 } motor_step_state_t;
 
 static motor_step_state_t motor_states[MOTOR_COUNT];
@@ -205,6 +207,24 @@ int motor_get_current_steps(int motor_num) {
   return motor_states[motor_num].current_steps;
 }
 
+bool motor_stalled(int motor_num) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
+    return false;  // Invalid motor number
+  }
+  if (!motor_states[motor_num].stall_detection_enabled) {
+    return false;  // Stall detection disabled
+  }
+  const struct device* motor = motor_states[motor_num].device;
+  return tmc_stalled(motor);
+}
+
+void motor_set_stall_detection(int motor_num, bool enabled) {
+  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
+    return;  // Invalid motor number
+  }
+  motor_states[motor_num].stall_detection_enabled = enabled;
+}
+
 void motor_dump_status() {
   char buf[256];
   const struct device* motors[] = {motor0, motor1, motor2, motor3,
@@ -238,7 +258,8 @@ void motor_init() {
                              .energized = false,
                              .idle_ticks = 0,
                              .idle_timeout_ticks = default_timeout_ticks,
-                             .always_energized = false};
+                             .always_energized = false,
+                             .stall_detection_enabled = true};
   }
 
   // Check motor devices

@@ -8,7 +8,6 @@
 #include "pulser.h"
 #include "system.h"
 
-#include <drivers/tmc_driver.h>
 #include <math.h>
 #include <zephyr/kernel.h>
 
@@ -58,7 +57,23 @@ static pos_drv_t phys_to_drv(pos_phys_t phys) {
 }
 
 // Update homing offset after successful homing (X, Y, Z only)
-static void update_homing_offset(axis_t axis) {
+// Convert axis to motor number (-1 if not found)
+static int axis_to_motor(axis_t axis) {
+  switch (axis) {
+    case AXIS_X:
+      return MOTOR_X;
+    case AXIS_Y:
+      return MOTOR_Y;
+    case AXIS_Z:
+      return MOTOR_Z;
+    case AXIS_C:
+      return MOTOR_C;
+    default:
+      return -1;
+  }
+}
+
+static void update_homing_offset(axis_t axis, pos_phys_t* current_pos) {
   // Get current driver position (where we actually are)
   pos_drv_t current_drv = {.x = motor_get_current_steps(MOTOR_X),
                            .y = motor_get_current_steps(MOTOR_Y),
@@ -73,12 +88,33 @@ static void update_homing_offset(axis_t axis) {
       .z = (int)(origin_phys.z * motor_unitsteps[MOTOR_Z])};
 
   // Update offset for the homed axis so current driver position maps to origin
-  if (axis == AXIS_X) {
-    homing_offset.x = current_drv.x - raw_expected.x;
-  } else if (axis == AXIS_Y) {
-    homing_offset.y = current_drv.y - raw_expected.y;
-  } else if (axis == AXIS_Z) {
-    homing_offset.z = current_drv.z - raw_expected.z;
+  switch (axis) {
+    case AXIS_X:
+      homing_offset.x = current_drv.x - raw_expected.x;
+      break;
+    case AXIS_Y:
+      homing_offset.y = current_drv.y - raw_expected.y;
+      break;
+    case AXIS_Z:
+      homing_offset.z = current_drv.z - raw_expected.z;
+      break;
+    default:
+      break;
+  }
+
+  // Set physical position to homing origin
+  switch (axis) {
+    case AXIS_X:
+      current_pos->x = home_origins[AXIS_X];
+      break;
+    case AXIS_Y:
+      current_pos->y = home_origins[AXIS_Y];
+      break;
+    case AXIS_Z:
+      current_pos->z = home_origins[AXIS_Z];
+      break;
+    default:
+      break;
   }
 }
 
@@ -104,10 +140,20 @@ static float edm_current_speed = 0.0f;  // For MOVEMENT_EDM_CONTROL
 static motion_stop_reason_t last_stop_reason;
 static bool stop_at_probe;
 static bool stop_at_stall;
-static axis_t homing_axis;  // Valid only when stop_at_stall is true
+static bool homing;
+static axis_t homing_axis;  // Valid only when homing
 
 // Timer for periodic tick
 static struct k_timer motion_timer;
+
+// only called from motion_tick_handler
+static void stop_motion(motion_stop_reason_t reason) {
+  if (homing) {
+    update_homing_offset(homing_axis, &pos);
+  }
+  last_stop_reason = reason;
+  state = MOTION_STATE_STOPPED;
+}
 
 static void motion_tick_handler(struct k_timer* timer) {
   if (state != MOTION_STATE_MOVING) {
@@ -121,30 +167,19 @@ static void motion_tick_handler(struct k_timer* timer) {
     return;
   }
 
-  // Check for stall condition (homing)
+  // Check for stall condition
   if (stop_at_stall) {
-    const struct device* motor = motor_get_device(homing_axis);
-    if (motor && tmc_stalled(motor)) {
-      // Homing completed - stall detected
-      // Update homing offset before changing physical position
-      update_homing_offset(homing_axis);
-
-      // Set physical position to homing origin
-      pos.x = (homing_axis == AXIS_X) ? home_origins[AXIS_X] : pos.x;
-      pos.y = (homing_axis == AXIS_Y) ? home_origins[AXIS_Y] : pos.y;
-      pos.z = (homing_axis == AXIS_Z) ? home_origins[AXIS_Z] : pos.z;
-
-      last_stop_reason = STOP_REASON_STALL_DETECTED;
-      state = MOTION_STATE_STOPPED;
+    int motor_num = axis_to_motor(homing_axis);
+    if (motor_num >= 0 && motor_stalled(motor_num)) {
+      stop_motion(STOP_REASON_STALL_DETECTED);
       return;
     }
   }
 
-  // Check for probe trigger (if enabled)
+  // Check for probe trigger
   if (stop_at_probe) {
     if (pulser_has_discharge()) {
-      last_stop_reason = STOP_REASON_PROBE_TRIGGERED;
-      state = MOTION_STATE_STOPPED;
+      stop_motion(STOP_REASON_PROBE_TRIGGERED);
       return;
     }
   }
@@ -170,8 +205,7 @@ static void motion_tick_handler(struct k_timer* timer) {
 
   // Check if path completed
   if (pb_at_end(&motion_path)) {
-    last_stop_reason = STOP_REASON_TARGET_REACHED;
-    state = MOTION_STATE_STOPPED;
+    stop_motion(STOP_REASON_TARGET_REACHED);
     return;
   }
 
@@ -204,7 +238,9 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
                                     movement_type_t move_type,
                                     float velocity,
                                     bool enable_stall_stop,
-                                    bool enable_probe_stop) {
+                                    bool enable_probe_stop,
+                                    bool is_homing,
+                                    axis_t home_axis) {
   // Don't start new move if already moving
   if (state == MOTION_STATE_MOVING) {
     return;
@@ -226,6 +262,12 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
   // Set stop conditions
   stop_at_stall = enable_stall_stop;
   stop_at_probe = enable_probe_stop;
+
+  // Set homing state
+  homing = is_homing;
+  if (is_homing) {
+    homing_axis = home_axis;
+  }
 
   // Start moving
   state = MOTION_STATE_MOVING;
@@ -261,17 +303,18 @@ void motion_set_home_travel(axis_t axis, float travel_mm) {
 
 void motion_enqueue_move(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY, VELOCITY_MM_PER_S,
-                          false, false);
+                          false, false, false, AXIS_X);
 }
 
 void motion_enqueue_edm_move(pos_phys_t to_pos) {
   edm_current_speed = EDM_INITIAL_VELOCITY_MM_PER_S;
-  motion_enqueue_internal(to_pos, MOVEMENT_EDM_CONTROL, 0.0f, false, false);
+  motion_enqueue_internal(to_pos, MOVEMENT_EDM_CONTROL, 0.0f, false, false,
+                          false, AXIS_X);
 }
 
 void motion_enqueue_probe(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY,
-                          PROBE_VELOCITY_MM_PER_S, false, true);
+                          PROBE_VELOCITY_MM_PER_S, false, true, false, AXIS_X);
 }
 
 void motion_enqueue_home(axis_t axis) {
@@ -293,9 +336,8 @@ void motion_enqueue_home(axis_t axis) {
   }
 
   // Execute
-  homing_axis = axis;
   motion_enqueue_internal(home_target, MOVEMENT_CONSTANT_VELOCITY,
-                          VELOCITY_MM_PER_S, true, false);
+                          VELOCITY_MM_PER_S, true, false, true, axis);
 }
 
 motion_stop_reason_t motion_get_last_stop_reason() {

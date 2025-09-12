@@ -58,5 +58,19 @@ const struct device* motor_get_device(int motor_num);
  */
 void motor_deenergize_after(int motor_num, int timeout_ms);
 
+/**
+ * Check if motor is stalled (using TMC StallGuard)
+ * @param motor_num Motor number (0-6)
+ * @return true if motor is stalled, false otherwise
+ */
+bool motor_stalled(int motor_num);
+
+/**
+ * Enable or disable stall detection for a motor
+ * @param motor_num Motor number (0-6)
+ * @param enabled true to enable stall detection, false to disable
+ */
+void motor_set_stall_detection(int motor_num, bool enabled);
+
 /** (blocking) Dump motor subsystem status for debugging. */
 void motor_dump_status();

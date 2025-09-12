@@ -20,8 +20,9 @@ note: Keys marked with `(future)` will be candidates for future addition, but cu
 It's displayed as `mot0`, `mot1` etc in `stat motor`.
 
 * **thresh** Stall detection threshold for StallGuard
-	* valid: >= 0
-	* lower value: more load needed for stall detection
+	* valid: >= 0, - 1
+	* when >= 0: enable stall detection (lower value: more load needed for stall detection)
+	* when -1: disable stall detection
 * **unitsteps** Fullsteps for moving +1 unit (1 mm or 1 rotation)
 	* valid: != 0
 	* negative values are allowed (invert direction)
