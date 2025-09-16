@@ -1,219 +1,248 @@
-## Overview
-### State Machine
-The FW is a state machine that executes *command*s.
-* `IDLE`: machine is not executing command, and ready to accept commands.
-* `EXEC_INTERACTIVE`: machine is executing a single isolated command.
-* `EXEC_STREAM`: machine is executing a sequence of streamed command.
-Allowed transition
-* `IDLE` -> `EXEC_INTERACTIVE` | `EXEC_STREAM`
-* `EXEC_INTERACTIVE` -> `IDLE`
-* `EXEC_STREAM` -> `IDLE`
-(i.e. `EXEC_INTERACTIVE` <-> `EXEC_STREAM` is not allowed)
+# Protocol V2
+This protocol design aims
+* simple implemenation
+* human-usable: usable from serial terminal or minimum code
+* reliable streaming: can remedy communication loss or error
+* core-friendly: assumes core has relatively lower compute power than host
 
-Machine will never execute two commands at the same time.
-As shorthand, we refer (`EXEC_INTERACTIVE` or `EXEC_STREAM`) as simply `EXEC`.
+Simplifying assumptions
+* Host-core channel properties
+  * bandwidth must be >= 10KB/sec (100kbaud/sec)
+  * latency is at most a few ms
+  * will never reorder or duplicate data
+* Host has abundant compute & memory
 
-### Command Execution
-A command is always representable by a single human-readable text.
-When the FW enters `EXEC` state, an *execution context* is created.
-The context is destroyed when the FW leaves `EXEC` state.
+## Terminology
+We use up and down throughout, to denote each direction.
+* "up": "towards human" direction (e.g. core -> host)
+* "down": "from human" direction (e.g. host -> core)
 
-`EXEC_INTERACTIVE` is basically same as single-command `EXEC_STREAM`, and commands should respect that.
-
-In each context, commands are assigned *sequence number* starting from 1 and increments.
-
-Commands can decide to reject to run (cause error) in certain mode (only allow interactive or stream). This is useful for cerain commands that should not be part of a stream.
-
-### Interactive Command
-**Simplest command**
-```
-I ...  ; core -> host
-G0 X10 ; host -> core
->ack   ; core -> host
-I ...  ; core -> host
-```
-I indicates the core is in IDLE state. Host can only send command after confirming reception of I.
-In this case, host sent `G0 X10` which takes some time to complete.
-
-`>ack` is replied as soon as command is received by the core, before any other `>` responses.
-Only after the command is done, `I ...` will be returned.
-
-**Command with additional messages**
-```
-I ...                  ; core -> host
-get not.found          ; host -> core
->ack                   ; core -> host
-> searching...         ; core -> host
->err setting not found ; core -> host
-> setting ended        ; core -> host
-I ...                  ; core -> host
-```
-After `>ack`, core may return 0 or more info messages (`> ...`), and 0 or more error messages (`>err ...`).
-Info and error messages might be interspersed.
-
-Host can determine that a command was succesful iff 0 error messages was emitted during its execution (i.e. before `I`).
-
-
-### Communication
-The FW exposes serial communication, as baseline mandatory communication.
-Everything FW can do physically (other than pure UI purposes) must be exposed to serial.
-
-Optionally, if the hardware has big storage (e.g. SD card), FW can implement special command that executes EXEC_STREAM based on storage instead of serial streaming. Execution semantics will be exactly the same.
-
-### Error Handling
-FW must always maintain defined state and respond to comm.
-Only exception is the code that satisfies both:
-* is internal pure logic error (no I/O or hardware dependency)
-* (is covered by automated tests) OR (no "sane default" to recover to)
-
-This rule does not mean you should check every null-pointer or uncovered switch() that "cannot happen". Instead, this mostly applies to rare but possible things like sudden hardware failure etc. In these cases, ability to keep accessing comm would be important for debugging.
-
-This rule also applies to implementation of cancels, especially `HARD_CANCEL`.
-The FW should do cancels with relatively clean code
-* OK: calling designated reset() methods etc.
-* OK: losing origin or some periphs needs re-init
-* NG: stop always running ISRs "just in case"
-* NG: program ends up in undefined state
-In short, FW should not try to be "as safe as possible" when it potentially increase bugs. Critical safety should be done in electrical or mechanical level if deemed really necessary.
-
-## Serial Protocol
-
-### Stream Syntax
-Both of up (FW -> host) & down (host -> FW) streams are line-oriented.
-Any of CR or CRLF or LF can be used as the separator.
-```
-line-raw = {whitespace} line-content [";" comment] {whitespace} line-sep
-```
-
-Up & down is full-duplex; the design intentionally allows the host to *not* wait for response, when performance is needed for streaming.
-
-Host & FW should ignore lines with empty `line-content`.
-FW can implement backspace support to ease interactive usage.
-### Per-Line Syntax
-**Input syntax
-```
-input =
-  command |
-  ":" nat-number (* seq_num *) " " command |
-  "::" |
-  "!"
-
-examples:
-:1 G1 X1
-::
-G1 X1
-!
-```
-
-**Output syntax**
-IDLE
-```
-output-idle =
-  "I " human-text |
-  "Ierr " human-text
-```
-
-EXEC_INTERACTIVE
-```
-output-interactive =
-  ">ack" |
-  "> " human-text |
-  ">blob " base64-text (* payload in urlsafe base64 w/o "=" *) " " checksum-text (* adler-32 checksum *)
-  ">err " human-text |
-
-checksum-text =
-  [0-9a-f]{8}
-
-examples:
->ack
->err unkown command: Xset
-> doing processing 1.3
->blob AQIDBA 0018000b
-```
-
-EXEC_STREAM
-```
-output-stream :=
-  "@rem " nat-number (* num_currently_acceptable_commands, >=0 *) |
-  "@" nat-number (* seq_num *) "err " human-text |
-  "@" nat-number (* seq_num *) " " human-text |
-  "@err " human-text |
-  "@ " human-text
-
-examples:
-@rem 100
-@34 ignoring unknown code
-@5err invalid parameter
-@5err operation failed
-@err wrong seq number
-@err buffer depleted
-@err machine failed suddenly
-@inf ignoring smoothing singularity
-```
-
-**Syntax Details**
-```
-nat-number = "0" | "1" | "2" | ...
-command = [A-Za-z0-9.+-_ ]+
-human-text = [^\n\r]+
-```
-
-## Protocol Semantics
-Host can
-* Any state
-	* `SOFT_CANCEL`: Cancel execution by `!`
-		* cancels current command's execution and end `EXEC` state.
-		* No effect when done in `IDLE`
-    * commands are supposed to cancel within 100ms of request.
-* In IDLE
-	* Start interactive command
-	* Start stream commands
-		* by issuing `:1 ...`
-* In EXEC_INTERACTIVE
-	* shoud just wait for completion
-* In EXEC_STREAM
-	* Feed next command
-		* `:...`
-	* End stream
-		* `::`
-
-All other inputs from host is disallowed and results in error.
-When going back to `IDLE` from any of `EXEC` or after `CANCEL`,
-at least one `output-idle` must be sent to notify that state is changed.
-
-FW can choose to keep status flag that persists across states, such that
-* can be only reset by certain interactive commands
-* other commands results in error depending on the flag state
-This can be used to ensure initialization, error recovery etc.
-
-### Error Levels
-"err" and "inf" is used throughout the protocol.
-
-"err" means `EXEC` cannot continue.
-* FW should go back to IDLE. (similar to `SOFT_CANCEL`)
-* Host should stop sending further command.
-
-"inf" is everything else (including warnings).
-
-
-## Commands
-```
-command =
-  "set" setting-name setting-value |
-  "get" [setting-name] |
-  g-command
-
-g-command =
-  ("G" | "M") nat-num ... (* TBD *)
-
+## Transport Layer & Line Contents
+Transport layer is full-duplex. Line is as follows.
 
 ```
+line
+  = payload "\n"
+  | payload seq checksum "\n"
+  | "ack" seq checksum "\n"
 
-* set/get: `EXEC_INTERACRIVE`
-* `g-command`: both
+payload = ?printable characters?
+seq = "*" (* 0 *) | "+" (* 1 *)
+checksum = ?[0-9A-F]{4}?
+```
+
+`payload` cannot be "ack". "\n" is LF (0x0A).
+Implementations SHOULD silently ignore CR (0x0D) present on the channel.
+
+`payload` MUST be 100 byte or less. Making each `line` at most 106 byte (10.6ms or less).
+`payload` SHOULD be ASCII printable characters (0x20 to 0x7e, inclusive). However, implementation MAY use UTF-8.
+
+`checksum` is calculated from `payload`+`seq` or "ack"+`seq`, using CRC-16/CCITT-FALSE.
+Receivers MUST silently discard non-conformant or checksum-error lines silently as channel error.
+
+### Transport Upgrade
+There are two modes of tranport:
+* Interactive mode: both ends will not compute checksum nor send ack. Assume no comm error. Never resend.
+* Machine mode: both ends compute checksum & sends ack. Both ends respect ack and resend.
+
+The protocol starts from interactive mode.
+Core implementation MAY use control characters to provide shell-like interactive line editing.
+In this case the protocol assumes `payload` is post-edit content.
+
+Host can initiate upgrade to machine mode by sending ack.
+Upon reception of ack, core enters machine mode and sends ack immediately.
+When host receives ack within 50ms, transport enters machine mode. Otherwise, host must resend ack.
+Until transport upgrade is complete, host MUST NOT send other payloads.
+During upgrade, ack with "*" is used, resulting in `ack*3B65`.
+When upgrade is complete, both ends expects/sends "+".
+
+There's no transition from machine mode to interactive mode.
+
+### Resend & Flow Control
+Sender-side pseudo-code
+```
+const num_retries: int
+curr_seq: bool
+
+fn on_payload_to_send_available(payload):
+  loop(num_retries):
+    send(payload, curr_seq)
+    wait:
+      receive ack(curr_seq):
+        curr_seq = !curr_seq
+        return
+      pass 50ms:
+        continue
+  
+  error("channel is broken")
+```
+
+Receiver-side pseudo-code
+```
+expect_seq: bool
+
+fn on_incoming_valid_payload(payload, seq):
+  if seq == expect_seq:
+    # accept must be immediate
+    if accept(payload):
+      # accepted
+      send_ack(seq)
+      expect_seq = !expect_seq
+    else:
+      # ignore if receiver is full
+  else:
+    # duplicate payload due to resend (must have been processed in previous cycle)
+    # re-send previous ack, but do not accept
+    send_ack(seq)
+```
+
+Receiver MUST send ack immediately when channel become available.
+
+Seen from the sender, worst case expected delay is 11ms = 10.6ms (full line in transit) + 0.4ms (ack).
+With 50ms wait, implementation and channel latency is allowed to have 39ms in total to do processing.
 
 
-Convention
-* interactive-only command: starts with lowercase
-* both command: starts with uppercase
-* stream only command: no such thing?
+## Application Layer
+Downlink payload has two types:
+* signal: single-character line starting from special character like "!" or "?"
+* command: anything that is not a signal
+
+Commands will be always queued internally, and executed sequentially.
+Signals will execute immediately, regardless of whether a command is running or not.
+
+Uplink payload is always partial state (p-state). P-state is semi-structured data about current state of the core.
+P-state is designed to allow multiple states to be interleaved.
+
+P-state data format
+```
+p-state = id seq-num { " " item }
+
+item
+  = key ":" value
+  | "<"
+  | ">"
+
+id = ?[A-Za-z0-9_]+
+
+key = id | { id "." } id
+value
+  = "true" | "false"
+  | ?number?
+  | '"' ?escaped-string? '"'
+```
+
+e.g. 
+```
+setting < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3
+setting m.4.microstep:3 m.4.microstep:5 >
+```
+
+"<" indicates start of a new p-state. ">" indicates completion.
+Note that ">" that corresponds to "<" might be not present when the operation is canceled.
+
+Core SHOULD NOT insert processing delay within a line.
+Core MAY insert arbirary processing delay between lines.
+
+Host MAY choose to present incomplete p-state to the user.
+
+### Signals
+#### "!": Cancel
+Stop execution of current command (if any), and clear the queue.
+
+#### "?": Query
+Respond with current status.
+
+* `?pos`: query pos
+* `?queue`: query queue
+
+### Commands
+#### "set": Set Setting
+Set single setting entry. See settings.md for list of settings.
+
+Example
+```
+set m.6.microstep 32
+```
+
+#### "get": Get Setting(s)
+Get all setting entries. See settings.md for list of settings.
+
+#### "stat": Dump Status
+Dump software & hardware internal status useful for debugging the firmware or hardware.
+Unlike "?" signal which responds immediately, stat can take time to query peripherals, run self-check etc.
+
+#### "download": Download Latest Available Data
+
+#### "test": Execute Hardware Tests
+Execute potentially unsafe operation to test the hardware.
+See main.c for details.
+
+#### G-Code
+Commands starting with "G" or "M". See gcode.md for details.
+
+### Partial States
+* Event-driven: Reported in pre-defined ocassions
+* Command-driven: Reported in response to certain commands
+
+#### "init": Event-driven
+Auto-logged just once after every boot.
+
+Keys
+* `ok`: whether the entire core was succesfully initialized
+* `<module>.ok` (bool): whether the module was succesfully initialized
+* `<module>.msg` (string or undef): error or warning message if available
+
+Example
+```
+init < ok:false pulser.ok:true motor.ok:false motor.msg:"Failed to change pin XXX" >
+```
+
+#### "queue": Change-driven, Command-driven
+Keys
+* `rem`: remaining space for items to store futher commands
+* `num`: number of items in the queue (including executing commands)
+
+Example
+```
+queue < rem:99 num:1 >
+```
+
+#### "pos": Command-driven
+Current coordinates.
+
+Keys
+* `sys`: current coordinate system ("machine", "grinder", "work", "toolsupply")
+* `m`: machine coordinate
+* `g`: grinder coordinate
+* `t`: tool supply coordinate
+* `w`: work coordinate
+
+`m` will always be present. `g` or `t` or `w` will be present iff it's current coordinate system as defined by `sys`.
+
+#### "stat": Command-driven
+Returns current snapshot of all stats.
+
+#### "settings": Command-driven
+Returns current snapshot of all settings.
+
+Example
+```
+settings m.5.microstep:32 m.6.microstep:16
+```
+
+#### "error": Command-driven
+Latest error.
+
+Keys
+* `src`: line content (w/o newline or hash) that caused the error
+* `msg`: human-readable error
+
+Note checksum errors are handled by lower-layer, and *not* reported as "error".
+
+
+#### "blob": Command-driven
+Latest blob.
+
+* `0`,`1`,...: N-th payload (urlsafe base64 w/o "=")
+
+Must be concatenated to form a single blob.
