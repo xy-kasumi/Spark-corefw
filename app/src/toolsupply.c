@@ -28,16 +28,19 @@ static int set_servo(float on_ms) {
   return pwm_set(pwm_dev, pwm_channel, period, on, 0);
 }
 
-void toolsupply_init() {
+bool toolsupply_init() {
   if (!device_is_ready(pwm_dev)) {
-    comm_print("toolsupply: init failed (PWM failed)");
-    return;
+    comm_ps_kv_fmt("toolsupply.ok", "false");
+    comm_ps_kv_str("toolsupply.msg", "PWM failed");
+    return false;
   }
   if (set_servo(current_servo_on_ms)) {
-    comm_print("toolsupply: init failed (PWM failed)");
-    return;
+    comm_ps_kv_fmt("toolsupply.ok", "false");
+    comm_ps_kv_str("toolsupply.msg", "PWM failed");
+    return false;
   }
-  comm_print("toolsupply: init ok");
+  comm_ps_kv_fmt("toolsupply.ok", "true");
+  return true;
 }
 
 void configure_tool_supply_servo_on(tool_supply_state_t state, float pos) {

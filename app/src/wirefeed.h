@@ -5,10 +5,12 @@
  */
 #pragma once
 
+#include <stdbool.h>
+
 /**
  * (blocking) Initialize wirefeed subsystem.
  */
-void wirefeed_init();
+bool wirefeed_init();
 
 /**
  * Start feeding wire at specified rate.

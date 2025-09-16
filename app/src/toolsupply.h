@@ -5,10 +5,12 @@
  */
 #pragma once
 
+#include <stdbool.h>
+
 typedef enum { TOOL_SUPPLY_OPEN, TOOL_SUPPLY_CLOSED } tool_supply_state_t;
 
 /** Initialize tool supply PWM servo. */
-void toolsupply_init();
+bool toolsupply_init();
 
 /** Configure servo positions for tool supply states.
  * @param state Tool supply state to configure

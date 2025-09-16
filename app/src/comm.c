@@ -142,6 +142,50 @@ void comm_init() {
   uart_irq_rx_enable(uart_dev);
 }
 
+void comm_ps_begin(const char* ps_type) {
+  uart_write(ps_type, strlen(ps_type));
+  uart_write(" ", 1);
+}
+
+void comm_ps_kv_str(const char* key, const char* fmt, ...) {
+  uart_write(key, strlen(key));
+  uart_write(":\"", 2);
+
+  // value
+  char buffer[256];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+
+  // TODO: escape
+  uart_puts(buffer);
+  uart_write("\"", 1);
+}
+
+void comm_ps_kv_fmt(const char* key, const char* fmt, ...) {
+  // key
+  uart_write(key, strlen(key));
+
+  // sep
+  uart_write(":", 1);
+
+  // value
+  char buffer[256];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+
+  uart_puts(buffer);
+}
+
+void comm_ps_end() {
+  // TODO: checksum
+  uart_write("*0000\n", 6);
+}
+
+
 void comm_print(const char* fmt, ...) {
   send_state_prefix(" ");
 

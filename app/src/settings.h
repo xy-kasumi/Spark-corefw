@@ -22,4 +22,4 @@ float settings_get(const char* key);
 bool settings_get_by_index(int index, const char** key, float* value);
 
 /** (blocking) Apply all current settings to hardware. */
-void settings_apply_all();
+bool settings_apply_all();

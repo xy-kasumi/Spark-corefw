@@ -41,10 +41,13 @@ static void wirefeed_tick_handler(struct k_timer* timer) {
   motor_set_target_steps(6, target_steps);
 }
 
-void wirefeed_init() {
+bool wirefeed_init() {
   // Initialize timer
   k_timer_init(&wirefeed_timer, wirefeed_tick_handler, NULL);
   k_timer_start(&wirefeed_timer, K_MSEC(1), K_MSEC(1));  // 1ms period
+
+  comm_ps_kv_fmt("wirefeed.ok", "true");
+  return true;
 }
 
 void wirefeed_start(float feedrate_mm_per_min_arg) {

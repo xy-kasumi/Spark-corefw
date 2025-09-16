@@ -330,18 +330,15 @@ bool settings_get_by_index(int index, const char** key, float* value) {
   return true;
 }
 
-void settings_apply_all() {
-  bool success = true;
+bool settings_apply_all() {
   for (int i = 0; i < SETTINGS_COUNT; i++) {
     bool res = apply_setting(settings[i].key, settings[i].value);
     if (!res) {
-      comm_print_err("Failed to apply setting %s", settings[i].key);
-      success = false;
+      comm_ps_kv_fmt("settings.ok", "false");
+      comm_ps_kv_str("settings.msg", "failed to apply %s", settings[i].key);
+      return false;
     }
   }
-  if (success) {
-    comm_print("settings: init ok");
-  } else {
-    comm_print_err("settings: some settings broken (firmware bug)");
-  }
+  comm_ps_kv_fmt("settings.ok", "true");
+  return true;
 }

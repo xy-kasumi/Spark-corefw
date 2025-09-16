@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 /** (blocking) Initialize pulser subsystem */
-void pulser_init();
+bool pulser_init();
 
 /** (blocking) Dump pulser status for debugging */
 void pulser_dump_status();

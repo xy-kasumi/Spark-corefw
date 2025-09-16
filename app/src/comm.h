@@ -16,6 +16,11 @@
 /** (blocking) Initialize communication subsystem */
 void comm_init();
 
+void comm_ps_begin(const char* ps_type);
+void comm_ps_kv_str(const char* key, const char* fmt, ...);
+void comm_ps_kv_fmt(const char* key, const char* fmt, ...);
+void comm_ps_end();
+
 /** (blocking) Print info message. */
 void comm_print(const char* fmt, ...);
 

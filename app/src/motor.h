@@ -11,7 +11,7 @@
 #define MOTOR_COUNT 7
 
 /** (blocking) Initialize motor subsystem and step generation */
-void motor_init();
+bool motor_init();
 
 /**
  * Queue a single step for specified motor for ASAP execution.

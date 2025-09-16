@@ -28,7 +28,7 @@ typedef enum {
 /**
  * (blocking) Initialize motion subsystem.
  */
-void motion_init();
+bool motion_init();
 
 pos_phys_t motion_get_current_pos();
 void motion_enqueue_move(pos_phys_t to_pos);

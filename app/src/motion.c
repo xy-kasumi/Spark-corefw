@@ -221,12 +221,13 @@ static void motion_tick_handler(struct k_timer* timer) {
   motor_set_target_steps_with_modulo(MOTOR_C, target_drv.c, c_modulo_steps);
 }
 
-void motion_init() {
+bool motion_init() {
   // Initialize timer for 1ms periodic tick
   k_timer_init(&motion_timer, motion_tick_handler, NULL);
   k_timer_start(&motion_timer, K_MSEC(1), K_MSEC(1));
 
-  comm_print("motion: init ok (1ms tick)");
+  comm_ps_kv_fmt("motion.ok", "true");
+  return true;
 }
 
 pos_phys_t motion_get_current_pos() {

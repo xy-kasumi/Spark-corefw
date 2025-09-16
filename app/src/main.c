@@ -23,20 +23,6 @@
 static uint8_t download_buffer[40000];
 static uint32_t download_buffer_size = 0;
 
-// Command: help
-static void cmd_help(char* args) {
-  comm_print("help - Show this help");
-  comm_print(
-      "stat <subsystem> - Show subsystem status (motor, pulser, wirefeed)");
-  comm_print("test pulser <dur> - Activate pulser for <dur> seconds");
-  comm_print("get - List all variables with values");
-  comm_print("get <key> - Get specific variable value");
-  comm_print("set <key> <value> - Set variable to value");
-  comm_print("ping - Connection test (no-op)");
-  comm_print("download - Download EDM log data as blob");
-  comm_print("! - Cancel current operation");
-}
-
 // Command: gcode
 static void cmd_gcode(char* full_command) {
   exec_gcode(full_command);
@@ -178,9 +164,7 @@ static void handle_console_command(char* command) {
     char* args = split_at(cmd, ' ');
 
     // Dispatch to command handler
-    if (strcmp(cmd, "help") == 0) {
-      cmd_help(args);
-    } else if (strcmp(cmd, "stat") == 0) {
+    if (strcmp(cmd, "stat") == 0) {
       cmd_stat(args);
     } else if (strcmp(cmd, "set") == 0) {
       cmd_set(args);
@@ -242,20 +226,34 @@ int main() {
   state_machine_init();
   comm_init();
 
+  comm_ps_begin("init");
+
   // init hardware
-  motor_init();
-  pulser_init();
-  toolsupply_init();
+  bool ok = true;
+  ok &= motor_init();
+  ok &= pulser_init();
+  ok &= toolsupply_init();
+  if (!ok) {
+    // cannot proceed to module init if hardware is failing
+    comm_ps_kv_fmt("ok", "false");
+    comm_ps_end();
+    return 1;
+  }
 
   // init modules
-  motion_init();
-  wirefeed_init();
+  ok &= motion_init();
+  ok &= wirefeed_init();
+  if (!ok) {
+    comm_ps_kv_fmt("ok", "false");
+    comm_ps_end();
+    return 1;
+  }
 
   // apply default settings
-  settings_apply_all();
+  ok &= settings_apply_all();
 
-  // main command processing loop
-  comm_print("Spark corefw: Type 'help' for commands");
+  comm_ps_kv_fmt("ok", ok ? "true" : "false");
+  comm_ps_end();
 
   while (1) {
     // Wait for command from input thread

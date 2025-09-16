@@ -125,22 +125,25 @@ static void edm_poll_timer_handler(struct k_timer* timer) {
   k_work_submit(&edm_poll_work);
 }
 
-void pulser_init() {
+bool pulser_init() {
   if (!i2c_dev) {
-    comm_print("pulser: I2C device not found");
-    return;
+    comm_ps_kv_fmt("pulser.ok", "false");
+    comm_ps_kv_str("pulser.msg", "I2C device not found");
+    return false;
   }
 
   if (!device_is_ready(i2c_dev)) {
-    comm_print("pulser: init I2C device not ready");
-    return;
+    comm_ps_kv_fmt("pulser.ok", "false");
+    comm_ps_kv_str("pulser.msg", "I2C device not ready");
+    return false;
   }
 
   // Check comm by reading temperature.
   uint8_t temp = 0;
   if (!read_register(REG_TEMPERATURE, &temp)) {
-    comm_print("pulser: init failed (I2C read failed)");
-    return;
+    comm_ps_kv_fmt("pulser.ok", "false");
+    comm_ps_kv_str("pulser.msg", "I2C read failed");
+    return false;
   }
 
   // Initialize work item
@@ -151,7 +154,8 @@ void pulser_init() {
   k_timer_start(&edm_poll_timer, K_MSEC(1), K_MSEC(1));
 
   init_success = true;
-  comm_print("pulser: init ok (1ms tick)");
+  comm_ps_kv_fmt("pulser.ok", "true");
+  return true;
 }
 
 void pulser_dump_status() {
