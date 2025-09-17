@@ -221,8 +221,7 @@ static void handle_console_command(char* command) {
   }
 }
 
-void handle_signal(const char* payload) {
-}
+void handle_signal(const char* payload) {}
 
 int main() {
   // init core
@@ -238,7 +237,7 @@ int main() {
   ok &= toolsupply_init();
   if (!ok) {
     // cannot proceed to module init if hardware is failing
-    comm_ps_old_kv_fmt("ok", "false");
+    comm_ps_old_kv_bool("ok", false);
     comm_ps_old_end();
     return 1;
   }
@@ -247,7 +246,7 @@ int main() {
   ok &= motion_init();
   ok &= wirefeed_init();
   if (!ok) {
-    comm_ps_old_kv_fmt("ok", "false");
+    comm_ps_old_kv_bool("ok", false);
     comm_ps_old_end();
     return 1;
   }
@@ -255,7 +254,7 @@ int main() {
   // apply default settings
   ok &= settings_apply_all();
 
-  comm_ps_old_kv_fmt("ok", ok ? "true" : "false");
+  comm_ps_old_kv_bool("ok", ok);
   comm_ps_old_end();
 
   while (1) {

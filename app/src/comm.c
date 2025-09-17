@@ -180,11 +180,16 @@ void comm_ps_old_kv_fmt(const char* key, const char* fmt, ...) {
   uart_puts(buffer);
 }
 
+void comm_ps_old_kv_bool(const char* key, bool value) {
+  uart_write(key, strlen(key));
+  uart_write(":", 1);
+  uart_puts(value ? "true" : "false");
+}
+
 void comm_ps_old_end() {
   // TODO: checksum
   uart_write("*0000\n", 6);
 }
-
 
 void comm_print(const char* fmt, ...) {
   send_state_prefix(" ");

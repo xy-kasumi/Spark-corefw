@@ -24,6 +24,7 @@ void comm_init(void (*on_signal)(const char* payload));
 void comm_ps_old_begin(const char* ps_type);
 void comm_ps_old_kv_str(const char* key, const char* fmt, ...);
 void comm_ps_old_kv_fmt(const char* key, const char* fmt, ...);
+void comm_ps_old_kv_bool(const char* key, bool value);
 void comm_ps_old_end();
 
 typedef enum {
