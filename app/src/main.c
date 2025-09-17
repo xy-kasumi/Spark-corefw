@@ -56,33 +56,21 @@ static void cmd_set(char* args) {
   }
 }
 
-// Command: get [key]
+// Command: get
 static void cmd_get(char* args) {
-  if (!args || strlen(args) == 0) {
-    // List all settings
-    const char* key;
-    float value;
-    for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
-      comm_print("%s %.1f", key, (double)value);
-    }
-  } else {
-    // Get specific setting - check if key exists
-    bool key_exists = false;
-    const char* test_key;
-    for (int i = 0; settings_get_by_index(i, &test_key, NULL); i++) {
-      if (strcmp(test_key, args) == 0) {
-        key_exists = true;
-        break;
-      }
-    }
-
-    if (key_exists) {
-      /*float value =*/settings_get(args);
-      // CM:comm_print("%.1f", (double)value);
-    } else {
-      // CM:comm_print_err("Unknown key %s", args);
-    }
+  if (args && strlen(args) > 0) {
+    // CM:comm_print_err("Usage: get");
+    return;
   }
+
+  // List all settings
+  const char* key;
+  float value;
+  comm_print_noprefix("settings <");
+  for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
+    comm_print_noprefix("settings %s:%.1f", key, (double)value);
+  }
+  comm_print_noprefix("settings >");
 }
 
 // Command: stat
@@ -256,6 +244,9 @@ int main() {
 
   comm_ps_old_kv_bool("ok", ok);
   comm_ps_old_end();
+
+  // LEGACY
+  comm_print_noprefix("I ready");
 
   while (1) {
     comm_wait_for_command();

@@ -264,6 +264,18 @@ void comm_print(const char* fmt, ...) {
   uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
+void comm_print_noprefix(const char* fmt, ...) {
+  // Format and send message
+  char buffer[256];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+
+  uart_puts(buffer);
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
+}
+
 void comm_print_ack() {
   send_state_prefix("ack");
   uart_write(LINE_ENDING, LINE_ENDING_LEN);
