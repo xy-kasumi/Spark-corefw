@@ -265,8 +265,8 @@ bool motor_init() {
   // Check motor devices
   for (int i = 0; i < MOTOR_COUNT; i++) {
     if (!device_is_ready(motors[i])) {
-      comm_ps_kv_fmt("motor.ok", "false");
-      comm_ps_kv_fmt("motor.msg", "\"mot%d not ready\"", i);
+      comm_ps_old_kv_fmt("motor.ok", "false");
+      comm_ps_old_kv_fmt("motor.msg", "\"mot%d not ready\"", i);
       return false;
     }
   }
@@ -281,8 +281,8 @@ bool motor_init() {
   counter_start(step_gen_cnt);
   int ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
   if (ret < 0) {
-    comm_ps_kv_fmt("motor.ok", "false");
-    comm_ps_kv_str("motor.msg", "step timer failed (code %d)", ret);
+    comm_ps_old_kv_fmt("motor.ok", "false");
+    comm_ps_old_kv_str("motor.msg", "step timer failed (code %d)", ret);
     return false;
   }
 
@@ -290,12 +290,12 @@ bool motor_init() {
   for (int i = 0; i < MOTOR_COUNT; i++) {
     ret = tmc_set_tcoolthrs(motors[i], 750000);
     if (ret < 0) {
-      comm_ps_kv_fmt("motor.ok", "false");
-      comm_ps_kv_str("motor.msg", "failed to set TCOOLTHRS for mot%d", i);
+      comm_ps_old_kv_fmt("motor.ok", "false");
+      comm_ps_old_kv_str("motor.msg", "failed to set TCOOLTHRS for mot%d", i);
       return false;
     }
   }
 
-  comm_ps_kv_fmt("motor.ok", "true");
+  comm_ps_old_kv_fmt("motor.ok", "true");
   return true;
 }

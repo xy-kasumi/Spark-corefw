@@ -28,7 +28,7 @@ line
 
 payload = ?printable characters?
 seq = "*" (* 0 *) | "+" (* 1 *)
-checksum = ?[0-9A-F]{4}?
+checksum = ?regex [0-9a-f]{4}?
 ```
 
 `payload` cannot be "ack". "\n" is LF (0x0A).
@@ -122,13 +122,17 @@ item
   | "<"
   | ">"
 
-id = ?[A-Za-z0-9_]+
+id = ?regex [A-Za-z0-9_]+?
 
 key = id | { id "." } id
 value
   = "true" | "false"
-  | ?number?
+  | number-float
+  | number-hex
   | '"' ?escaped-string? '"'
+
+number-float = ?regex -?[0-9.]+?
+number-hex = ?regex 0x[0-9a-f]+?
 ```
 
 e.g. 

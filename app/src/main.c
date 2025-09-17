@@ -221,12 +221,15 @@ static void handle_console_command(char* command) {
   }
 }
 
+void handle_signal(const char* payload) {
+}
+
 int main() {
   // init core
   state_machine_init();
-  comm_init();
+  comm_init(handle_signal);
 
-  comm_ps_begin("init");
+  comm_ps_old_begin("init");
 
   // init hardware
   bool ok = true;
@@ -235,8 +238,8 @@ int main() {
   ok &= toolsupply_init();
   if (!ok) {
     // cannot proceed to module init if hardware is failing
-    comm_ps_kv_fmt("ok", "false");
-    comm_ps_end();
+    comm_ps_old_kv_fmt("ok", "false");
+    comm_ps_old_end();
     return 1;
   }
 
@@ -244,16 +247,16 @@ int main() {
   ok &= motion_init();
   ok &= wirefeed_init();
   if (!ok) {
-    comm_ps_kv_fmt("ok", "false");
-    comm_ps_end();
+    comm_ps_old_kv_fmt("ok", "false");
+    comm_ps_old_end();
     return 1;
   }
 
   // apply default settings
   ok &= settings_apply_all();
 
-  comm_ps_kv_fmt("ok", ok ? "true" : "false");
-  comm_ps_end();
+  comm_ps_old_kv_fmt("ok", ok ? "true" : "false");
+  comm_ps_old_end();
 
   while (1) {
     // Wait for command from input thread

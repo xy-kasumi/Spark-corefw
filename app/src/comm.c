@@ -131,7 +131,7 @@ static void send_state_prefix(const char* message_type) {
   uart_puts(message_type);
 }
 
-void comm_init() {
+void comm_init(void (*on_signal)(const char* payload)) {
   if (!device_is_ready(uart_dev)) {
     // Can't report error via UART
     return;
@@ -142,12 +142,12 @@ void comm_init() {
   uart_irq_rx_enable(uart_dev);
 }
 
-void comm_ps_begin(const char* ps_type) {
+void comm_ps_old_begin(const char* ps_type) {
   uart_write(ps_type, strlen(ps_type));
   uart_write(" ", 1);
 }
 
-void comm_ps_kv_str(const char* key, const char* fmt, ...) {
+void comm_ps_old_kv_str(const char* key, const char* fmt, ...) {
   uart_write(key, strlen(key));
   uart_write(":\"", 2);
 
@@ -163,7 +163,7 @@ void comm_ps_kv_str(const char* key, const char* fmt, ...) {
   uart_write("\"", 1);
 }
 
-void comm_ps_kv_fmt(const char* key, const char* fmt, ...) {
+void comm_ps_old_kv_fmt(const char* key, const char* fmt, ...) {
   // key
   uart_write(key, strlen(key));
 
@@ -180,7 +180,7 @@ void comm_ps_kv_fmt(const char* key, const char* fmt, ...) {
   uart_puts(buffer);
 }
 
-void comm_ps_end() {
+void comm_ps_old_end() {
   // TODO: checksum
   uart_write("*0000\n", 6);
 }
