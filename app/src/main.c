@@ -258,12 +258,15 @@ int main() {
   comm_ps_old_end();
 
   while (1) {
-    // Wait for command from input thread
-    char command[256];
-    comm_get_next_command(command);
-
-    // Execute the command
-    handle_console_command(command);
+    comm_wait_for_command();
+    payload_t cmd;
+    payload_t next_cmd;
+    int num_avail = comm_get_command_if_avail(&cmd, &next_cmd);
+    if (num_avail == 0) {
+      // comm_clear_commands() was called in signal handler
+      continue;
+    }
+    handle_console_command(cmd.data);
   }
 
   return 0;
