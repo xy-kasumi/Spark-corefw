@@ -46,7 +46,7 @@ bool wirefeed_init() {
   k_timer_init(&wirefeed_timer, wirefeed_tick_handler, NULL);
   k_timer_start(&wirefeed_timer, K_MSEC(1), K_MSEC(1));  // 1ms period
 
-  comm_ps_old_kv_bool("wirefeed.ok", true);
+  //CM:comm_ps_old_kv_bool("wirefeed.ok", true);
   return true;
 }
 
@@ -65,8 +65,7 @@ void wirefeed_set_unitsteps(float unitsteps) {
 }
 
 void wirefeed_dump_status() {
-  comm_print("state: %s",
-             state == WIREFEED_STATE_FEEDING ? "FEEDING" : "STOPPED");
-  comm_print("pos: %.3f mm", (double)current_pos_mm);
-  comm_print("rate: %.3f mm/min", (double)feedrate_mm_per_min);
+  //CM:comm_print("state: %s", state == WIREFEED_STATE_FEEDING ? "FEEDING" : "STOPPED");
+  //CM:comm_print("pos: %.3f mm", (double)current_pos_mm);
+  //CM:comm_print("rate: %.3f mm/min", (double)feedrate_mm_per_min);
 }

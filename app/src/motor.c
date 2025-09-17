@@ -229,18 +229,21 @@ void motor_dump_status() {
   char buf[256];
   const struct device* motors[] = {motor0, motor1, motor2, motor3,
                                    motor4, motor5, motor6};
-  const char* names[] = {"mot0", "mot1", "mot2", "mot3",
-                         "mot4", "mot5", "mot6"};
+
+  /*
+                                   const char* names[] = {"mot0", "mot1",
+     "mot2", "mot3", "mot4", "mot5", "mot6"};
+                         */
 
   for (int i = 0; i < MOTOR_COUNT; i++) {
-    comm_print("%s: current_steps:%d energized:%s", names[i],
-               motor_states[i].current_steps,
-               motor_states[i].energized ? "true" : "false");
+    // CM:comm_print("%s: current_steps:%d energized:%s",
+    // names[i],motor_states[i].current_steps,motor_states[i].energized ? "true"
+    // : "false");
     int ret = tmc_dump_regs(motors[i], buf, sizeof(buf));
     if (ret < 0) {
-      comm_print("%s: error %d", names[i], ret);
+      // CM:comm_print("%s: error %d", names[i], ret);
     } else {
-      comm_print("%s: %s", names[i], buf);
+      // CM:comm_print("%s: %s", names[i], buf);
     }
   }
 }
@@ -265,8 +268,8 @@ bool motor_init() {
   // Check motor devices
   for (int i = 0; i < MOTOR_COUNT; i++) {
     if (!device_is_ready(motors[i])) {
-      comm_ps_old_kv_bool("motor.ok", false);
-      comm_ps_old_kv_fmt("motor.msg", "\"mot%d not ready\"", i);
+      // CM:comm_ps_old_kv_bool("motor.ok", false);
+      // CM:comm_ps_old_kv_fmt("motor.msg", "\"mot%d not ready\"", i);
       return false;
     }
   }
@@ -281,8 +284,8 @@ bool motor_init() {
   counter_start(step_gen_cnt);
   int ret = counter_set_top_value(step_gen_cnt, &step_top_cfg);
   if (ret < 0) {
-    comm_ps_old_kv_bool("motor.ok", false);
-    comm_ps_old_kv_str("motor.msg", "step timer failed (code %d)", ret);
+    // CM:comm_ps_old_kv_bool("motor.ok", false);
+    // CM:comm_ps_old_kv_str("motor.msg", "step timer failed (code %d)", ret);
     return false;
   }
 
@@ -290,12 +293,13 @@ bool motor_init() {
   for (int i = 0; i < MOTOR_COUNT; i++) {
     ret = tmc_set_tcoolthrs(motors[i], 750000);
     if (ret < 0) {
-      comm_ps_old_kv_bool("motor.ok", false);
-      comm_ps_old_kv_str("motor.msg", "failed to set TCOOLTHRS for mot%d", i);
+      // CM:comm_ps_old_kv_bool("motor.ok", false);
+      // CM:comm_ps_old_kv_str("motor.msg", "failed to set TCOOLTHRS for mot%d",
+      // i);
       return false;
     }
   }
 
-  comm_ps_old_kv_bool("motor.ok", true);
+  // CM:comm_ps_old_kv_bool("motor.ok", true);
   return true;
 }

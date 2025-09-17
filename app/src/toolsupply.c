@@ -30,16 +30,16 @@ static int set_servo(float on_ms) {
 
 bool toolsupply_init() {
   if (!device_is_ready(pwm_dev)) {
-    comm_ps_old_kv_bool("toolsupply.ok", false);
-    comm_ps_old_kv_str("toolsupply.msg", "PWM failed");
+    //CM:comm_ps_old_kv_bool("toolsupply.ok", false);
+    //CM:comm_ps_old_kv_str("toolsupply.msg", "PWM failed");
     return false;
   }
   if (set_servo(current_servo_on_ms)) {
-    comm_ps_old_kv_bool("toolsupply.ok", false);
-    comm_ps_old_kv_str("toolsupply.msg", "PWM failed");
+    //CM:comm_ps_old_kv_bool("toolsupply.ok", false);
+    //CM:comm_ps_old_kv_str("toolsupply.msg", "PWM failed");
     return false;
   }
-  comm_ps_old_kv_bool("toolsupply.ok", true);
+  //CM:comm_ps_old_kv_bool("toolsupply.ok", true);
   return true;
 }
 

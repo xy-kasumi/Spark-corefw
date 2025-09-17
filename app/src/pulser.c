@@ -127,22 +127,22 @@ static void edm_poll_timer_handler(struct k_timer* timer) {
 
 bool pulser_init() {
   if (!i2c_dev) {
-    comm_ps_old_kv_bool("pulser.ok", false);
-    comm_ps_old_kv_str("pulser.msg", "I2C device not found");
+    //CM:comm_ps_old_kv_bool("pulser.ok", false);
+    //CM:comm_ps_old_kv_str("pulser.msg", "I2C device not found");
     return false;
   }
 
   if (!device_is_ready(i2c_dev)) {
-    comm_ps_old_kv_bool("pulser.ok", false);
-    comm_ps_old_kv_str("pulser.msg", "I2C device not ready");
+    //CM:comm_ps_old_kv_bool("pulser.ok", false);
+    //CM:comm_ps_old_kv_str("pulser.msg", "I2C device not ready");
     return false;
   }
 
   // Check comm by reading temperature.
   uint8_t temp = 0;
   if (!read_register(REG_TEMPERATURE, &temp)) {
-    comm_ps_old_kv_bool("pulser.ok", false);
-    comm_ps_old_kv_str("pulser.msg", "I2C read failed");
+    //CM:comm_ps_old_kv_bool("pulser.ok", false);
+    //CM:comm_ps_old_kv_str("pulser.msg", "I2C read failed");
     return false;
   }
 
@@ -154,29 +154,26 @@ bool pulser_init() {
   k_timer_start(&edm_poll_timer, K_MSEC(1), K_MSEC(1));
 
   init_success = true;
-  comm_ps_old_kv_bool("pulser.ok", true);
+  //CM:comm_ps_old_kv_bool("pulser.ok", true);
   return true;
 }
 
 void pulser_dump_status() {
   if (!init_success) {
-    comm_print("status: init failed");
+    //CM:comm_print("status: init failed");
     return;
   }
 
-  comm_print("poll count: %u", poll_count);
-  comm_print("EDM state: r_pulse=%u, r_short=%u, r_open=%u", last_r_pulse,
-             last_r_short, last_r_open);
-  comm_print("EDM buffer: %u/%u entries (%.1f%% full)", edm_buffer_count,
-             EDM_BUFFER_SIZE,
-             (double)(edm_buffer_count * 100) / EDM_BUFFER_SIZE);
+  //CM:comm_print("poll count: %u", poll_count);
+  //CM:comm_print("EDM state: r_pulse=%u, r_short=%u, r_open=%u", last_r_pulse,last_r_short, last_r_open);
+  //CM:comm_print("EDM buffer: %u/%u entries (%.1f%% full)", edm_buffer_count,EDM_BUFFER_SIZE,(double)(edm_buffer_count * 100) / EDM_BUFFER_SIZE);
 
   uint8_t temperature;
   if (read_register(REG_TEMPERATURE, &temperature)) {
-    comm_print("temperature: %u", temperature);
-    comm_print("status: ok");
+    //CM:comm_print("temperature: %u", temperature);
+    //CM:comm_print("status: ok");
   } else {
-    comm_print("status: i2c read fail");
+    //CM:comm_print("status: i2c read fail");
   }
 }
 
@@ -185,7 +182,7 @@ void pulser_energize(bool negative,
                      float current_a,
                      float duty_pct) {
   if (!init_success) {
-    comm_print_err("pulser: energize failed (not initialized)");
+    //CM:comm_print_err("pulser: energize failed (not initialized)");
     return;
   }
 
@@ -210,14 +207,12 @@ void pulser_energize(bool negative,
   all_ok &= write_register(REG_POLARITY, polarity);
 
   if (!all_ok) {
-    comm_print_err("pulser: energize failed (I2C write failed)");
+    //CM:comm_print_err("pulser: energize failed (I2C write failed)");
     return;
   }
 
   energized = true;
-  comm_print("pulser: energized (%s, %.0fµs, %.1fA, %.0f%%)",
-             negative ? "T-" : "T+", (double)pulse_us, (double)current_a,
-             (double)duty_pct);
+  //CM:comm_print("pulser: energized (%s, %.0fµs, %.1fA, %.0f%%)",negative ? "T-" : "T+", (double)pulse_us, (double)current_a,(double)duty_pct);
 }
 
 void pulser_deenergize() {
@@ -230,11 +225,11 @@ void pulser_deenergize() {
   // Write polarity register to off
   bool ok = write_register(REG_POLARITY, 0);
   if (!ok) {
-    comm_print_err("pulser: deenergize failed (I2C write failed)");
+    //CM:comm_print_err("pulser: deenergize failed (I2C write failed)");
     return;
   }
 
-  comm_print("pulser: deenergized");
+  //CM:comm_print("pulser: deenergized");
 }
 
 uint32_t pulser_get_buffer_count() {

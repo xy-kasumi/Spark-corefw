@@ -197,6 +197,9 @@ void comm_init(void (*on_signal)(const char* payload)) {
                   K_THREAD_STACK_SIZEOF(comm_stack_area), comm_thread, NULL,
                   NULL, NULL, -1, K_FP_REGS,
                   K_NO_WAIT);  // lower than main thread(-1), cooperative thread
+
+  // flush pre-init broken data (often bunch of zeros) on the serial line
+  uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_ps_old_begin(const char* ps_type) {
@@ -244,8 +247,7 @@ void comm_ps_old_kv_bool(const char* key, bool value) {
 }
 
 void comm_ps_old_end() {
-  // TODO: checksum
-  uart_write("*0000\n", 6);
+  uart_write("\n", 1);
 }
 
 void comm_print(const char* fmt, ...) {

@@ -31,7 +31,7 @@ static void cmd_gcode(char* full_command) {
 // Command: set <key> <value>
 static void cmd_set(char* args) {
   if (!args) {
-    comm_print_err("Usage: set <key> <value>");
+    // CM:comm_print_err("Usage: set <key> <value>");
     return;
   }
 
@@ -40,19 +40,19 @@ static void cmd_set(char* args) {
   char* value = split_at(key, ' ');
 
   if (!value) {
-    comm_print_err("Usage: set <key> <value>");
+    // CM:comm_print_err("Usage: set <key> <value>");
     return;
   }
 
   // Parse and validate float value
   float float_value;
   if (!parse_float(value, &float_value)) {
-    comm_print_err("Invalid number: %s", value);
+    // CM:comm_print_err("Invalid number: %s", value);
     return;
   }
 
   if (!settings_set(key, float_value)) {
-    comm_print_err("Failed to set %s", key);
+    // CM:comm_print_err("Failed to set %s", key);
   }
 }
 
@@ -77,10 +77,10 @@ static void cmd_get(char* args) {
     }
 
     if (key_exists) {
-      float value = settings_get(args);
-      comm_print("%.1f", (double)value);
+      /*float value =*/settings_get(args);
+      // CM:comm_print("%.1f", (double)value);
     } else {
-      comm_print_err("Unknown key %s", args);
+      // CM:comm_print_err("Unknown key %s", args);
     }
   }
 }
@@ -89,7 +89,7 @@ static void cmd_get(char* args) {
 static void cmd_stat(char* args) {
   if (!args || strlen(args) == 0) {
     comm_print_err("Usage: stat <subsystem>");
-    comm_print("Available subsystems: motor, pulser, wirefeed");
+    // CM:comm_print("Available subsystems: motor, pulser, wirefeed");
     return;
   }
 
@@ -111,20 +111,20 @@ static void cmd_download(char* args) {
       pulser_copy_log_to_buffer(download_buffer, sizeof(download_buffer));
 
   if (download_buffer_size == 0) {
-    comm_print("No EDM data available");
+    // CM:comm_print("No EDM data available");
     return;
   }
 
-  uint32_t entry_count = download_buffer_size / 4;  // 4 bytes per entry
-  comm_print("Sending %u bytes (%u EDM entries)", download_buffer_size,
-             entry_count);
+  // uint32_t entry_count = download_buffer_size / 4;  // 4 bytes per entry
+  // CM:comm_print("Sending %u bytes (%u EDM entries)",
+  // download_buffer_size,entry_count);
   comm_print_blob(download_buffer, download_buffer_size);
 }
 
 // Command: test
 static void cmd_test(char* args) {
   if (!args || strlen(args) == 0) {
-    comm_print_err("Usage: test <target> <params...>");
+    // CM:comm_print_err("Usage: test <target> <params...>");
     return;
   }
 
@@ -135,19 +135,19 @@ static void cmd_test(char* args) {
   if (strcmp(target, "pulser") == 0) {
     // Parse duration parameter
     if (!params || strlen(params) == 0) {
-      comm_print_err("Usage: test pulser <duration_sec>");
+      // CM:comm_print_err("Usage: test pulser <duration_sec>");
       return;
     }
 
     int duration;
     if (!parse_int(params, &duration) || duration <= 0) {
-      comm_print_err("Invalid duration: %s", params);
+      // CM:comm_print_err("Invalid duration: %s", params);
       return;
     }
 
     exec_test_pulser(duration);
   } else {
-    comm_print_err("Unknown test target: %s", target);
+    // CM:comm_print_err("Unknown test target: %s", target);
   }
 }
 
@@ -177,8 +177,8 @@ static void handle_console_command(char* command) {
     } else if (strcmp(cmd, "ping") == 0) {
       // Do nothing
     } else {
-      comm_print_err("unknown command: %s; type 'help' for available commands",
-                     cmd);
+      // CM:comm_print_err("unknown command: %s; type 'help' for available
+      // commands",cmd);
     }
   }
 
@@ -197,7 +197,8 @@ static void handle_console_command(char* command) {
                (double)(machine_pos.c * 360.0f));
   } else {
     // Convert machine position to current coordinate system for display
-    pos_phys_t cs_pos = coords_from_machine(&machine_pos, current_cs, offsets);
+    /*pos_phys_t cs_pos =*/coords_from_machine(&machine_pos, current_cs,
+                                               offsets);
     const char* cs_name = "";
     switch (current_cs) {
       case COORD_SYSTEM_GRINDER:
@@ -212,12 +213,11 @@ static void handle_console_command(char* command) {
       case COORD_SYSTEM_MACHINE:
         // shouldn't happen
     }
-    comm_print(
-        "ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f C%.3f (machine)",
-        (double)cs_pos.x, (double)cs_pos.y, (double)cs_pos.z,
-        (double)(cs_pos.c * 360.0f), cs_name, (double)machine_pos.x,
-        (double)machine_pos.y, (double)machine_pos.z,
-        (double)(machine_pos.c * 360.0f));
+    // CM:comm_print("ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f C%.3f
+    // (machine)",(double)cs_pos.x, (double)cs_pos.y,
+    // (double)cs_pos.z,(double)(cs_pos.c * 360.0f), cs_name,
+    // (double)machine_pos.x,(double)machine_pos.y,
+    // (double)machine_pos.z,(double)(machine_pos.c * 360.0f));
   }
 }
 
