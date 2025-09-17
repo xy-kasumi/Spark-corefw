@@ -115,12 +115,7 @@ P-state is designed to allow multiple states to be interleaved.
 
 P-state data format
 ```
-p-state = id seq-num { " " item }
-
-item
-  = key ":" value
-  | "<"
-  | ">"
+p-state = id [ " <" ] { " " key ":" value } [ " >" ]
 
 id = ?regex [A-Za-z0-9_]+?
 
@@ -135,10 +130,17 @@ number-float = ?regex -?[0-9.]+?
 number-hex = ?regex 0x[0-9a-f]+?
 ```
 
-e.g. 
+Valid Examples
 ```
-setting < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3
-setting m.4.microstep:3 m.4.microstep:5 >
+settings < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3
+settings m.4.microstep:3 m.4.microstep:5 >
+settings <>
+```
+
+Invalid Examples
+```
+settings a > b
+settings < a b > < c d >
 ```
 
 "<" indicates start of a new p-state. ">" indicates completion.
