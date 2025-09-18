@@ -66,11 +66,11 @@ static void cmd_get(char* args) {
   // List all settings
   const char* key;
   float value;
-  comm_print_noprefix("stg <");
+  comm_print("stg <");
   for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
-    comm_print_noprefix("stg %s:%.1f", key, (double)value);
+    comm_print("stg %s:%.1f", key, (double)value);
   }
-  comm_print_noprefix("stg >");
+  comm_print("stg >");
 }
 
 // Command: stat
@@ -141,7 +141,6 @@ static void cmd_test(char* args) {
 
 static void handle_console_command(char* command) {
   g_machine_state = STATE_EXEC_INTERACTIVE;
-  comm_print_ack();
 
   // G-code or command?
   if (command[0] == 'G' || command[0] == 'M') {
@@ -162,7 +161,7 @@ static void handle_console_command(char* command) {
       cmd_download(args);
     } else if (strcmp(cmd, "test") == 0) {
       cmd_test(args);
-    } else if (strcmp(cmd, "ping") == 0) {
+    } else if (strcmp(cmd, "?pos") == 0) {
       // Do nothing
     } else {
       // CM:comm_print_err("unknown command: %s; type 'help' for available
@@ -180,9 +179,10 @@ static void handle_console_command(char* command) {
   const coord_offsets_t* offsets = gcode_get_coord_offsets();
 
   if (current_cs == COORD_SYSTEM_MACHINE) {
-    comm_print("ready X%.3f Y%.3f Z%.3f C%.3f (machine)", (double)machine_pos.x,
-               (double)machine_pos.y, (double)machine_pos.z,
-               (double)(machine_pos.c * 360.0f));
+    comm_print(
+        "pos < sys:\"machine\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f >",
+        (double)machine_pos.x, (double)machine_pos.y, (double)machine_pos.z,
+        (double)(machine_pos.c * 360.0f));
   } else {
     // Convert machine position to current coordinate system for display
     /*pos_phys_t cs_pos =*/coords_from_machine(&machine_pos, current_cs,
@@ -244,9 +244,6 @@ int main() {
 
   comm_ps_old_kv_bool("ok", ok);
   comm_ps_old_end();
-
-  // LEGACY
-  comm_print_noprefix("I ready");
 
   while (1) {
     comm_wait_for_command();

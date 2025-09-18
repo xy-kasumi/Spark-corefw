@@ -110,7 +110,7 @@ Downlink payload has two types:
 Commands will be always queued internally, and executed sequentially.
 Signals will execute immediately, regardless of whether a command is running or not.
 
-Uplink payload is always partial state (p-state). P-state is semi-structured data about current state of the core.
+Uplink payload is always parallel state (p-state). P-state is semi-structured data about current state of the core.
 P-state is designed to allow multiple states to be interleaved.
 
 P-state data format
@@ -186,7 +186,7 @@ See main.c for details.
 #### G-Code
 Commands starting with "G" or "M". See gcode.md for details.
 
-### Partial States
+### Parallel States
 * Event-driven: Reported in pre-defined ocassions
 * Command-driven: Reported in response to certain commands
 

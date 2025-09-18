@@ -118,24 +118,6 @@ static void uart_puts(const char* str) {
   uart_write((const uint8_t*)str, strlen(str));
 }
 
-static void send_state_prefix(const char* message_type) {
-  machine_state_t state = state_machine_get_state();
-
-  switch (state) {
-    case STATE_IDLE:
-      uart_write((const uint8_t*)"I", 1);
-      break;
-    case STATE_EXEC_INTERACTIVE:
-      uart_write((const uint8_t*)">", 1);
-      break;
-    case STATE_EXEC_STREAM:
-      uart_write((const uint8_t*)"@", 1);
-      break;
-  }
-
-  uart_puts(message_type);
-}
-
 static void comm_thread(void* p1, void* p2, void* p3) {
   while (1) {
     // Wait for RX events
@@ -251,8 +233,6 @@ void comm_ps_old_end() {
 }
 
 void comm_print(const char* fmt, ...) {
-  send_state_prefix(" ");
-
   // Format and send message
   char buffer[256];
   va_list args;
@@ -261,28 +241,11 @@ void comm_print(const char* fmt, ...) {
   va_end(args);
 
   uart_puts(buffer);
-  uart_write(LINE_ENDING, LINE_ENDING_LEN);
-}
-
-void comm_print_noprefix(const char* fmt, ...) {
-  // Format and send message
-  char buffer[256];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
-  va_end(args);
-
-  uart_puts(buffer);
-  uart_write(LINE_ENDING, LINE_ENDING_LEN);
-}
-
-void comm_print_ack() {
-  send_state_prefix("ack");
   uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
 void comm_print_err(const char* fmt, ...) {
-  send_state_prefix("err ");
+  uart_puts("err ");
 
   // Format and send message
   char buffer[256];
@@ -371,18 +334,8 @@ void comm_get_next_command(char* buffer) {
   }
 }
 
-// Adler-32 checksum calculation
-static uint32_t adler32(const uint8_t* data, int len) {
-  uint32_t a = 1, b = 0;
-  for (int i = 0; i < len; i++) {
-    a = (a + data[i]) % 65521;
-    b = (b + a) % 65521;
-  }
-  return (b << 16) | a;
-}
-
 void comm_print_blob(uint8_t* ptr, int size) {
-  send_state_prefix("blob ");
+  uart_puts("blob ");
 
   char buffer[256];
   int pos = 0;
@@ -420,15 +373,6 @@ void comm_print_blob(uint8_t* ptr, int size) {
     if (output_chars > 3) {
       buffer[pos++] = base64url_table[val & 0x3F];
     }
-  }
-
-  // Add checksum
-  buffer[pos++] = ' ';
-
-  uint32_t checksum = adler32(ptr, size);
-  const char* hex_table = "0123456789abcdef";
-  for (int i = 7; i >= 0; i--) {
-    buffer[pos++] = hex_table[(checksum >> (i * 4)) & 0x0F];
   }
 
   uart_write((const uint8_t*)buffer, pos);

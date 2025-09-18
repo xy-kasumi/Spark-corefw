@@ -86,12 +86,6 @@ void comm_ps_end(ps_type_t ps);
 /** (blocking) Print info message. */
 void comm_print(const char* fmt, ...);
 
-/** (blocking) Print info message. */
-void comm_print_noprefix(const char* fmt, ...);
-
-/** (blocking) Print ack. */
-void comm_print_ack();
-
 /** (blocking) Print error message. */
 void comm_print_err(const char* fmt, ...);
 
