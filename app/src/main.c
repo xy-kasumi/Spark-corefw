@@ -66,11 +66,11 @@ static void cmd_get(char* args) {
   // List all settings
   const char* key;
   float value;
-  comm_print_noprefix("settings <");
+  comm_print_noprefix("stg <");
   for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
-    comm_print_noprefix("settings %s:%.1f", key, (double)value);
+    comm_print_noprefix("stg %s:%.1f", key, (double)value);
   }
-  comm_print_noprefix("settings >");
+  comm_print_noprefix("stg >");
 }
 
 // Command: stat

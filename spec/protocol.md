@@ -132,15 +132,15 @@ number-hex = ?regex 0x[0-9a-f]+?
 
 Valid Examples
 ```
-settings < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3
-settings m.4.microstep:3 m.4.microstep:5 >
-settings <>
+stg < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3
+stg m.4.microstep:3 m.4.microstep:5 >
+stg <>
 ```
 
 Invalid Examples
 ```
-settings a > b
-settings < a b > < c d >
+stg a > b
+stg < a b > < c d >
 ```
 
 "<" indicates start of a new p-state. ">" indicates completion.
@@ -228,7 +228,7 @@ Keys
 #### "stat": Command-driven
 Returns current snapshot of all stats.
 
-#### "settings": Command-driven
+#### "stg": Command-driven
 Returns current snapshot of all settings.
 
 Example
