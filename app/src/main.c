@@ -66,11 +66,11 @@ static void cmd_get(char* args) {
   // List all settings
   const char* key;
   float value;
-  comm_print("stg <");
+  comm_ps_begin(PS_SETTINGS);
   for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
-    comm_print("stg %s:%.1f", key, (double)value);
+    comm_ps_kv_float(PS_SETTINGS, key, value);
   }
-  comm_print("stg >");
+  comm_ps_end(PS_SETTINGS);
 }
 
 // Command: stat
@@ -140,7 +140,7 @@ static void cmd_test(char* args) {
 }
 
 static void handle_console_command(char* command) {
-  comm_print("ack len=%d", (int)strlen(command));
+  //comm_print("ack len=%d", (int)strlen(command));
   g_machine_state = STATE_EXEC_INTERACTIVE;
 
   // G-code or command?
@@ -187,9 +187,10 @@ void handle_signal(const char* payload) {
     const coord_offsets_t* offsets = gcode_get_coord_offsets();
 
     if (current_cs == COORD_SYSTEM_MACHINE) {
-      comm_print("pos < sys:\"machine\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f >",
-                 (double)machine_pos.x, (double)machine_pos.y,
-                 (double)machine_pos.z, (double)(machine_pos.c * 360.0f));
+      comm_ps_raw(PS_POS,
+                  "< sys:\"machine\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f >",
+                  (double)machine_pos.x, (double)machine_pos.y,
+                  (double)machine_pos.z, (double)(machine_pos.c * 360.0f));
     } else {
       // Convert machine position to current coordinate system for display
       /*pos_phys_t cs_pos =*/coords_from_machine(&machine_pos, current_cs,
@@ -222,7 +223,7 @@ int main() {
   state_machine_init();
   comm_init(handle_signal);
 
-  comm_ps_old_begin("init");
+  comm_ps_begin(PS_INIT);
 
   // init hardware
   bool ok = true;
@@ -231,8 +232,8 @@ int main() {
   ok &= toolsupply_init();
   if (!ok) {
     // cannot proceed to module init if hardware is failing
-    comm_ps_old_kv_bool("ok", false);
-    comm_ps_old_end();
+    comm_ps_kv_bool(PS_INIT, "ok", false);
+    comm_ps_end(PS_INIT);
     return 1;
   }
 
@@ -240,16 +241,16 @@ int main() {
   ok &= motion_init();
   ok &= wirefeed_init();
   if (!ok) {
-    comm_ps_old_kv_bool("ok", false);
-    comm_ps_old_end();
+    comm_ps_kv_bool(PS_INIT, "ok", false);
+    comm_ps_end(PS_INIT);
     return 1;
   }
 
   // apply default settings
   ok &= settings_apply_all();
 
-  comm_ps_old_kv_bool("ok", ok);
-  comm_ps_old_end();
+  comm_ps_kv_bool(PS_INIT, "ok", ok);
+  comm_ps_end(PS_INIT);
 
   while (1) {
     comm_wait_for_command();

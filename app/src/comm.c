@@ -57,6 +57,14 @@ inline int recv_buffer_ix_read(int offset) {
          RECV_BUFFER_CAPACITY;
 }
 
+// Tx buffer
+typedef struct {
+  int size;  // size w/o 0
+  char data[PAYLOAD_BUFFER_SIZE];
+} ps_buf_entry_t;
+
+ps_buf_entry_t send_buffer[NUM_PS_TYPES];
+
 // UART interrupt handler
 static void uart_isr(const struct device* dev, void* user_data) {
   uart_irq_update(dev);
@@ -195,14 +203,55 @@ void comm_init(payload_handler_t on_signal) {
   uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
-void comm_ps_old_begin(const char* ps_type) {
-  uart_write(ps_type, strlen(ps_type));
-  uart_write(" ", 1);
+static void print_ps_tag(ps_type_t ps) {
+  switch (ps) {
+    case PS_ERROR:
+      uart_puts("error ");
+      break;
+    case PS_POS:
+      uart_puts("pos ");
+      break;
+    case PS_QUEUE:
+      uart_puts("queue ");
+      break;
+    case PS_INIT:
+      uart_puts("init ");
+      break;
+    case PS_SETTINGS:
+      uart_puts("stg ");
+      break;
+    case PS_BLOB:
+      uart_puts("blob ");
+      break;
+    default:
+      // bug!
+  }
 }
 
-void comm_ps_old_kv_str(const char* key, const char* fmt, ...) {
-  uart_write(key, strlen(key));
-  uart_write(":\"", 2);
+void comm_ps_raw(ps_type_t ps, const char* fmt, ...) {
+  print_ps_tag(ps);
+
+  char buffer[PAYLOAD_BUFFER_SIZE];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+  uart_puts(buffer);
+
+  uart_puts("\n");
+}
+
+void comm_ps_begin(ps_type_t ps) {
+  print_ps_tag(ps);
+  uart_puts("<");
+  uart_puts("\n");
+}
+
+void comm_ps_kv_str(ps_type_t ps, const char* key, const char* fmt, ...) {
+  print_ps_tag(ps);
+
+  uart_puts(key);
+  uart_puts(":\"");
 
   // value
   char buffer[256];
@@ -213,34 +262,54 @@ void comm_ps_old_kv_str(const char* key, const char* fmt, ...) {
 
   // TODO: escape
   uart_puts(buffer);
-  uart_write("\"", 1);
+
+  uart_puts("\"");
+
+  uart_puts("\n");
 }
 
-void comm_ps_old_kv_fmt(const char* key, const char* fmt, ...) {
-  // key
-  uart_write(key, strlen(key));
+void comm_ps_kv_u32_hex(ps_type_t ps, const char* key, uint32_t value) {
+  print_ps_tag(ps);
 
-  // sep
-  uart_write(":", 1);
+  uart_puts(key);
+  uart_puts(":");
 
   // value
-  char buffer[256];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
-  va_end(args);
-
+  char buffer[PAYLOAD_BUFFER_SIZE];
+  snprintf(buffer, sizeof(buffer), "0x%08x", value);
   uart_puts(buffer);
+
+  uart_puts("\n");
 }
 
-void comm_ps_old_kv_bool(const char* key, bool value) {
-  uart_write(key, strlen(key));
-  uart_write(":", 1);
+void comm_ps_kv_float(ps_type_t ps, const char* key, float value) {
+  print_ps_tag(ps);
+
+  uart_puts(key);
+  uart_puts(":");
+
+  // value
+  char buffer[PAYLOAD_BUFFER_SIZE];
+  snprintf(buffer, sizeof(buffer), "%f", (double)value);
+  uart_puts(buffer);
+
+  uart_puts("\n");
+}
+
+void comm_ps_kv_bool(ps_type_t ps, const char* key, bool value) {
+  print_ps_tag(ps);
+
+  uart_puts(key);
+  uart_puts(":");
   uart_puts(value ? "true" : "false");
+
+  uart_puts("\n");
 }
 
-void comm_ps_old_end() {
-  uart_write("\n", 1);
+void comm_ps_end(ps_type_t ps) {
+  print_ps_tag(ps);
+  uart_puts(">");
+  uart_puts("\n");
 }
 
 void comm_print(const char* fmt, ...) {

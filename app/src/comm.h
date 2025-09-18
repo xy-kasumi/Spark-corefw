@@ -26,28 +26,38 @@ typedef void (*payload_handler_t)(const char* payload);
  */
 void comm_init(payload_handler_t on_signal);
 
-void comm_ps_old_begin(const char* ps_type);
-void comm_ps_old_kv_str(const char* key, const char* fmt, ...);
-void comm_ps_old_kv_fmt(const char* key, const char* fmt, ...);
-void comm_ps_old_kv_bool(const char* key, bool value);
-void comm_ps_old_end();
-
+// Sent in this order (lower number = higher prio)
+// Must be densely packed as [0, NUM_PS_TYPES).
 typedef enum {
-  PS_POS,
-  PS_QUEUE,
-  PS_ERROR,
-  PS_INIT,
-  PS_SETTINGS,
-  //
-  PS_BLOB,  // should be separate?
+  /** (automatic @ comm thread) */
+  PS_ERROR = 0,
+
+  /** (signal result @ comm thread) */
+  PS_POS = 1,
+
+  /** (signal result @ comm thread) */
+  PS_QUEUE = 2,
+
+  /** (automatic @ main thread) */
+  PS_INIT = 3,
+
+  /** (@ main thread) */
+  PS_SETTINGS = 4,
+
+  /** (@ main thread) */
+  PS_BLOB = 5,  // should be separate?
 } ps_type_t;
+
+#define NUM_PS_TYPES 6
 
 /** Partial state. */
 typedef struct {
 } pstate_t;
 
+#define PAYLOAD_BUFFER_SIZE 101  // 100 (payload) + 1 (0-term)
+
 typedef struct {
-  char data[100 + 6 + 1];
+  char data[PAYLOAD_BUFFER_SIZE];
 } payload_t;
 
 /**
@@ -70,6 +80,13 @@ int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd);
  */
 void comm_clear_commands();
 
+/**
+ * Print entire p-state.
+ * e.g. fmt=="< x:%f y:%f >"
+ * Caller must guarantee entire thing (including tag for ps) fits in PAYLOAD_BUFFER_SIZE.
+ */
+void comm_ps_raw(ps_type_t ps, const char* fmt, ...);
+
 /** Get new partial state context. */
 void comm_ps_begin(ps_type_t ps);
 
@@ -88,8 +105,9 @@ void comm_ps_kv_bool(ps_type_t ps, const char* key, bool value);
 /** Finish the partial state. */
 void comm_ps_end(ps_type_t ps);
 
+// LEGACY
 /** (blocking) Print info message. */
-void comm_print(const char* fmt, ...);
+//void comm_print(const char* fmt, ...);
 
 /** (blocking) Print error message. */
 void comm_print_err(const char* fmt, ...);
