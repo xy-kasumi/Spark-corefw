@@ -14,12 +14,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// Handles borrowed const payload.
+typedef void (*payload_handler_t)(const char* payload);
+
 /**
  * (blocking) Initialize communication subsystem.
- * @param on_signal signal handler. This will be called from a separate thread.
- * Signal handler must finish within 10ms. (faster is better)
+ * Internally spawns long-running thread dedicated to communication.
+ *
+ * @param on_signal signal handler. Called from communication thread. Must
+ * finish within 10ms. (faster is better)
  */
-void comm_init(void (*on_signal)(const char* payload));
+void comm_init(payload_handler_t on_signal);
 
 void comm_ps_old_begin(const char* ps_type);
 void comm_ps_old_kv_str(const char* key, const char* fmt, ...);

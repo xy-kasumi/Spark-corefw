@@ -140,6 +140,7 @@ static void cmd_test(char* args) {
 }
 
 static void handle_console_command(char* command) {
+  comm_print("ack len=%d", (int)strlen(command));
   g_machine_state = STATE_EXEC_INTERACTIVE;
 
   // G-code or command?
@@ -161,8 +162,6 @@ static void handle_console_command(char* command) {
       cmd_download(args);
     } else if (strcmp(cmd, "test") == 0) {
       cmd_test(args);
-    } else if (strcmp(cmd, "?pos") == 0) {
-      // Do nothing
     } else {
       // CM:comm_print_err("unknown command: %s; type 'help' for available
       // commands",cmd);
@@ -172,44 +171,51 @@ static void handle_console_command(char* command) {
   // Clear cancel flag and return to IDLE
   g_cancel_requested = false;
   g_machine_state = STATE_IDLE;
-
-  // Print ready with current position
-  pos_phys_t machine_pos = motion_get_current_pos();
-  coord_system_t current_cs = gcode_get_current_coord_system();
-  const coord_offsets_t* offsets = gcode_get_coord_offsets();
-
-  if (current_cs == COORD_SYSTEM_MACHINE) {
-    comm_print(
-        "pos < sys:\"machine\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f >",
-        (double)machine_pos.x, (double)machine_pos.y, (double)machine_pos.z,
-        (double)(machine_pos.c * 360.0f));
-  } else {
-    // Convert machine position to current coordinate system for display
-    /*pos_phys_t cs_pos =*/coords_from_machine(&machine_pos, current_cs,
-                                               offsets);
-    const char* cs_name = "";
-    switch (current_cs) {
-      case COORD_SYSTEM_GRINDER:
-        cs_name = "grinder";
-        break;
-      case COORD_SYSTEM_WORK:
-        cs_name = "work";
-        break;
-      case COORD_SYSTEM_TOOLSUPPLY:
-        cs_name = "toolsupply";
-        break;
-      case COORD_SYSTEM_MACHINE:
-        // shouldn't happen
-    }
-    // CM:comm_print("ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f C%.3f
-    // (machine)",(double)cs_pos.x, (double)cs_pos.y,
-    // (double)cs_pos.z,(double)(cs_pos.c * 360.0f), cs_name,
-    // (double)machine_pos.x,(double)machine_pos.y,
-    // (double)machine_pos.z,(double)(machine_pos.c * 360.0f));
-  }
 }
 
-void handle_signal(const char* payload) {}
+void handle_signal(const char* payload) {
+  if (strcmp(payload, "!") == 0) {
+    // cancel
+    comm_clear_commands();
+  } else if (strcmp(payload, "?pos") == 0) {
+    // print pos
+
+    // Print ready with current position
+    // TODO: these are not thread-safe.
+    pos_phys_t machine_pos = motion_get_current_pos();
+    coord_system_t current_cs = gcode_get_current_coord_system();
+    const coord_offsets_t* offsets = gcode_get_coord_offsets();
+
+    if (current_cs == COORD_SYSTEM_MACHINE) {
+      comm_print("pos < sys:\"machine\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f >",
+                 (double)machine_pos.x, (double)machine_pos.y,
+                 (double)machine_pos.z, (double)(machine_pos.c * 360.0f));
+    } else {
+      // Convert machine position to current coordinate system for display
+      /*pos_phys_t cs_pos =*/coords_from_machine(&machine_pos, current_cs,
+                                                 offsets);
+      const char* cs_name = "";
+      switch (current_cs) {
+        case COORD_SYSTEM_GRINDER:
+          cs_name = "grinder";
+          break;
+        case COORD_SYSTEM_WORK:
+          cs_name = "work";
+          break;
+        case COORD_SYSTEM_TOOLSUPPLY:
+          cs_name = "toolsupply";
+          break;
+        case COORD_SYSTEM_MACHINE:
+          // shouldn't happen
+      }
+      // CM:comm_print("ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f
+      // C%.3f (machine)",(double)cs_pos.x, (double)cs_pos.y,
+      // (double)cs_pos.z,(double)(cs_pos.c * 360.0f), cs_name,
+      // (double)machine_pos.x,(double)machine_pos.y,
+      // (double)machine_pos.z,(double)(machine_pos.c * 360.0f));
+    }
+  }
+}
 
 int main() {
   // init core

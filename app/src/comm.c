@@ -15,17 +15,22 @@
 // UART device
 static const struct device* uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
+///// Transport layer
+
+#define LINE_BUFFER_SIZE \
+  107  // 100 (payload) + 1 (seq) + 4 (hash) + 1 (newline) + 1 (0-term)
+
 // Line ending for output
 static const uint8_t LINE_ENDING[] = "\r\n";
 #define LINE_ENDING_LEN 2
 
 // RX buffer and state
-static char command_buffer[256];
+static char line_buffer[LINE_BUFFER_SIZE];
 static volatile int rx_pos = 0;
 static K_EVENT_DEFINE(rx_events);
 
 // RX event definitions
-#define RX_EVENT_COMMAND_RECEIVED BIT(0)
+#define RX_EVENT_PAYLOAD_RECEIVED BIT(0)
 #define RX_EVENT_BACKSPACE BIT(1)
 
 // TX buffer and state
@@ -34,6 +39,8 @@ static K_MUTEX_DEFINE(tx_mutex);
 static volatile int tx_len = 0;
 static volatile int tx_pos = 0;
 static K_SEM_DEFINE(tx_done, 1, 1);
+
+///// Application layer
 
 // Recv buffer
 #define RECV_BUFFER_CAPACITY 100
@@ -58,30 +65,25 @@ static void uart_isr(const struct device* dev, void* user_data) {
   if (uart_irq_rx_ready(dev)) {
     uint8_t c;
     while (uart_fifo_read(dev, &c, 1) == 1) {
-      if (c == '\r' || c == '\n') {
-        // Can accept any of CR, CRLF, LF.
-        if (rx_pos == 1 && command_buffer[0] == '!') {
-          // Special case: cancel
-          if (state_machine_get_state() != STATE_IDLE) {
-            g_cancel_requested = true;
-          }
-          // Reset command buffer
+      if (c == '\n') {
+        // Newline: complete current buffer and notify
+        if (rx_pos > 0) {
+          line_buffer[rx_pos] = '\0';
           rx_pos = 0;
-        } else if (rx_pos > 0) {
-          command_buffer[rx_pos] = '\0';
-          rx_pos = 0;
-          k_event_post(&rx_events, RX_EVENT_COMMAND_RECEIVED);
+          // TODO: what if previous RX_EVENT_PAYLOAD_RECEIVED was not proceeded
+          // yet? (e.g. signal handler taking long)
+          k_event_post(&rx_events, RX_EVENT_PAYLOAD_RECEIVED);
         }
       } else if (c == '\b' || c == 0x7F) {
-        // Backspace handling - signal event for thread to handle echo
+        // Backspace: pop last char & notify to handle backspace echo
         if (rx_pos > 0) {
           rx_pos--;
           k_event_post(&rx_events, RX_EVENT_BACKSPACE);
         }
       } else if (c >= 0x20 && c <= 0x7E) {
-        // Printable character or cancel command
-        if (rx_pos < sizeof(command_buffer) - 1) {
-          command_buffer[rx_pos] = c;
+        // Valid line content
+        if (rx_pos < sizeof(line_buffer) - 1) {
+          line_buffer[rx_pos] = c;
           rx_pos++;
         }
       }
@@ -129,10 +131,12 @@ static void uart_puts(const char* str) {
 }
 
 static void comm_thread(void* p1, void* p2, void* p3) {
+  payload_handler_t on_signal = (payload_handler_t)p1;
+
   while (1) {
     // Wait for RX events
     uint32_t events =
-        k_event_wait(&rx_events, RX_EVENT_COMMAND_RECEIVED | RX_EVENT_BACKSPACE,
+        k_event_wait(&rx_events, RX_EVENT_PAYLOAD_RECEIVED | RX_EVENT_BACKSPACE,
                      false, K_FOREVER);
 
     if (events & RX_EVENT_BACKSPACE) {
@@ -142,32 +146,28 @@ static void comm_thread(void* p1, void* p2, void* p3) {
       continue;
     }
 
-    if (events & RX_EVENT_COMMAND_RECEIVED) {
-      k_event_clear(&rx_events, RX_EVENT_COMMAND_RECEIVED);
+    if (events & RX_EVENT_PAYLOAD_RECEIVED) {
+      k_event_clear(&rx_events, RX_EVENT_PAYLOAD_RECEIVED);
 
       uart_write(LINE_ENDING, LINE_ENDING_LEN);  // echo new line
 
-      // Trim leading whitespace
-      char* trimmed = command_buffer;
-      while (*trimmed == ' ' || *trimmed == '\t') {
-        trimmed++;
-      }
-
-      // Only accept commands in IDLE state
-      if (g_machine_state != STATE_IDLE) {
-        continue;  // Silently ignore
-      }
-
-      // Copy command to caller's buffer
-      k_mutex_lock(&rbuf_mutex, K_FOREVER);
-      if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
-        strncpy(recv_buffer[recv_buffer_ix_write].data, trimmed,
-                sizeof(payload_t));
-        recv_buffer_num++;
+      if (line_buffer[0] == '!' || line_buffer[0] == '?') {
+        // signal
+        on_signal(line_buffer);
       } else {
-        // silently drop when buffer is full.
+        // command
+        // Copy command to caller's buffer
+        k_mutex_lock(&rbuf_mutex, K_FOREVER);
+        if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
+          strncpy(recv_buffer[recv_buffer_ix_write].data, line_buffer,
+                  sizeof(payload_t));
+          recv_buffer_ix_write++;
+          recv_buffer_num++;
+        } else {
+          // silently drop when buffer is full.
+        }
+        k_mutex_unlock(&rbuf_mutex);
       }
-      k_mutex_unlock(&rbuf_mutex);
     }
   }
 }
@@ -175,7 +175,7 @@ static void comm_thread(void* p1, void* p2, void* p3) {
 K_THREAD_STACK_DEFINE(comm_stack_area, 1024);
 struct k_thread comm_thread_data;
 
-void comm_init(void (*on_signal)(const char* payload)) {
+void comm_init(payload_handler_t on_signal) {
   if (!device_is_ready(uart_dev)) {
     // Can't report error via UART
     return;
@@ -187,8 +187,8 @@ void comm_init(void (*on_signal)(const char* payload)) {
 
   // Command / signal process
   k_thread_create(&comm_thread_data, comm_stack_area,
-                  K_THREAD_STACK_SIZEOF(comm_stack_area), comm_thread, NULL,
-                  NULL, NULL, -1, K_FP_REGS,
+                  K_THREAD_STACK_SIZEOF(comm_stack_area), comm_thread,
+                  (void*)on_signal, NULL, NULL, -1, K_FP_REGS,
                   K_NO_WAIT);  // lower than main thread(-1), cooperative thread
 
   // flush pre-init broken data (often bunch of zeros) on the serial line
@@ -288,6 +288,12 @@ void comm_wait_for_command() {
   }
 }
 
+void comm_clear_commands() {
+  k_mutex_lock(&rbuf_mutex, K_FOREVER);
+  recv_buffer_num = 0;
+  k_mutex_unlock(&rbuf_mutex);
+}
+
 /**
  * Get 1 command and peek next command, immediately.
  * Data will be copied to cmd, next_cmd.
@@ -299,12 +305,15 @@ int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   k_mutex_lock(&rbuf_mutex, K_FOREVER);
   if (recv_buffer_num >= 2) {
     num = 2;
-    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
-    memcpy(next_cmd, &recv_buffer[recv_buffer_ix_read(1)], sizeof(payload_t));
+    strncpy(cmd->data, recv_buffer[recv_buffer_ix_read(0)].data,
+            sizeof(payload_t));
+    strncpy(next_cmd->data, recv_buffer[recv_buffer_ix_read(1)].data,
+            sizeof(payload_t));
     recv_buffer_num--;
   } else if (recv_buffer_num == 1) {
     num = 1;
-    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
+    strncpy(cmd->data, recv_buffer[recv_buffer_ix_read(0)].data,
+            sizeof(payload_t));
     recv_buffer_num--;
   } else {
     num = 0;
