@@ -83,7 +83,8 @@ void comm_clear_commands();
 /**
  * Print entire p-state.
  * e.g. fmt=="< x:%f y:%f >"
- * Caller must guarantee entire thing (including tag for ps) fits in PAYLOAD_BUFFER_SIZE.
+ * Caller must guarantee entire thing (including tag for ps) fits in
+ * PAYLOAD_BUFFER_SIZE.
  */
 void comm_ps_raw(ps_type_t ps, const char* fmt, ...);
 
@@ -107,7 +108,7 @@ void comm_ps_end(ps_type_t ps);
 
 // LEGACY
 /** (blocking) Print info message. */
-//void comm_print(const char* fmt, ...);
+// void comm_print(const char* fmt, ...);
 
 /** (blocking) Print error message. */
 void comm_print_err(const char* fmt, ...);

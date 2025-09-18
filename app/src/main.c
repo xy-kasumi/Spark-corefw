@@ -140,7 +140,7 @@ static void cmd_test(char* args) {
 }
 
 static void handle_console_command(char* command) {
-  //comm_print("ack len=%d", (int)strlen(command));
+  // comm_print("ack len=%d", (int)strlen(command));
   g_machine_state = STATE_EXEC_INTERACTIVE;
 
   // G-code or command?

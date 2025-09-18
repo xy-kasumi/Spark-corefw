@@ -166,7 +166,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       get_home_order(home_order);
 
       for (int i = 0; i < 3; i++) {
-        //CM:comm_print("homing axis %c", axis_to_letter(home_order[i]));
+        // CM:comm_print("homing axis %c", axis_to_letter(home_order[i]));
         motion_enqueue_home(home_order[i]);
 
         // Wait for motion completion
@@ -180,11 +180,11 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
         // Check stop reason
         motion_stop_reason_t stop_reason = motion_get_last_stop_reason();
         if (stop_reason == STOP_REASON_CANCELLED) {
-          //CM:comm_print("homing cancelled");
+          // CM:comm_print("homing cancelled");
           return;
         }
       }
-      //CM:comm_print("all axes homed");
+      // CM:comm_print("all axes homed");
       return;
     } else if (axis_count == 1) {
       // Execute: home the specified axis
@@ -244,22 +244,22 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
     // G53 - Use machine coordinate system
     current_coord_system = COORD_SYSTEM_MACHINE;
-    //CM:comm_print("coordinate system: machine");
+    // CM:comm_print("coordinate system: machine");
     return;  // No motion, return early
   } else if (parsed->code == 54 && parsed->sub_code == -1) {
     // G54 - Use grinder coordinate system
     current_coord_system = COORD_SYSTEM_GRINDER;
-    //CM:comm_print("coordinate system: grinder");
+    // CM:comm_print("coordinate system: grinder");
     return;  // No motion, return early
   } else if (parsed->code == 55 && parsed->sub_code == -1) {
     // G55 - Use work coordinate system
     current_coord_system = COORD_SYSTEM_WORK;
-    //CM:comm_print("coordinate system: work");
+    // CM:comm_print("coordinate system: work");
     return;  // No motion, return early
   } else if (parsed->code == 56 && parsed->sub_code == -1) {
     // G56 - Use tool supply coordinate system
     current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
-    //CM:comm_print("coordinate system: tool supply");
+    // CM:comm_print("coordinate system: tool supply");
     return;  // No motion, return early
   } else {
     if (parsed->sub_code != -1) {
@@ -281,8 +281,9 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     // Print status every 1 second
     int64_t current_time = k_uptime_get();
     if (current_time - last_print_time >= 1000) {
-      //pos_phys_t current_pos = motion_get_current_pos();
-      //CM:comm_print("moving X%.3f Y%.3f Z%.3f", (double)current_pos.x,(double)current_pos.y, (double)current_pos.z);
+      // pos_phys_t current_pos = motion_get_current_pos();
+      // CM:comm_print("moving X%.3f Y%.3f Z%.3f",
+      // (double)current_pos.x,(double)current_pos.y, (double)current_pos.z);
       last_print_time = current_time;
     }
 
@@ -294,16 +295,16 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
 
   switch (motion_get_last_stop_reason()) {
     case STOP_REASON_TARGET_REACHED:
-      //CM:comm_print("motion completed");
+      // CM:comm_print("motion completed");
       break;
     case STOP_REASON_STALL_DETECTED:
-      //CM:comm_print("stall detected");
+      // CM:comm_print("stall detected");
       break;
     case STOP_REASON_PROBE_TRIGGERED:
-      //CM:comm_print("probe triggered");
+      // CM:comm_print("probe triggered");
       break;
     case STOP_REASON_CANCELLED:
-      //CM:comm_print("motion cancelled (for safety, wirefeed stopped)");
+      // CM:comm_print("motion cancelled (for safety, wirefeed stopped)");
       wirefeed_stop();  // for safety
       break;
     default:
@@ -325,7 +326,9 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
     pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
                                  ? parsed->r
                                  : 25.0f;  // Default 25%
-    //CM:comm_print("M3: pulser configured (T-, %.0fµs, %.1fA, %.0f%%)",(double)pulser_config.pulse_us, (double)pulser_config.current_a,(double)pulser_config.duty_pct);
+    // CM:comm_print("M3: pulser configured (T-, %.0fµs, %.1fA,
+    // %.0f%%)",(double)pulser_config.pulse_us,
+    // (double)pulser_config.current_a,(double)pulser_config.duty_pct);
   } else if (parsed->code == 4 && parsed->sub_code == -1) {
     // M4 - Configure EDM parameters, tool positive voltage
     // Validate: P (pulse time), Q (current), R (duty) are optional
@@ -338,7 +341,9 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
     pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
                                  ? parsed->r
                                  : 25.0f;  // Default 25%
-    //CM:comm_print("M4: pulser configured (T+, %.0fµs, %.1fA, %.0f%%)",(double)pulser_config.pulse_us, (double)pulser_config.current_a,(double)pulser_config.duty_pct);
+    // CM:comm_print("M4: pulser configured (T+, %.0fµs, %.1fA,
+    // %.0f%%)",(double)pulser_config.pulse_us,
+    // (double)pulser_config.current_a,(double)pulser_config.duty_pct);
   } else if (parsed->code == 10 && parsed->sub_code == -1) {
     // M10 - Start wire feeding
     if (parsed->r_state != PARAM_SPECIFIED) {
@@ -354,20 +359,20 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
   } else if (parsed->code == 60 && parsed->sub_code == -1) {
     // M60 - Open tool supply
     set_tool_supply_state(TOOL_SUPPLY_OPEN);
-    //CM:comm_print("tool supply opened");
+    // CM:comm_print("tool supply opened");
   } else if (parsed->code == 61 && parsed->sub_code == -1) {
     // M61 - Close tool supply
     set_tool_supply_state(TOOL_SUPPLY_CLOSED);
-    //CM:comm_print("tool supply closed");
+    // CM:comm_print("tool supply closed");
   } else {
-    //CM:comm_print_err("Unsupported M-code: M%d", parsed->code);
+    // CM:comm_print_err("Unsupported M-code: M%d", parsed->code);
   }
 }
 
 void exec_gcode(char* full_command) {
   gcode_parsed_t parsed;
   if (!parse_gcode(full_command, &parsed)) {
-    //CM:comm_print_err("Failed to parse G/M-code: %s", full_command);
+    // CM:comm_print_err("Failed to parse G/M-code: %s", full_command);
     return;
   }
 
@@ -430,16 +435,17 @@ void exec_test_pulser(int dur_sec) {
 
   for (int i = 0; i < dur_sec * 10; i++) {
     if (g_cancel_requested) {
-      //CM:comm_print("test pulser: cancelled");
+      // CM:comm_print("test pulser: cancelled");
       break;
     }
 
     // Print rates every second (every 10 iterations)
     if (i > 0 && i % 10 == 0) {
-      //uint8_t short_rate = pulser_get_short_rate();
-      //uint8_t pulse_rate = pulser_get_pulse_rate();
-      //uint8_t open_rate = pulser_get_open_rate();
-      //CM:comm_print("pulser short=%.2f pulse=%.2f open=%.2f", short_rate / 255.0,pulse_rate / 255.0, open_rate / 255.0);
+      // uint8_t short_rate = pulser_get_short_rate();
+      // uint8_t pulse_rate = pulser_get_pulse_rate();
+      // uint8_t open_rate = pulser_get_open_rate();
+      // CM:comm_print("pulser short=%.2f pulse=%.2f open=%.2f", short_rate /
+      // 255.0,pulse_rate / 255.0, open_rate / 255.0);
     }
 
     k_sleep(K_MSEC(100));

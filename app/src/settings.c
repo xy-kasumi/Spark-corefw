@@ -334,11 +334,12 @@ bool settings_apply_all() {
   for (int i = 0; i < SETTINGS_COUNT; i++) {
     bool res = apply_setting(settings[i].key, settings[i].value);
     if (!res) {
-      //CM:comm_ps_old_kv_bool("settings.ok", false);
-      //CM:comm_ps_old_kv_str("settings.msg", "failed to apply %s", settings[i].key);
+      // CM:comm_ps_old_kv_bool("settings.ok", false);
+      // CM:comm_ps_old_kv_str("settings.msg", "failed to apply %s",
+      // settings[i].key);
       return false;
     }
   }
-  //CM:comm_ps_old_kv_bool("settings.ok", true);
+  // CM:comm_ps_old_kv_bool("settings.ok", true);
   return true;
 }
