@@ -36,9 +36,19 @@ static volatile int tx_pos = 0;
 static K_SEM_DEFINE(tx_done, 1, 1);
 
 // Recv buffer
+#define RECV_BUFFER_CAPACITY 100
 static K_MUTEX_DEFINE(rbuf_mutex);
-payload_t recv_buffer;
-int recv_buffer_num = 0;
+payload_t recv_buffer[RECV_BUFFER_CAPACITY];
+int recv_buffer_num = 0;       // number of commands
+int recv_buffer_ix_write = 0;  // next write pos
+
+// only valid when recv_buffer_num > 0 && offset < recv_buffer_num
+// must be called within rbuf_mutex lock
+inline int recv_buffer_ix_read(int offset) {
+  return (recv_buffer_ix_write - recv_buffer_num + offset +
+          RECV_BUFFER_CAPACITY) %
+         RECV_BUFFER_CAPACITY;
+}
 
 // UART interrupt handler
 static void uart_isr(const struct device* dev, void* user_data) {
@@ -150,8 +160,9 @@ static void comm_thread(void* p1, void* p2, void* p3) {
 
       // Copy command to caller's buffer
       k_mutex_lock(&rbuf_mutex, K_FOREVER);
-      if (recv_buffer_num == 0) {
-        strncpy(recv_buffer.data, trimmed, sizeof(recv_buffer.data));
+      if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
+        strncpy(recv_buffer[recv_buffer_ix_write].data, trimmed,
+                sizeof(payload_t));
         recv_buffer_num++;
       } else {
         // silently drop when buffer is full.
@@ -271,8 +282,9 @@ void comm_wait_for_command() {
     if (avail) {
       return;
     }
-    k_sleep(
-        K_MSEC(10));  // very inefficient, prob good enough for interactive use
+    // busy waiting is very inefficient, but probably good enough for
+    // interactive use
+    k_sleep(K_MSEC(10));
   }
 }
 
@@ -285,53 +297,20 @@ void comm_wait_for_command() {
 int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   int num;
   k_mutex_lock(&rbuf_mutex, K_FOREVER);
-  if (recv_buffer_num > 0) {
+  if (recv_buffer_num >= 2) {
+    num = 2;
+    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
+    memcpy(next_cmd, &recv_buffer[recv_buffer_ix_read(1)], sizeof(payload_t));
+    recv_buffer_num--;
+  } else if (recv_buffer_num == 1) {
     num = 1;
-    memcpy(cmd, &recv_buffer, sizeof(payload_t));
-    recv_buffer_num = 0;
+    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
+    recv_buffer_num--;
   } else {
     num = 0;
   }
   k_mutex_unlock(&rbuf_mutex);
   return num;
-}
-
-void comm_get_next_command(char* buffer) {
-  while (1) {
-    // Wait for RX events
-    uint32_t events =
-        k_event_wait(&rx_events, RX_EVENT_COMMAND_RECEIVED | RX_EVENT_BACKSPACE,
-                     false, K_FOREVER);
-
-    if (events & RX_EVENT_BACKSPACE) {
-      k_event_clear(&rx_events, RX_EVENT_BACKSPACE);
-
-      uart_write((const uint8_t*)" \b", 2);  // backspace echo
-      continue;
-    }
-
-    if (events & RX_EVENT_COMMAND_RECEIVED) {
-      k_event_clear(&rx_events, RX_EVENT_COMMAND_RECEIVED);
-
-      uart_write(LINE_ENDING, LINE_ENDING_LEN);  // echo new line
-
-      // Trim leading whitespace
-      char* trimmed = command_buffer;
-      while (*trimmed == ' ' || *trimmed == '\t') {
-        trimmed++;
-      }
-
-      // Only accept commands in IDLE state
-      if (g_machine_state != STATE_IDLE) {
-        continue;  // Silently ignore
-      }
-
-      // Copy command to caller's buffer
-      strncpy(buffer, trimmed, 255);
-      buffer[255] = '\0';
-      return;
-    }
-  }
 }
 
 void comm_print_blob(uint8_t* ptr, int size) {

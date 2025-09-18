@@ -98,14 +98,3 @@ void comm_print_err(const char* fmt, ...);
  * @param size number of bytes to print
  */
 void comm_print_blob(uint8_t* ptr, int size);
-
-/**
- * (blocking) Get next command from console.
- * Buffer must be at least 256 bytes
- *
- * Note 1: this will not return "!". Instead, it's processed internally
- * and sets g_cancel_requested, then waits for the next command.
- *
- * Note 2: Commands that come in non-IDLE states are silently ignored.
- */
-void comm_get_next_command(char* buffer);
