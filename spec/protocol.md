@@ -1,7 +1,7 @@
 # Protocol V2
 This protocol design aims
 * simple implemenation
-* human-usable: usable from serial terminal or minimum code
+* human-usable: usable from serial terminal
 * reliable streaming: can remedy communication loss or error
 * core-friendly: assumes core has relatively lower compute power than host
 

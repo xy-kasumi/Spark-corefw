@@ -329,10 +329,6 @@ void comm_ps_end(ps_type_t ps) {
   uart_write(buffer, offset);
 }
 
-void comm_print(const char* fmt, ...) {
-  // GONE
-}
-
 void comm_print_err(const char* fmt, ...) {
   // GONE
 }

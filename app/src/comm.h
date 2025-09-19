@@ -2,12 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * (Singleton) Semi-structured serial printing functions for the app.
- * As soon as serial is initialized, spark MUST use these functions.
- * Don't use printk(), LOG_*() etc., as the host of spark board depends on
- * structured I/O.
+ * Don't use printk(), LOG_*() etc. which will break the protocol.
  *
- * All output lines are automatically prefixed by "I", ">" or "@" which
- * indicates the current state.
+ * See spec/protocol.md for details.
  */
 #pragma once
 
@@ -105,10 +102,6 @@ void comm_ps_kv_bool(ps_type_t ps, const char* key, bool value);
 
 /** Finish the partial state. */
 void comm_ps_end(ps_type_t ps);
-
-// LEGACY
-/** (blocking) Print info message. */
-// void comm_print(const char* fmt, ...);
 
 /** (blocking) Print error message. */
 void comm_print_err(const char* fmt, ...);
