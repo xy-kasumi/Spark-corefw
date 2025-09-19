@@ -337,7 +337,7 @@ void motion_start_home(axis_t axis) {
                           VELOCITY_MM_PER_S, true, false, true, axis);
 }
 
-bool motion_can_enqueue() {
+bool motion_move_can_enqueue() {
   return pb_can_write(&motion_path);
 }
 

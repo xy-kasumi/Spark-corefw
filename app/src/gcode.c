@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <zephyr/kernel.h>
 
+static bool last_has_cont = false;
+
 // Modal state for coordinate systems
 static coord_system_t current_coord_system = COORD_SYSTEM_MACHINE;
 static coord_offsets_t coord_offsets = {0};
@@ -58,9 +60,9 @@ static void get_home_order(axis_t result[3]) {
   }
 }
 
-static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
-  bool cont_prev = false;
-  bool cont_next = false;
+static void exec_gcode_cmd(const gcode_parsed_t* parsed,
+                           bool cont_prev,
+                           bool cont_next) {
   if (parsed->code == 0 && parsed->sub_code == -1) {
     // G0 - rapid positioning
     // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
@@ -287,28 +289,6 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     }
     k_sleep(K_MSEC(10));
   }
-
-  // Want to print somwhere
-  /*
-  switch (motion_get_last_stop_reason()) {
-    case STOP_REASON_TARGET_REACHED:
-      // CM:comm_print("motion completed");
-      break;
-    case STOP_REASON_STALL_DETECTED:
-      // CM:comm_print("stall detected");
-      break;
-    case STOP_REASON_PROBE_TRIGGERED:
-      // CM:comm_print("probe triggered");
-      break;
-    case STOP_REASON_CANCELLED:
-      // CM:comm_print("motion cancelled (for safety, wirefeed stopped)");
-
-      break;
-    default:
-      comm_print_err("motion ended for unknown reason");
-      break;
-  }
-  */
 }
 
 static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
@@ -374,11 +354,27 @@ void exec_gcode(char* block, char* maybe_next_block) {
     return;
   }
 
+  // Detect continuation condition.
+  // Only continuation for now is G1->G1.
+  bool cont_next = false;
+  if (maybe_next_block) {
+    gcode_parsed_t parsed_next;
+    if (parse_gcode(block, &parsed_next)) {
+      if (parsed.cmd_type == CMD_TYPE_G && parsed_next.cmd_type == CMD_TYPE_G) {
+        if ((parsed.code == 1 && parsed.sub_code == -1) &&
+            (parsed_next.code == 1 && parsed_next.sub_code == -1)) {
+          cont_next = true;
+        }
+      }
+    }
+  }
+
   if (parsed.cmd_type == CMD_TYPE_G) {
-    exec_gcode_cmd(&parsed);
+    exec_gcode_cmd(&parsed, last_has_cont, cont_next);
   } else if (parsed.cmd_type == CMD_TYPE_M) {
     exec_mcode_cmd(&parsed);
   }
+  last_has_cont = cont_next;
 }
 
 coord_system_t gcode_get_current_coord_system() {
