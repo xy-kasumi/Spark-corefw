@@ -217,6 +217,11 @@ static void handle_signal(const char* payload) {
       // (double)machine_pos.x,(double)machine_pos.y,
       // (double)machine_pos.z,(double)(machine_pos.c * 360.0f));
     }
+  } else if (strcmp(payload, "?queue") == 0) {
+    int cap;
+    int used;
+    comm_stat_command_queue(&cap, &used);
+    comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used);
   }
 }
 

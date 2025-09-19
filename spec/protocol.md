@@ -197,14 +197,14 @@ Commands starting with "G" or "M". See gcode.md for details.
 #### "queue": Change-driven, Command-driven
 Keys
 * `cap`: total capacity of the queue
-* `num`: number of items in the queue (including executing commands)
+* `num`: number of items in the queue
 
 Example
 ```
 queue < cap:100 num:54 >
 ```
 
-Host should aim 75% fill (num / cap) for stable communication.
+Host SHOULD aim for 75% fill rate (= num / cap) for stable communication.
 
 #### "init": Event-driven
 Auto-logged just once after every boot.

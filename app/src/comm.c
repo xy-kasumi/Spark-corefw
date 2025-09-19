@@ -398,6 +398,17 @@ int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   return num;
 }
 
+void comm_stat_command_queue(int* num_cap, int* num_used) {
+  k_mutex_lock(&rbuf_mutex, K_FOREVER);
+  if (num_cap) {
+    *num_cap = RECV_BUFFER_CAPACITY;
+  }
+  if (num_used) {
+    *num_used = recv_buffer_num;
+  }
+  k_mutex_unlock(&rbuf_mutex);
+}
+
 /**
  * Convert data (ptr, size) to urlsafe-base64 and store in dst (no 0-term)
  * Returns number of bytes written to dst.
