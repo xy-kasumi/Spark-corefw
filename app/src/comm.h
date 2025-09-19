@@ -83,7 +83,8 @@ void comm_clear_commands();
 /**
  * Fetches current command queue statistics.
  * @param num_cap (optional) capacity of command queue will be stored.
- * @param num_used (optional) number of used slots in command queue will be stored.
+ * @param num_used (optional) number of used slots in command queue will be
+ * stored.
  */
 void comm_stat_command_queue(int* num_cap, int* num_used);
 
