@@ -65,6 +65,10 @@ typedef struct {
 
 ps_buf_entry_t send_buffer[NUM_PS_TYPES];
 
+// cf. CRC for 100byte is 20~40us.
+// 1 byte transmit is 100us. should not calculate CRC for entire thing in this
+// ISR. incremental CRC will be totally ok.
+
 // UART interrupt handler
 static void uart_isr(const struct device* dev, void* user_data) {
   uart_irq_update(dev);
@@ -112,19 +116,26 @@ static void uart_isr(const struct device* dev, void* user_data) {
 }
 
 /**
- * Safe UART write with mutex protection
- * @param data Binary data to transmit
+ * Write data. Caller is free to reuse data for other purposes.
+ * This function will block until transmit is complete and internal buffer is
+ * ready.
+ *
+ * @param data data to transmit
  * @param len Length of data (must be <= 256 bytes, excess will be silently
  * truncated)
  */
 static void uart_write(const uint8_t* data, int len) {
+  // Silently truncate because too low layer to report error.
+  if (len > 100) {
+    len = 100;
+  }
   k_mutex_lock(&tx_mutex, K_FOREVER);
   k_sem_take(&tx_done, K_FOREVER);
 
-  // Copy to safe buffer - silently truncate if too long
-  len = (len > sizeof(tx_buffer)) ? sizeof(tx_buffer) : len;
+  // Copy to ISR buffer.
   memcpy(tx_buffer, data, len);
-  tx_len = len;
+  tx_buffer[len] = '\n';
+  tx_len = len + 1;
   tx_pos = 0;
   uart_irq_tx_enable(uart_dev);
 
@@ -132,10 +143,6 @@ static void uart_write(const uint8_t* data, int len) {
   k_sem_take(&tx_done, K_FOREVER);
   k_sem_give(&tx_done);  // Reset for next use
   k_mutex_unlock(&tx_mutex);
-}
-
-static void uart_puts(const char* str) {
-  uart_write((const uint8_t*)str, strlen(str));
 }
 
 static void comm_thread(void* p1, void* p2, void* p3) {
@@ -203,139 +210,130 @@ void comm_init(payload_handler_t on_signal) {
   uart_write(LINE_ENDING, LINE_ENDING_LEN);
 }
 
-static void print_ps_tag(ps_type_t ps) {
+static int copy_str(uint8_t* buf, const char* str) {
+  int len = strlen(str);
+  memcpy(buf, str, len);
+  return len;
+}
+
+static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
+  const char* tag;
   switch (ps) {
     case PS_ERROR:
-      uart_puts("error ");
+      tag = "error ";
       break;
     case PS_POS:
-      uart_puts("pos ");
+      tag = "pos ";
       break;
     case PS_QUEUE:
-      uart_puts("queue ");
+      tag = "queue ";
       break;
     case PS_INIT:
-      uart_puts("init ");
+      tag = "init ";
       break;
     case PS_SETTINGS:
-      uart_puts("stg ");
+      tag = "stg ";
       break;
     case PS_BLOB:
-      uart_puts("blob ");
+      tag = "blob ";
       break;
     default:
       // bug!
+      return 0;
   }
+  return copy_str(buf, tag);
 }
 
 void comm_ps_raw(ps_type_t ps, const char* fmt, ...) {
-  print_ps_tag(ps);
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
 
-  char buffer[PAYLOAD_BUFFER_SIZE];
   va_list args;
   va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
   va_end(args);
-  uart_puts(buffer);
 
-  uart_puts("\n");
+  uart_write(buffer, offset);
 }
 
 void comm_ps_begin(ps_type_t ps) {
-  print_ps_tag(ps);
-  uart_puts("<");
-  uart_puts("\n");
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
+
+  buffer[offset] = '<';
+  offset++;
+
+  uart_write(buffer, offset);
 }
 
 void comm_ps_kv_str(ps_type_t ps, const char* key, const char* fmt, ...) {
-  print_ps_tag(ps);
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
 
-  uart_puts(key);
-  uart_puts(":\"");
+  offset += copy_str(buffer + offset, key);
+  offset += copy_str(buffer + offset, ":\"");
 
   // value
-  char buffer[256];
+  // TODO: escape
   va_list args;
   va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
   va_end(args);
 
-  // TODO: escape
-  uart_puts(buffer);
+  offset += copy_str(buffer + offset, "\"");
 
-  uart_puts("\"");
-
-  uart_puts("\n");
+  uart_write(buffer, offset);
 }
 
 void comm_ps_kv_u32_hex(ps_type_t ps, const char* key, uint32_t value) {
-  print_ps_tag(ps);
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
 
-  uart_puts(key);
-  uart_puts(":");
+  offset += copy_str(buffer + offset, key);
+  offset += copy_str(buffer + offset, ":");
+  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "0x%08x", value);
 
-  // value
-  char buffer[PAYLOAD_BUFFER_SIZE];
-  snprintf(buffer, sizeof(buffer), "0x%08x", value);
-  uart_puts(buffer);
-
-  uart_puts("\n");
+  uart_write(buffer, offset);
 }
 
 void comm_ps_kv_float(ps_type_t ps, const char* key, float value) {
-  print_ps_tag(ps);
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
 
-  uart_puts(key);
-  uart_puts(":");
+  offset += copy_str(buffer + offset, key);
+  offset += copy_str(buffer + offset, ":");
+  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%g", (double)value);
 
-  // value
-  char buffer[PAYLOAD_BUFFER_SIZE];
-  snprintf(buffer, sizeof(buffer), "%f", (double)value);
-  uart_puts(buffer);
-
-  uart_puts("\n");
+  uart_write(buffer, offset);
 }
 
 void comm_ps_kv_bool(ps_type_t ps, const char* key, bool value) {
-  print_ps_tag(ps);
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
 
-  uart_puts(key);
-  uart_puts(":");
-  uart_puts(value ? "true" : "false");
+  offset += copy_str(buffer + offset, key);
+  offset += copy_str(buffer + offset, ":");
+  offset += copy_str(buffer + offset, value ? "true" : "false");
 
-  uart_puts("\n");
+  uart_write(buffer, offset);
 }
 
 void comm_ps_end(ps_type_t ps) {
-  print_ps_tag(ps);
-  uart_puts(">");
-  uart_puts("\n");
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
+
+  buffer[offset] = '>';
+  offset++;
+
+  uart_write(buffer, offset);
 }
 
 void comm_print(const char* fmt, ...) {
-  // Format and send message
-  char buffer[256];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
-  va_end(args);
-
-  uart_puts(buffer);
-  uart_write(LINE_ENDING, LINE_ENDING_LEN);
+  // GONE
 }
 
 void comm_print_err(const char* fmt, ...) {
-  uart_puts("err ");
-
-  // Format and send message
-  char buffer[256];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
-  va_end(args);
-
-  uart_puts(buffer);
-  uart_write(LINE_ENDING, LINE_ENDING_LEN);
+  // GONE
 }
 
 /**
@@ -391,47 +389,70 @@ int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   return num;
 }
 
-void comm_print_blob(uint8_t* ptr, int size) {
-  uart_puts("blob ");
-
-  char buffer[256];
-  int pos = 0;
-
+/**
+ * Convert data (ptr, size) to urlsafe-base64 and store in dst (no 0-term)
+ * Returns number of bytes written to dst.
+ *
+ * Base 64 size = 4 * ceil(size / 3)
+ *
+ * Caller must ensure dst is big enough to store conerted data.
+ */
+static int copy_base64(uint8_t* dst, const uint8_t* src, int src_size) {
   const char* base64url_table =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  int dst_ofs = 0;
 
   // Encode in base64url (in chunks to fit buffer)
-  for (int i = 0; i < size; i += 3) {
-    // Flush buffer if getting full
-    if (pos > sizeof(buffer) - 10) {
-      uart_write((const uint8_t*)buffer, pos);
-      pos = 0;
-    }
-
+  for (int src_ofs = 0; src_ofs < src_size; src_ofs += 3) {
+    // Pack 3 byte to 24-bit value with 0-padding
     uint32_t val = 0;
-    int chars = 0;
-
-    // Pack up to 3 bytes into 24-bit value
-    for (int j = 0; j < 3 && i + j < size; j++) {
-      val = (val << 8) | ptr[i + j];
-      chars++;
+    int num_chars = 0;
+    for (int i = 0; i < 3; i++) {
+      val <<= 8;
+      if (src_ofs + i < src_size) {
+        val |= src[src_ofs + i];
+        num_chars++;
+      }
     }
-
-    // Pad with zeros if needed
-    val <<= (3 - chars) * 8;
 
     // Output base64url characters
-    int output_chars = (chars == 1) ? 2 : (chars == 2) ? 3 : 4;
-    buffer[pos++] = base64url_table[(val >> 18) & 0x3F];
-    buffer[pos++] = base64url_table[(val >> 12) & 0x3F];
-    if (output_chars > 2) {
-      buffer[pos++] = base64url_table[(val >> 6) & 0x3F];
+    dst[dst_ofs++] = base64url_table[(val >> 18) & 0x3F];
+    dst[dst_ofs++] = base64url_table[(val >> 12) & 0x3F];
+    if (num_chars >= 2) {
+      dst[dst_ofs++] = base64url_table[(val >> 6) & 0x3F];
     }
-    if (output_chars > 3) {
-      buffer[pos++] = base64url_table[val & 0x3F];
+    if (num_chars >= 3) {
+      dst[dst_ofs++] = base64url_table[val & 0x3F];
     }
   }
+  return dst_ofs;
+}
 
-  uart_write((const uint8_t*)buffer, pos);
-  uart_write(LINE_ENDING, LINE_ENDING_LEN);
+void comm_print_blob(const uint8_t* ptr, int size) {
+  // "blob 0:...." total size = 100 byte
+  // * fixed part ("blob ", ":"): 6 byte
+  // * key (up to 999,999): 6 byte max
+  // -> post-base64 data: 88 byte
+  // -> pre-base64 data: 66 byte
+  // blob can send max of 1M x 66B = 66MB. (big enough)
+  const int orig_byte_per_msg = 66;
+
+  int msg_ix = 0;
+  int offset = 0;
+  comm_ps_begin(PS_BLOB);
+  while (offset < size) {
+    int orig_bytes = orig_byte_per_msg;
+    if (offset + orig_bytes > size) {
+      orig_bytes = size - offset;
+    }
+
+    char b64buf[PAYLOAD_BUFFER_SIZE];
+    int b64size = copy_base64((uint8_t*)b64buf, ptr + offset, orig_bytes);
+    b64buf[b64size] = '\0'; // for fmt in comm_ps_raw
+    offset += orig_bytes;
+
+    comm_ps_raw(PS_BLOB, "%d:%s", msg_ix, b64buf);
+    msg_ix++;
+  }
+  comm_ps_end(PS_BLOB);
 }

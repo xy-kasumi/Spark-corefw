@@ -152,14 +152,18 @@ Core MAY insert arbirary processing delay between lines.
 Host MAY choose to present incomplete p-state to the user.
 
 ### Signals
+If core receives same signal while the previous signal is being processed,
+core SHOULD drop the new one to avoid resource starvation.
+When dropping a signal, transport layer MUST still ack it.
+
 #### "!": Cancel
 Stop execution of current command (if any), and clear the queue.
 
 #### "?": Query
 Respond with current status.
 
-* `?pos`: query pos
 * `?queue`: query queue
+* `?pos`: query pos
 
 ### Commands
 #### "set": Set Setting
@@ -190,6 +194,18 @@ Commands starting with "G" or "M". See gcode.md for details.
 * Event-driven: Reported in pre-defined ocassions
 * Command-driven: Reported in response to certain commands
 
+#### "queue": Change-driven, Command-driven
+Keys
+* `cap`: total capacity of the queue
+* `num`: number of items in the queue (including executing commands)
+
+Example
+```
+queue < cap:100 num:54 >
+```
+
+Host should aim 75% fill (num / cap) for stable communication.
+
 #### "init": Event-driven
 Auto-logged just once after every boot.
 
@@ -201,16 +217,6 @@ Keys
 Example
 ```
 init < ok:false pulser.ok:true motor.ok:false motor.msg:"Failed to change pin XXX" >
-```
-
-#### "queue": Change-driven, Command-driven
-Keys
-* `rem`: remaining space for items to store futher commands
-* `num`: number of items in the queue (including executing commands)
-
-Example
-```
-queue < rem:99 num:1 >
 ```
 
 #### "pos": Command-driven

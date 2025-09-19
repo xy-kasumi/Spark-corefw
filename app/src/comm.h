@@ -33,10 +33,10 @@ typedef enum {
   PS_ERROR = 0,
 
   /** (signal result @ comm thread) */
-  PS_POS = 1,
+  PS_QUEUE = 1,
 
   /** (signal result @ comm thread) */
-  PS_QUEUE = 2,
+  PS_POS = 2,
 
   /** (automatic @ main thread) */
   PS_INIT = 3,
@@ -121,4 +121,4 @@ void comm_print_err(const char* fmt, ...);
  * @param ptr pointer to binary data
  * @param size number of bytes to print
  */
-void comm_print_blob(uint8_t* ptr, int size);
+void comm_print_blob(const uint8_t* ptr, int size);
