@@ -226,7 +226,7 @@ bool motion_init() {
   k_timer_init(&motion_timer, motion_tick_handler, NULL);
   k_timer_start(&motion_timer, K_MSEC(1), K_MSEC(1));
 
-  // CM:comm_ps_old_kv_bool("motion.ok", true);
+  comm_ps_k_vbool(PS_INIT, "motion.ok", true);
   return true;
 }
 

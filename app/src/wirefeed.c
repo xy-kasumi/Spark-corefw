@@ -50,7 +50,7 @@ bool wirefeed_init() {
   k_timer_init(&wirefeed_timer, wirefeed_tick_handler, NULL);
   k_timer_start(&wirefeed_timer, K_MSEC(1), K_MSEC(1));  // 1ms period
 
-  // CM:comm_ps_old_kv_bool("wirefeed.ok", true);
+  comm_ps_k_vbool(PS_INIT, "wirefeed.ok", true);
   return true;
 }
 

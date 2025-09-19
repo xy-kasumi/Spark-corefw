@@ -22,6 +22,9 @@ static inline float lerp(float a, float b, float t) {
   return a + t * (b - a);
 }
 
+/**
+ * @returns 0 on success, error code otherwise.
+ */
 static int set_servo(float on_ms) {
   uint32_t period = PWM_MSEC(20);  // 50Hz
   uint32_t on = PWM_USEC((int)(on_ms * 1000));
@@ -30,16 +33,17 @@ static int set_servo(float on_ms) {
 
 bool toolsupply_init() {
   if (!device_is_ready(pwm_dev)) {
-    // CM:comm_ps_old_kv_bool("toolsupply.ok", false);
-    // CM:comm_ps_old_kv_str("toolsupply.msg", "PWM failed");
+    comm_ps_k_vbool(PS_INIT, "toolsupply.ok", false);
+    comm_ps_k_vfmtstr(PS_INIT, "toolsupply.msg", "PWM device not ready");
     return false;
   }
-  if (set_servo(current_servo_on_ms)) {
-    // CM:comm_ps_old_kv_bool("toolsupply.ok", false);
-    // CM:comm_ps_old_kv_str("toolsupply.msg", "PWM failed");
+  int ret = set_servo(current_servo_on_ms);
+  if (ret) {
+    comm_ps_k_vbool(PS_INIT, "toolsupply.ok", false);
+    comm_ps_k_vfmtstr(PS_INIT, "toolsupply.msg", "PWM failed (code %d)", ret);
     return false;
   }
-  // CM:comm_ps_old_kv_bool("toolsupply.ok", true);
+  comm_ps_k_vbool(PS_INIT, "toolsupply.ok", true);
   return true;
 }
 
