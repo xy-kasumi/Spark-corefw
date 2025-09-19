@@ -14,6 +14,19 @@
 // Device-based TMC driver API
 
 /**
+ * Struct for dumping register values for debugging.
+ * OK to include fake "register" (such as error count).
+ */
+typedef struct {
+  const char* driver_name;
+  int num_regs;
+  struct {
+    const char* name;
+    uint32_t value;
+  } regs[16];
+} tmc_reg_dump_t;
+
+/**
  * Read TMC register with retries.
  * @param dev TMC device instance
  * @param addr Register address
@@ -108,9 +121,6 @@ int tmc_set_tcoolthrs(const struct device* dev, int value);
 /**
  * Dump TMC registers to buffer for debugging.
  * @param dev TMC device instance
- * @param buf Output buffer
- * @param buf_size Buffer size
- * @return 0 on success, -EINVAL for invalid parameters, -ENOSPC if buffer too
- *         small
+ * @return 0 on success, -EINVAL for invalid parameters, -EIO if dump fails
  */
-int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size);
+int tmc_dump_regs(const struct device* dev, tmc_reg_dump_t* dump);

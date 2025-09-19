@@ -41,11 +41,14 @@ typedef enum {
   /** (@ main thread) */
   PS_SETTINGS = 4,
 
+  /** (@main thread) */
+  PS_STAT = 5,
+
   /** (@ main thread) */
-  PS_BLOB = 5,  // should be separate?
+  PS_BLOB = 6,  // should be separate?
 } ps_type_t;
 
-#define NUM_PS_TYPES 6
+#define NUM_PS_TYPES 7
 
 /** Partial state. */
 typedef struct {
@@ -89,16 +92,19 @@ void comm_ps_raw(ps_type_t ps, const char* fmt, ...);
 void comm_ps_begin(ps_type_t ps);
 
 /** Add string value. */
-void comm_ps_kv_str(ps_type_t ps, const char* key, const char* fmt, ...);
+void comm_ps_k_vfmtstr(ps_type_t ps, const char* key, const char* fmt, ...);
 
 /** Add hex value. */
-void comm_ps_kv_u32_hex(ps_type_t ps, const char* key, uint32_t value);
+void comm_ps_k_v32hex(ps_type_t ps, const char* key, uint32_t value);
 
 /** Add float value. */
-void comm_ps_kv_float(ps_type_t ps, const char* key, float value);
+void comm_ps_k_vfloat(ps_type_t ps, const char* key, float value);
+
+/** Add int value. */
+void comm_ps_k_vint(ps_type_t ps, const char* key, int value);
 
 /** Add boolean value. */
-void comm_ps_kv_bool(ps_type_t ps, const char* key, bool value);
+void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value);
 
 /** Finish the partial state. */
 void comm_ps_end(ps_type_t ps);

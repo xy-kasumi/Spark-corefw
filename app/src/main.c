@@ -68,28 +68,32 @@ static void cmd_get(char* args) {
   float value;
   comm_ps_begin(PS_SETTINGS);
   for (int i = 0; settings_get_by_index(i, &key, &value); i++) {
-    comm_ps_kv_float(PS_SETTINGS, key, value);
+    comm_ps_k_vfloat(PS_SETTINGS, key, value);
   }
   comm_ps_end(PS_SETTINGS);
 }
 
 // Command: stat
 static void cmd_stat(char* args) {
-  if (!args || strlen(args) == 0) {
-    comm_print_err("Usage: stat <subsystem>");
-    // CM:comm_print("Available subsystems: motor, pulser, wirefeed");
+  if (args && strlen(args) > 0) {
+    // CM:comm_print_err("Usage: stat <subsystem>");
     return;
   }
 
-  if (strcmp(args, "motor") == 0) {
-    motor_dump_status();
-  } else if (strcmp(args, "pulser") == 0) {
-    pulser_dump_status();
-  } else if (strcmp(args, "wirefeed") == 0) {
-    wirefeed_dump_status();
-  } else {
-    comm_print_err("Unknown subsystem: %s", args);
+  comm_ps_begin(PS_STAT);
+  motor_dump_status();
+  if (canceler_cancel_needed()) {
+    return;
   }
+  pulser_dump_status();
+  if (canceler_cancel_needed()) {
+    return;
+  }
+  wirefeed_dump_status();
+  if (canceler_cancel_needed()) {
+    return;
+  }
+  comm_ps_end(PS_STAT);
 }
 
 // Command: download
@@ -230,7 +234,7 @@ int main() {
   ok &= toolsupply_init();
   if (!ok) {
     // cannot proceed to module init if hardware is failing
-    comm_ps_kv_bool(PS_INIT, "ok", false);
+    comm_ps_k_vbool(PS_INIT, "ok", false);
     comm_ps_end(PS_INIT);
     return 1;
   }
@@ -239,7 +243,7 @@ int main() {
   ok &= motion_init();
   ok &= wirefeed_init();
   if (!ok) {
-    comm_ps_kv_bool(PS_INIT, "ok", false);
+    comm_ps_k_vbool(PS_INIT, "ok", false);
     comm_ps_end(PS_INIT);
     return 1;
   }
@@ -247,7 +251,7 @@ int main() {
   // apply default settings
   ok &= settings_apply_all();
 
-  comm_ps_kv_bool(PS_INIT, "ok", ok);
+  comm_ps_k_vbool(PS_INIT, "ok", ok);
   comm_ps_end(PS_INIT);
 
   while (true) {

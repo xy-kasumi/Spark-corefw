@@ -416,59 +416,69 @@ int tmc_set_tcoolthrs(const struct device* dev, int value) {
   return tmc_regwrite(dev, REG_TCOOLTHRS, (uint32_t)value);
 }
 
-int tmc_dump_regs(const struct device* dev, char* buf, size_t buf_size) {
-  if (!buf || buf_size == 0) {
+int tmc_dump_regs(const struct device* dev, tmc_reg_dump_t* dump) {
+  if (!dump) {
     return -EINVAL;
   }
 
   struct tmc2209_data* data = dev->data;
 
   uint32_t gconf;
-  bool gconf_ok = tmc_regread(dev, REG_GCONF, &gconf) == 0;
+  if (tmc_regread(dev, REG_GCONF, &gconf)) {
+    return -EIO;
+  }
 
   uint32_t ioin;
-  bool ioin_ok = tmc_regread(dev, REG_IOIN, &ioin) == 0;
+  if (tmc_regread(dev, REG_IOIN, &ioin)) {
+    return -EIO;
+  }
 
   uint32_t sg_result;
-  bool sg_result_ok = tmc_regread(dev, REG_SG_RESULT, &sg_result) == 0;
+  if (tmc_regread(dev, REG_SG_RESULT, &sg_result)) {
+    return -EIO;
+  }
 
   uint32_t chopconf;
-  bool chopconf_ok = tmc_regread(dev, REG_CHOPCONF, &chopconf) == 0;
+  if (tmc_regread(dev, REG_CHOPCONF, &chopconf)) {
+    return -EIO;
+  }
 
   // Note: write-only registers are not listed here.
-  int offset = snprintf(buf, buf_size, "TMC2209");
+  int ix = 0;
+  dump->regs[ix].name = "GCONF";
+  dump->regs[ix].value = gconf;
+  ix++;
 
-  int n = gconf_ok ? snprintf(buf + offset, buf_size - offset, " GCONF:0x%08x",
-                              gconf)
-                   : snprintf(buf + offset, buf_size - offset, " GCONF:ERROR");
-  offset += n;
+  dump->regs[ix].name = "IOIN";
+  dump->regs[ix].value = ioin;
+  ix++;
 
-  n = ioin_ok ? snprintf(buf + offset, buf_size - offset, " IOIN:0x%08x", ioin)
-              : snprintf(buf + offset, buf_size - offset, " IOIN:ERROR");
-  offset += n;
+  dump->regs[ix].name = "SG_RESULT";
+  dump->regs[ix].value = sg_result;
+  ix++;
 
-  n = sg_result_ok
-          ? snprintf(buf + offset, buf_size - offset, " SG_RESULT:0x%08x",
-                     sg_result)
-          : snprintf(buf + offset, buf_size - offset, " SG_RESULT:ERROR");
-  offset += n;
+  dump->regs[ix].name = "CHOPCONF";
+  dump->regs[ix].value = chopconf;
+  ix++;
 
-  n = chopconf_ok
-          ? snprintf(buf + offset, buf_size - offset, " CHOPCONF:0x%08x",
-                     chopconf)
-          : snprintf(buf + offset, buf_size - offset, " CHOPCONF:ERROR");
-  offset += n;
+  dump->regs[ix].name = "n_read";
+  dump->regs[ix].value = data->num_reg_reads;
+  ix++;
 
-  // Add read/write statistics
-  n = snprintf(buf + offset, buf_size - offset,
-               " #READS:%u (ERR:%u) #WRITES:%u (ERR:%u)", data->num_reg_reads,
-               data->num_reg_read_errors, data->num_reg_writes,
-               data->num_reg_write_errors);
-  offset += n;
+  dump->regs[ix].name = "n_read_err";
+  dump->regs[ix].value = data->num_reg_read_errors;
+  ix++;
 
-  if (offset >= buf_size) {
-    return -ENOSPC;  // Buffer too small
-  }
+  dump->regs[ix].name = "n_write";
+  dump->regs[ix].value = data->num_reg_writes;
+  ix++;
+
+  dump->regs[ix].name = "n_write_err";
+  dump->regs[ix].value = data->num_reg_write_errors;
+  ix++;
+
+  dump->driver_name = "TMC2209";
+  dump->num_regs = ix;
 
   return 0;
 }

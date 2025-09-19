@@ -235,6 +235,9 @@ static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
     case PS_BLOB:
       tag = "blob ";
       break;
+    case PS_STAT:
+      tag = "stat ";
+      break;
     default:
       // bug!
       return 0;
@@ -264,7 +267,7 @@ void comm_ps_begin(ps_type_t ps) {
   uart_write(buffer, offset);
 }
 
-void comm_ps_kv_str(ps_type_t ps, const char* key, const char* fmt, ...) {
+void comm_ps_k_vfmtstr(ps_type_t ps, const char* key, const char* fmt, ...) {
   uint8_t buffer[PAYLOAD_BUFFER_SIZE];
   int offset = copy_ps_tag(ps, buffer);
 
@@ -283,7 +286,7 @@ void comm_ps_kv_str(ps_type_t ps, const char* key, const char* fmt, ...) {
   uart_write(buffer, offset);
 }
 
-void comm_ps_kv_u32_hex(ps_type_t ps, const char* key, uint32_t value) {
+void comm_ps_k_v32hex(ps_type_t ps, const char* key, uint32_t value) {
   uint8_t buffer[PAYLOAD_BUFFER_SIZE];
   int offset = copy_ps_tag(ps, buffer);
 
@@ -294,7 +297,7 @@ void comm_ps_kv_u32_hex(ps_type_t ps, const char* key, uint32_t value) {
   uart_write(buffer, offset);
 }
 
-void comm_ps_kv_float(ps_type_t ps, const char* key, float value) {
+void comm_ps_k_vfloat(ps_type_t ps, const char* key, float value) {
   uint8_t buffer[PAYLOAD_BUFFER_SIZE];
   int offset = copy_ps_tag(ps, buffer);
 
@@ -306,7 +309,18 @@ void comm_ps_kv_float(ps_type_t ps, const char* key, float value) {
   uart_write(buffer, offset);
 }
 
-void comm_ps_kv_bool(ps_type_t ps, const char* key, bool value) {
+void comm_ps_k_vint(ps_type_t ps, const char* key, int value) {
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(ps, buffer);
+
+  offset += copy_str(buffer + offset, key);
+  offset += copy_str(buffer + offset, ":");
+  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d", value);
+
+  uart_write(buffer, offset);
+}
+
+void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value) {
   uint8_t buffer[PAYLOAD_BUFFER_SIZE];
   int offset = copy_ps_tag(ps, buffer);
 

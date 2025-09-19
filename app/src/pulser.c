@@ -174,23 +174,23 @@ bool pulser_init() {
 
 void pulser_dump_status() {
   if (!init_success) {
-    // CM:comm_print("status: init failed");
+    // TODO: Maybe we should treat this as command error?
+    comm_ps_k_vfmtstr(PS_STAT, "pulser.status", "init failed");
     return;
   }
 
-  // CM:comm_print("poll count: %u", poll_count);
-  // CM:comm_print("EDM state: r_pulse=%u, r_short=%u, r_open=%u",
-  // last_r_pulse,last_r_short, last_r_open); CM:comm_print("EDM buffer: %u/%u
-  // entries (%.1f%% full)",
-  // edm_buffer_count,EDM_BUFFER_SIZE,(double)(edm_buffer_count * 100) /
-  // EDM_BUFFER_SIZE);
+  comm_ps_k_vint(PS_STAT, "pulser.poll_count", poll_count);
+  comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_pulse", last_r_pulse * (1 / 255.0f));
+  comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_short", last_r_short * (1 / 255.0f));
+  comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_open", last_r_open * (1 / 255.0f));
+  comm_ps_k_vint(PS_STAT, "pulser.log.size", edm_buffer_count);
+  comm_ps_k_vint(PS_STAT, "pulser.log.cap", EDM_BUFFER_SIZE);
 
   uint8_t temperature;
   if (read_register(REG_TEMPERATURE, &temperature)) {
-    // CM:comm_print("temperature: %u", temperature);
-    // CM:comm_print("status: ok");
+    comm_ps_k_vint(PS_STAT, "pulser.temp_c", temperature);
   } else {
-    // CM:comm_print("status: i2c read fail");
+    comm_ps_k_vfmtstr(PS_STAT, "pulser.temp_c", "error");
   }
 }
 

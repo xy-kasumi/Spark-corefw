@@ -227,24 +227,24 @@ void motor_set_stall_detection(int motor_num, bool enabled) {
 }
 
 void motor_dump_status() {
-  char buf[256];
   const struct device* motors[] = {motor0, motor1, motor2, motor3,
                                    motor4, motor5, motor6};
 
-  /*
-                                   const char* names[] = {"mot0", "mot1",
-     "mot2", "mot3", "mot4", "mot5", "mot6"};
-                         */
-
   for (int i = 0; i < MOTOR_COUNT; i++) {
-    // CM:comm_print("%s: current_steps:%d energized:%s",
-    // names[i],motor_states[i].current_steps,motor_states[i].energized ? "true"
-    // : "false");
-    int ret = tmc_dump_regs(motors[i], buf, sizeof(buf));
+    comm_ps_raw(PS_STAT, "mot%d.current_steps:%d mot%d.energized:%s", i,
+                motor_states[i].current_steps, i,
+                motor_states[i].energized ? "true" : "false");
+
+    tmc_reg_dump_t buf;
+    int ret = tmc_dump_regs(motors[i], &buf);
     if (ret < 0) {
-      // CM:comm_print("%s: error %d", names[i], ret);
+      comm_ps_raw(PS_STAT, "mot%d.driver:\"error\"");
     } else {
-      // CM:comm_print("%s: %s", names[i], buf);
+      comm_ps_raw(PS_STAT, "mot%d.driver:%s", i, buf.driver_name);
+      for (int j = 0; j < buf.num_regs; j++) {
+        comm_ps_raw(PS_STAT, "mot%d.driver.%s:0x%08x", i, buf.regs[j].name,
+                    buf.regs[j].value);
+      }
     }
   }
 }

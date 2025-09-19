@@ -69,7 +69,7 @@ void wirefeed_set_unitsteps(float unitsteps) {
 }
 
 void wirefeed_dump_status() {
-  // CM:comm_print("state: %s", state == WIREFEED_STATE_FEEDING ? "FEEDING" :
-  // "STOPPED"); CM:comm_print("pos: %.3f mm", (double)current_pos_mm);
-  // CM:comm_print("rate: %.3f mm/min", (double)feedrate_mm_per_min);
+  comm_ps_k_vbool(PS_STAT, "wirefeed.feeding", state == WIREFEED_STATE_FEEDING);
+  comm_ps_k_vfloat(PS_STAT, "wirefeed.pos", current_pos_mm);
+  comm_ps_k_vfloat(PS_STAT, "wirefeed.rate", feedrate_mm_per_min);
 }
