@@ -4,6 +4,7 @@
  * Application entry point for spark core firmware.
  * Main command loop is executed here.
  */
+#include "canceler.h"
 #include "comm.h"
 #include "coords.h"
 #include "gcode.h"
@@ -12,7 +13,6 @@
 #include "pulser.h"
 #include "settings.h"
 #include "strutil.h"
-#include "system.h"
 #include "toolsupply.h"
 #include "wirefeed.h"
 
@@ -174,8 +174,7 @@ static void handle_command(char* command, char* maybe_next_command) {
 
 static void handle_signal(const char* payload) {
   if (strcmp(payload, "!") == 0) {
-    // cancel
-    comm_clear_commands();
+    canceler_cancel();
   } else if (strcmp(payload, "?pos") == 0) {
     // print pos
 
@@ -219,7 +218,7 @@ static void handle_signal(const char* payload) {
 
 int main() {
   // init core
-  state_machine_init();
+  canceler_init();
   comm_init(handle_signal);
 
   comm_ps_begin(PS_INIT);
@@ -252,14 +251,20 @@ int main() {
   comm_ps_end(PS_INIT);
 
   while (true) {
+    // Ignore commands during cancelation window.
+    while (canceler_cancel_needed()) {
+      comm_clear_commands();
+      k_sleep(K_MSEC(50));
+    }
+
     comm_wait_for_command();
 
-    // Wait long enough for queue to accumulate,
+    // Long enough for queue to accumulate,
     // but short enough for user to feel responsive.
     k_sleep(K_MSEC(100));
 
     // Keep executing without wait until queue is fully consumed.
-    while (true) {
+    while (!canceler_cancel_needed()) {
       payload_t cmd;
       payload_t next_cmd;
       int num_avail = comm_get_command_if_avail(&cmd, &next_cmd);

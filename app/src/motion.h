@@ -30,20 +30,48 @@ typedef enum {
  */
 bool motion_init();
 
-pos_phys_t motion_get_current_pos();
-void motion_enqueue_move(pos_phys_t to_pos);
-void motion_enqueue_edm_move(pos_phys_t to_pos);
-void motion_enqueue_probe(pos_phys_t to_pos);
-
-bool motion_can_enqueue();
+/**
+ * Start an EDM move. Can accept further motion_move_enqueue_pos().
+ */
+void motion_start_edm_move(pos_phys_t to_pos);
 
 /**
- * Enqueue a homing move for the specified axis.
+ * Start fast move. Can accept further motion_move_enqueue_pos().
+ */
+void motion_start_fast_move(pos_phys_t to_pos);
+
+/**
+ * Start probe move. Can accept further motion_move_enqueue_pos().
+ */
+void motion_start_probe_move(pos_phys_t to_pos);
+
+/**
+ * Home for the specified axis. Must not call motion_move_enqueue_pos().
  * @param axis Axis to home (X, Y, or Z only - C axis has no home)
  */
-void motion_enqueue_home(axis_t axis);
-motion_state_t motion_get_current_state();
-motion_stop_reason_t motion_get_last_stop_reason();
+void motion_start_home(axis_t axis);
+
+/**
+ * Returns true if motion is stopped.
+ * @param reason (optional) store reason when true is returned.
+ */
+bool motion_is_stopped(motion_stop_reason_t* reason);
+
+/**
+ * Returns true if motion can accept motion_queue_pos() calls.
+ */
+bool motion_move_can_enqueue();
+
+/**
+ * Tell next point to move to.
+ */
+void motion_move_enqueue_pos(pos_phys_t to_pos);
+
+/**
+ * Returns current position in machine coordinates.
+ * TODO: must be thread safe for use in signal handler.
+ */
+pos_phys_t motion_get_current_pos();
 
 /** Set how many microsteps are needed for moving the corresponding axis in
  * +1unit (+1 mm or +1 rotation).

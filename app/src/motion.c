@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "motion.h"
 
+#include "canceler.h"
 #include "comm.h"
 #include "coords.h"
 #include "motor.h"
 #include "pulser.h"
-#include "system.h"
 
 #include <math.h>
 #include <zephyr/kernel.h>
@@ -161,7 +161,7 @@ static void motion_tick_handler(struct k_timer* timer) {
   }
 
   // Check for cancellation first (highest priority)
-  if (g_cancel_requested) {
+  if (canceler_cancel_needed()) {
     last_stop_reason = STOP_REASON_CANCELLED;
     state = MOTION_STATE_STOPPED;
     return;
@@ -234,10 +234,6 @@ pos_phys_t motion_get_current_pos() {
   return pos;
 }
 
-bool motion_can_enqueue() {
-  return pb_can_write(&motion_path);
-}
-
 // Unified internal motion enqueue function
 static void motion_enqueue_internal(pos_phys_t to_pos,
                                     movement_type_t move_type,
@@ -278,10 +274,6 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
   state = MOTION_STATE_MOVING;
 }
 
-motion_state_t motion_get_current_state() {
-  return state;
-}
-
 void motion_set_motor_unitsteps(int motor_num, float unitsteps) {
   if (motor_num >= 0 && motor_num < MOTOR_COUNT) {
     motor_unitsteps[motor_num] = unitsteps;
@@ -306,23 +298,23 @@ void motion_set_home_travel(axis_t axis, float travel_mm) {
   }
 }
 
-void motion_enqueue_move(pos_phys_t to_pos) {
+void motion_start_fast_move(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY, VELOCITY_MM_PER_S,
                           false, false, false, AXIS_X);
 }
 
-void motion_enqueue_edm_move(pos_phys_t to_pos) {
+void motion_start_edm_move(pos_phys_t to_pos) {
   edm_current_speed = EDM_INITIAL_VELOCITY_MM_PER_S;
   motion_enqueue_internal(to_pos, MOVEMENT_EDM_CONTROL, 0.0f, false, false,
                           false, AXIS_X);
 }
 
-void motion_enqueue_probe(pos_phys_t to_pos) {
+void motion_start_probe_move(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY,
                           PROBE_VELOCITY_MM_PER_S, false, true, false, AXIS_X);
 }
 
-void motion_enqueue_home(axis_t axis) {
+void motion_start_home(axis_t axis) {
   // Validate axis (X, Y, Z only - C has no home)
   if (axis != AXIS_X && axis != AXIS_Y && axis != AXIS_Z) {
     return;
@@ -345,6 +337,25 @@ void motion_enqueue_home(axis_t axis) {
                           VELOCITY_MM_PER_S, true, false, true, axis);
 }
 
-motion_stop_reason_t motion_get_last_stop_reason() {
-  return last_stop_reason;
+bool motion_can_enqueue() {
+  return pb_can_write(&motion_path);
+}
+
+void motion_move_enqueue_pos(pos_phys_t to_pos) {
+  if (!pb_can_write(&motion_path)) {
+    // should not happen
+    return;
+  }
+  pb_write(&motion_path, &to_pos);
+}
+
+bool motion_is_stopped(motion_stop_reason_t* reason) {
+  if (state == MOTION_STATE_STOPPED) {
+    if (reason) {
+      *reason = last_stop_reason;
+    }
+    return true;
+  } else {
+    return false;
+  }
 }

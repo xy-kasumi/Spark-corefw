@@ -6,8 +6,8 @@ project(app LANGUAGES C)
 
 target_sources(app PRIVATE 
   src/main.c
+  src/canceler.c
   src/comm.c
-  src/system.c
   src/gcode.c
   src/gcode_base.c
   src/strutil.c

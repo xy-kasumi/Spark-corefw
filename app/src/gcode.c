@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "gcode.h"
 
+#include "canceler.h"
 #include "comm.h"
 #include "coords.h"
 #include "gcode_base.h"
 #include "motion.h"
 #include "pulser.h"
-#include "system.h"
 #include "toolsupply.h"
 #include "wirefeed.h"
 
@@ -59,7 +59,8 @@ static void get_home_order(axis_t result[3]) {
 }
 
 static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
-  bool next_is_continuous = false;
+  bool cont_prev = false;
+  bool cont_next = false;
   if (parsed->code == 0 && parsed->sub_code == -1) {
     // G0 - rapid positioning
     // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
@@ -100,7 +101,12 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     // Convert back to machine coordinates for motion system
     pos_phys_t machine_target =
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
-    motion_enqueue_move(machine_target);
+
+    if (cont_prev) {
+      motion_move_enqueue_pos(machine_target);
+    } else {
+      motion_start_fast_move(machine_target);
+    }
   } else if (parsed->code == 1 && parsed->sub_code == -1) {
     // G1 - controlled EDM move
     // Same validation as G0
@@ -142,11 +148,13 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     pos_phys_t machine_target =
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
 
-    // Energize pulser with current config (configured or defaults)
-    pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
-                    pulser_config.current_a, pulser_config.duty_pct);
-
-    motion_enqueue_edm_move(machine_target);
+    if (cont_prev) {
+      motion_move_enqueue_pos(machine_target);
+    } else {
+      pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
+                      pulser_config.current_a, pulser_config.duty_pct);
+      motion_start_edm_move(machine_target);
+    }
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
     // Validate: no axis specified (home all) or exactly one axis (X, Y, Z only)
@@ -168,18 +176,17 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
 
       for (int i = 0; i < 3; i++) {
         // CM:comm_print("homing axis %c", axis_to_letter(home_order[i]));
-        motion_enqueue_home(home_order[i]);
+        motion_start_home(home_order[i]);
 
         // Wait for motion completion
+        motion_stop_reason_t stop_reason;
         while (true) {
-          if (motion_get_current_state() == MOTION_STATE_STOPPED) {
+          if (motion_is_stopped(&stop_reason)) {
             break;
           }
           k_sleep(K_MSEC(10));
         }
 
-        // Check stop reason
-        motion_stop_reason_t stop_reason = motion_get_last_stop_reason();
         if (stop_reason == STOP_REASON_CANCELLED) {
           // CM:comm_print("homing cancelled");
           return;
@@ -190,7 +197,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     } else if (axis_count == 1) {
       // Execute: home the specified axis
       axis_t target_axis = x_specified ? AXIS_X : y_specified ? AXIS_Y : AXIS_Z;
-      motion_enqueue_home(target_axis);
+      motion_start_home(target_axis);
     } else {
       comm_print_err(
           "G28 requires no parameters (all axes) or exactly one axis");
@@ -241,26 +248,22 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
                     pulser_config.current_a, pulser_config.duty_pct);
 
-    motion_enqueue_probe(machine_target);
+    motion_start_probe_move(machine_target);
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
     // G53 - Use machine coordinate system
     current_coord_system = COORD_SYSTEM_MACHINE;
-    // CM:comm_print("coordinate system: machine");
     return;  // No motion, return early
   } else if (parsed->code == 54 && parsed->sub_code == -1) {
     // G54 - Use grinder coordinate system
     current_coord_system = COORD_SYSTEM_GRINDER;
-    // CM:comm_print("coordinate system: grinder");
     return;  // No motion, return early
   } else if (parsed->code == 55 && parsed->sub_code == -1) {
     // G55 - Use work coordinate system
     current_coord_system = COORD_SYSTEM_WORK;
-    // CM:comm_print("coordinate system: work");
     return;  // No motion, return early
   } else if (parsed->code == 56 && parsed->sub_code == -1) {
     // G56 - Use tool supply coordinate system
     current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
-    // CM:comm_print("coordinate system: tool supply");
     return;  // No motion, return early
   } else {
     if (parsed->sub_code != -1) {
@@ -274,17 +277,11 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
 
   // Wait until next g-code block become executable.
   while (true) {
-    if (motion_get_current_state() == MOTION_STATE_STOPPED) {
-      // Either next command was not available (or not continuous),
-      // or motion finished so quickly and buffer become exhausted,
-      // or canceled.
+    if (motion_is_stopped(NULL)) {
       pulser_deenergize();
-      if (motion_get_last_stop_reason() == STOP_REASON_CANCELLED) {
-        wirefeed_stop();  // for safety
-      }
       break;
     }
-    if (next_is_continuous && motion_can_enqueue()) {
+    if (cont_next && motion_move_can_enqueue()) {
       // Next command can execute now.
       break;
     }
@@ -435,7 +432,7 @@ void exec_test_pulser(int dur_sec) {
                   pulser_config.current_a, pulser_config.duty_pct);
 
   for (int i = 0; i < dur_sec * 10; i++) {
-    if (g_cancel_requested) {
+    if (canceler_cancel_needed()) {
       // CM:comm_print("test pulser: cancelled");
       break;
     }

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "wirefeed.h"
 
+#include "canceler.h"
 #include "comm.h"
 #include "motor.h"
-#include "system.h"
 
 #include <zephyr/kernel.h>
 
@@ -27,6 +27,10 @@ static float mm_per_tick = 0.0f;  // Calculated from feedrate
 static struct k_timer wirefeed_timer;
 
 static void wirefeed_tick_handler(struct k_timer* timer) {
+  if (canceler_cancel_needed()) {
+    wirefeed_stop();
+    return;
+  }
   if (state != WIREFEED_STATE_FEEDING) {
     return;
   }
