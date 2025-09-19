@@ -111,7 +111,7 @@ Commands will be always queued internally, and executed sequentially.
 Signals will execute immediately, regardless of whether a command is running or not.
 
 Uplink payload is always parallel state (p-state). P-state is semi-structured data about current state of the core.
-P-state is designed to allow multiple states to be interleaved.
+P-state is designed to allow concurrent state reporing to be interleaved.
 
 P-state data format
 ```
@@ -169,12 +169,17 @@ Respond with current status.
 #### "set": Set Setting
 Set single setting entry. See settings.md for list of settings.
 
+```
+set-command = "set" space key space value
+space = { " " }
+```
+
 Example
 ```
 set m.6.microstep 32
 ```
 
-#### "get": Get Setting(s)
+#### "get": Get Settings
 Get all setting entries. See settings.md for list of settings.
 
 #### "stat": Dump Status
@@ -182,6 +187,7 @@ Dump software & hardware internal status useful for debugging the firmware or ha
 Unlike "?" signal which responds immediately, stat can take time to query peripherals, run self-check etc.
 
 #### "download": Download Latest Available Data
+Download latest available log data.
 
 #### "test": Execute Hardware Tests
 Execute potentially unsafe operation to test the hardware.
@@ -192,9 +198,16 @@ Commands starting with "G" or "M". See gcode.md for details.
 
 ### Parallel States
 * Event-driven: Reported in pre-defined ocassions
+* Signal-driven: Reported in response to certain signals
 * Command-driven: Reported in response to certain commands
 
-#### "queue": Change-driven, Command-driven
+In future extensions, periodic time-series data SHOULD use dedicated signal-driven p-states.
+Manually triggered data retrieval SHOULD extend "stat" if possible.
+
+#### `queue`: Signal-driven ("?queue")
+`queue` reports current command queue status.
+Host SHOULD query queue fast enough to achieve 75% fill rate (= num / cap) for stable command streaming.
+
 Keys
 * `cap`: total capacity of the queue
 * `num`: number of items in the queue
@@ -204,10 +217,21 @@ Example
 queue < cap:100 num:54 >
 ```
 
-Host SHOULD aim for 75% fill rate (= num / cap) for stable communication.
+#### `pos`: Signal-driven ("?pos")
+`pos` reports current coordinates and coordinate systems.
+
+Keys
+* `sys`: current coordinate system ("machine", "grinder", "work", "toolsupply")
+* `m`: machine coordinate
+* `g`: grinder coordinate
+* `t`: tool supply coordinate
+* `w`: work coordinate
+
+`m` will always be present. `g` or `t` or `w` will be present iff it's current coordinate system as defined by `sys`.
 
 #### "init": Event-driven
-Auto-logged just once after every boot.
+`init` reports core initialization status.
+Triggered just once after every boot.
 
 Keys
 * `ok`: whether the entire core was succesfully initialized
@@ -219,41 +243,31 @@ Example
 init < ok:false pulser.ok:true motor.ok:false motor.msg:"Failed to change pin XXX" >
 ```
 
-#### "pos": Command-driven
-Current coordinates.
+#### "stat": Command-driven
+`stat` reports various modules stats for manual debugging.
 
 Keys
-* `sys`: current coordinate system ("machine", "grinder", "work", "toolsupply")
-* `m`: machine coordinate
-* `g`: grinder coordinate
-* `t`: tool supply coordinate
-* `w`: work coordinate
-
-`m` will always be present. `g` or `t` or `w` will be present iff it's current coordinate system as defined by `sys`.
-
-#### "stat": Command-driven
-Returns current snapshot of all stats.
+* `<module>.<anything>`: Parameters of each module
 
 #### "stg": Command-driven
-Returns current snapshot of all settings.
+`stg` reports current snapshot of all settings.
 
 Example
 ```
-settings m.5.microstep:32 m.6.microstep:16
+stg m.5.microstep:32 m.6.microstep:16
 ```
 
-#### "error": Command-driven
-Latest error.
+#### "error": Event-driven
+`error` reports latest error.
 
 Keys
-* `src`: line content (w/o newline or hash) that caused the error
+* `src` (optional): line content (w/o newline or hash) that caused the error. Not populated if non-identifiable.
 * `msg`: human-readable error
 
 Note checksum errors are handled by lower-layer, and *not* reported as "error".
 
-
 #### "blob": Command-driven
-Latest blob.
+`blob` reports a single blob.
 
 * `0`,`1`,...: N-th payload (urlsafe base64 w/o "=")
 
