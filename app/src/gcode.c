@@ -369,9 +369,9 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
   }
 }
 
-void exec_gcode(char* full_command) {
+void exec_gcode(char* block, char* maybe_next_block) {
   gcode_parsed_t parsed;
-  if (!parse_gcode(full_command, &parsed)) {
+  if (!parse_gcode(block, &parsed)) {
     // CM:comm_print_err("Failed to parse G/M-code: %s", full_command);
     return;
   }

@@ -24,8 +24,8 @@ static uint8_t download_buffer[40000];
 static uint32_t download_buffer_size = 0;
 
 // Command: gcode
-static void cmd_gcode(char* full_command) {
-  exec_gcode(full_command);
+static void cmd_gcode(char* full_command, char* maybe_next_command) {
+  exec_gcode(full_command, maybe_next_command);
 }
 
 // Command: set <key> <value>
@@ -139,13 +139,19 @@ static void cmd_test(char* args) {
   }
 }
 
-static void handle_console_command(char* command) {
+static bool is_gcode(char* command) {
+  return (command[0] == 'G' || command[0] == 'M');
+}
+
+static void handle_command(char* command, char* maybe_next_command) {
   // comm_print("ack len=%d", (int)strlen(command));
   g_machine_state = STATE_EXEC_INTERACTIVE;
 
   // G-code or command?
-  if (command[0] == 'G' || command[0] == 'M') {
-    cmd_gcode(command);
+  if (is_gcode(command)) {
+    bool next_avail =
+        maybe_next_command != NULL && is_gcode(maybe_next_command);
+    cmd_gcode(command, next_avail ? maybe_next_command : NULL);
   } else {
     // Destructive parse: split command and arguments
     char* cmd = command;
@@ -173,7 +179,7 @@ static void handle_console_command(char* command) {
   g_machine_state = STATE_IDLE;
 }
 
-void handle_signal(const char* payload) {
+static void handle_signal(const char* payload) {
   if (strcmp(payload, "!") == 0) {
     // cancel
     comm_clear_commands();
@@ -252,16 +258,24 @@ int main() {
   comm_ps_kv_bool(PS_INIT, "ok", ok);
   comm_ps_end(PS_INIT);
 
-  while (1) {
+  while (true) {
     comm_wait_for_command();
-    payload_t cmd;
-    payload_t next_cmd;
-    int num_avail = comm_get_command_if_avail(&cmd, &next_cmd);
-    if (num_avail == 0) {
-      // comm_clear_commands() was called in signal handler
-      continue;
+
+    // Wait long enough for queue to accumulate,
+    // but short enough for user to feel responsive.
+    k_sleep(K_MSEC(100));
+
+    // Keep executing without wait until queue is fully consumed.
+    while (true) {
+      payload_t cmd;
+      payload_t next_cmd;
+      int num_avail = comm_get_command_if_avail(&cmd, &next_cmd);
+      if (num_avail == 0) {
+        // comm_clear_commands() was called or queue exhausted
+        break;
+      }
+      handle_command(cmd.data, num_avail >= 2 ? next_cmd.data : NULL);
     }
-    handle_console_command(cmd.data);
   }
 
   return 0;

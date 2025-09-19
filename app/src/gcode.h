@@ -9,9 +9,10 @@
 
 /**
  * Execute a G-code or M-code command.
- * @param full_command The complete G/M-code command string
+ * @param block The complete G/M-code command string
+ * @param maybe_next_block NULL or next block in queue
  */
-void exec_gcode(char* full_command);
+void exec_gcode(char* block, char* maybe_next_block);
 
 /**
  * Get current coordinate system.
