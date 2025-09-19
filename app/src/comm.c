@@ -302,7 +302,8 @@ void comm_ps_kv_float(ps_type_t ps, const char* key, float value) {
 
   offset += copy_str(buffer + offset, key);
   offset += copy_str(buffer + offset, ":");
-  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%g", (double)value);
+  offset +=
+      snprintf(buffer + offset, sizeof(buffer) - offset, "%g", (double)value);
 
   uart_write(buffer, offset);
 }
@@ -448,7 +449,7 @@ void comm_print_blob(const uint8_t* ptr, int size) {
 
     char b64buf[PAYLOAD_BUFFER_SIZE];
     int b64size = copy_base64((uint8_t*)b64buf, ptr + offset, orig_bytes);
-    b64buf[b64size] = '\0'; // for fmt in comm_ps_raw
+    b64buf[b64size] = '\0';  // for fmt in comm_ps_raw
     offset += orig_bytes;
 
     comm_ps_raw(PS_BLOB, "%d:%s", msg_ix, b64buf);

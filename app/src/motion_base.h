@@ -62,9 +62,7 @@ typedef struct {
 /** Initialize path buffer with single line segment.
  * This must be called before any other path_buffer_t calls.
  */
-void pb_init(path_buffer_t* pb,
-             const pos_phys_t* src,
-             const pos_phys_t* dst);
+void pb_init(path_buffer_t* pb, const pos_phys_t* src, const pos_phys_t* dst);
 
 /** Get the current (notch-aligned) position. */
 pos_phys_t pb_get_pos(const path_buffer_t* pb);

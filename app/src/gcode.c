@@ -284,8 +284,9 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       }
       break;
     }
-    if (next_is_continuous) {
-      // if motion become writable, break
+    if (next_is_continuous && motion_can_enqueue()) {
+      // Next command can execute now.
+      break;
     }
     k_sleep(K_MSEC(10));
   }

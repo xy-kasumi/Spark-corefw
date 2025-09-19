@@ -234,6 +234,10 @@ pos_phys_t motion_get_current_pos() {
   return pos;
 }
 
+bool motion_can_enqueue() {
+  return pb_can_write(&motion_path);
+}
+
 // Unified internal motion enqueue function
 static void motion_enqueue_internal(pos_phys_t to_pos,
                                     movement_type_t move_type,

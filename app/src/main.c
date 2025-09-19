@@ -144,9 +144,6 @@ static bool is_gcode(char* command) {
 }
 
 static void handle_command(char* command, char* maybe_next_command) {
-  // comm_print("ack len=%d", (int)strlen(command));
-  g_machine_state = STATE_EXEC_INTERACTIVE;
-
   // G-code or command?
   if (is_gcode(command)) {
     bool next_avail =
@@ -173,10 +170,6 @@ static void handle_command(char* command, char* maybe_next_command) {
       // commands",cmd);
     }
   }
-
-  // Clear cancel flag and return to IDLE
-  g_cancel_requested = false;
-  g_machine_state = STATE_IDLE;
 }
 
 static void handle_signal(const char* payload) {
