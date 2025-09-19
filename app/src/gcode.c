@@ -59,6 +59,7 @@ static void get_home_order(axis_t result[3]) {
 }
 
 static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
+  bool next_is_continuous = false;
   if (parsed->code == 0 && parsed->sub_code == -1) {
     // G0 - rapid positioning
     // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
@@ -271,28 +272,26 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
     return;
   }
 
-  // Wait for motion completion
-  int64_t last_print_time = k_uptime_get();
+  // Wait until next g-code block become executable.
   while (true) {
     if (motion_get_current_state() == MOTION_STATE_STOPPED) {
+      // Either next command was not available (or not continuous),
+      // or motion finished so quickly and buffer become exhausted,
+      // or canceled.
+      pulser_deenergize();
+      if (motion_get_last_stop_reason() == STOP_REASON_CANCELLED) {
+        wirefeed_stop();  // for safety
+      }
       break;
     }
-
-    // Print status every 1 second
-    int64_t current_time = k_uptime_get();
-    if (current_time - last_print_time >= 1000) {
-      // pos_phys_t current_pos = motion_get_current_pos();
-      // CM:comm_print("moving X%.3f Y%.3f Z%.3f",
-      // (double)current_pos.x,(double)current_pos.y, (double)current_pos.z);
-      last_print_time = current_time;
+    if (next_is_continuous) {
+      // if motion become writable, break
     }
-
     k_sleep(K_MSEC(10));
   }
 
-  // Always de-energize after motion.
-  pulser_deenergize();
-
+  // Want to print somwhere
+  /*
   switch (motion_get_last_stop_reason()) {
     case STOP_REASON_TARGET_REACHED:
       // CM:comm_print("motion completed");
@@ -305,12 +304,13 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed) {
       break;
     case STOP_REASON_CANCELLED:
       // CM:comm_print("motion cancelled (for safety, wirefeed stopped)");
-      wirefeed_stop();  // for safety
+
       break;
     default:
       comm_print_err("motion ended for unknown reason");
       break;
   }
+  */
 }
 
 static void exec_mcode_cmd(const gcode_parsed_t* parsed) {

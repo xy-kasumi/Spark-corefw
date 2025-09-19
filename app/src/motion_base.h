@@ -23,7 +23,7 @@
 // path_buffer_t represents a path and a current position, typed by pos_phys_t.
 //
 // The path is a sequence of line segments. It can be extended continuously
-// while being used, until its end is marked.
+// while being traversed.
 //
 // Current position is controlled by pb_move(), both forward and backward motion
 // is allowed. path_buffer_t guarantees that the position is always on the
@@ -49,12 +49,10 @@ typedef struct {
   float curr_seg_d;
   pos_phys_t curr_seg_src;
   pos_phys_t curr_seg_dst;
-  bool curr_seg_dst_is_end;
 
   // single-element buffer for writing next segment.
   bool next_seg_avail;
   pos_phys_t next_pos;
-  bool next_pos_is_end;
 
   // internal_pos (notch-aligned) + fraction = current pb_move() position.
   // always |fraction| < EDM_RESOLUTION_MM
@@ -66,32 +64,26 @@ typedef struct {
  */
 void pb_init(path_buffer_t* pb,
              const pos_phys_t* src,
-             const pos_phys_t* dst,
-             bool dst_is_end);
+             const pos_phys_t* dst);
 
 /** Get the current (notch-aligned) position. */
 pos_phys_t pb_get_pos(const path_buffer_t* pb);
 
-/** Get if the current position is at the end of the path. */
+/** Get if the current position is at the end of the currently written path. */
 bool pb_at_end(const path_buffer_t* pb);
 
 /** Check if path buffer has room for pb_write() calls. */
 bool pb_can_write(const path_buffer_t* pb);
 
-/** Write next point of path.
+/**
+ * Write next point of path.
  * Should only be called when pb_can_write() is true.
  * (Otherwise, previous writes might get overwritten.)
- *
- * If is_end is false, further pb_write is allowed.
- * If is_end is true, next_pos will be the end of the path, and no further
- * pb_write is allowed.
  */
-void pb_write(path_buffer_t* pb, const pos_phys_t* next_pos, bool is_end);
+void pb_write(path_buffer_t* pb, const pos_phys_t* next_pos);
 
-/** Check if the path buffer is ready for pb_move() calls. */
-bool pb_is_ready(const path_buffer_t* pb);
-
-/** Move current position along the path by distance d.
+/**
+ * Move current position along the path by distance d.
  * d can be positive (forward), or negative (backward).
  *
  * Actual position is discretized by EDM_RESOLUTION_MM notches,

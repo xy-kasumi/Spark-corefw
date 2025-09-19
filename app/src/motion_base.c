@@ -5,10 +5,7 @@
 #include <math.h>
 #include <string.h>
 
-void pb_init(path_buffer_t* pb,
-             const pos_phys_t* src,
-             const pos_phys_t* dst,
-             bool dst_is_end) {
+void pb_init(path_buffer_t* pb, const pos_phys_t* src, const pos_phys_t* dst) {
   memset(pb, 0, sizeof(path_buffer_t));
 
   pb->pos_history[0] = *src;
@@ -16,7 +13,6 @@ void pb_init(path_buffer_t* pb,
 
   pb->curr_seg_src = *src;
   pb->curr_seg_dst = *dst;
-  pb->curr_seg_dst_is_end = dst_is_end;
 }
 
 pos_phys_t pb_get_pos(const path_buffer_t* pb) {
@@ -30,27 +26,18 @@ bool pb_at_end(const path_buffer_t* pb) {
     return false;
   }
 
-  if (!pb->curr_seg_dst_is_end) {
-    return false;
-  }
-
   // TODO: this is ok, but might not be consistent.
   const pos_phys_t* curr = &pb->pos_history[pb->ix_history];
   return posp_dist(curr, &pb->curr_seg_dst) <= EDM_RESOLUTION_MM;
 }
 
 bool pb_can_write(const path_buffer_t* pb) {
-  return !pb->curr_seg_dst_is_end && !pb->next_seg_avail;
+  return !pb->next_seg_avail;
 }
 
-void pb_write(path_buffer_t* pb, const pos_phys_t* next_pos, bool is_end) {
+void pb_write(path_buffer_t* pb, const pos_phys_t* next_pos) {
   pb->next_pos = *next_pos;
-  pb->next_pos_is_end = is_end;
   pb->next_seg_avail = true;
-}
-
-bool pb_is_ready(const path_buffer_t* pb) {
-  return pb->curr_seg_dst_is_end || pb->next_seg_avail;
 }
 
 static inline int mini(int a, int b) {
@@ -108,8 +95,8 @@ bool pb_move(path_buffer_t* pb, float d) {
     pb->curr_seg_d += EDM_RESOLUTION_MM;
     if (pb->curr_seg_d >= seg_len) {
       // overflown
-      if (pb->curr_seg_dst_is_end || !pb->next_seg_avail) {
-        // should not (or cannot) move to next segment.
+      if (!pb->next_seg_avail) {
+        // cannot move to next segment.
         pb->curr_seg_d = seg_len;
         clipped = true;
       } else {
@@ -117,7 +104,6 @@ bool pb_move(path_buffer_t* pb, float d) {
         pb->curr_seg_d -= seg_len;
         pb->curr_seg_src = pb->curr_seg_dst;
         pb->curr_seg_dst = pb->next_pos;
-        pb->curr_seg_dst_is_end = pb->next_pos_is_end;
         pb->next_seg_avail = false;
       }
     }

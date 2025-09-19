@@ -254,7 +254,7 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
   }
 
   // Initialize path buffer with single segment
-  pb_init(&motion_path, &pos, &to_pos, true);  // Single segment, end=true
+  pb_init(&motion_path, &pos, &to_pos);
 
   // Set movement type and velocity
   movement_type = move_type;

@@ -10,62 +10,49 @@ ZTEST(motion_base, test_pb_init_basic) {
   pos_phys_t src = {0, 0, 0};
   pos_phys_t dst = {10, 0, 0};
 
-  pb_init(&pb, &src, &dst, false);
+  pb_init(&pb, &src, &dst);
 
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 0.0f, 1e-4f, "Initial position should be src");
-  zassert_false(pb_is_ready(&pb),
-                "Not ready - needs next segment or end marker");
-  zassert_true(pb_can_write(&pb), "Should be able to write next segment");
-  zassert_false(pb_at_end(&pb), "Should not be at end initially");
-}
-
-ZTEST(motion_base, test_pb_init_end_segment) {
-  path_buffer_t pb;
-  pos_phys_t src = {0, 0, 0};
-  pos_phys_t dst = {1, 0, 0};
-
-  pb_init(&pb, &src, &dst, true);  // End segment
-
-  zassert_false(pb_can_write(&pb), "Cannot write to end segment");
-  zassert_true(pb_is_ready(&pb), "End segment should be ready");
+  zassert_within(pos.x, 0.0f, 1e-4f, "initial pos");
+  zassert_true(pb_can_write(&pb), "buffer available after construction");
+  zassert_false(pb_at_end(&pb), "initial pos is not end");
 }
 
 // Test path_buffer_t movement
 ZTEST(motion_base, test_pb_move_forward_simple) {
   path_buffer_t pb;
   pos_phys_t src = {0, 0, 0};
-  pos_phys_t dst = {1.0f, 0, 0};  // 1mm segment
+  pos_phys_t dst = {1, 0, 0};  // 1mm segment
 
-  pb_init(&pb, &src, &dst, true);
+  pb_init(&pb, &src, &dst);
 
   // Move 0.5mm forward
-  zassert_true(pb_move(&pb, 0.5f), "Forward move should succeed");
+  zassert_true(pb_move(&pb, 0.5f), "move forward should succeed");
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 0.5f, EDM_RESOLUTION_MM + 1e-4f, "Should be at 0.5mm");
+  zassert_within(pos.x, 0.5f, EDM_RESOLUTION_MM + 1e-4f, "should be at 0.5mm");
 }
 
 ZTEST(motion_base, test_pb_move_backward) {
   path_buffer_t pb;
   pos_phys_t src = {0, 0, 0};
-  pos_phys_t dst = {1.0f, 0, 0};
+  pos_phys_t dst = {1, 0, 0};
 
-  pb_init(&pb, &src, &dst, true);
+  pb_init(&pb, &src, &dst);
 
-  // Move forward then back
+  // Move forward then backward
   pb_move(&pb, 0.5f);
-  zassert_true(pb_move(&pb, -0.2f), "Backward move should succeed");
+  zassert_true(pb_move(&pb, -0.2f), "move backward should succeed");
   pos_phys_t pos = pb_get_pos(&pb);
   zassert_within(pos.x, 0.3f, EDM_RESOLUTION_MM + 1e-4f,
-                 "Should be at 0.3mm after retraction");
+                 "should be at 0.3mm (+0.5mm - 0.2mm)");
 }
 
 ZTEST(motion_base, test_pb_move_retraction_limit) {
   path_buffer_t pb;
   pos_phys_t src = {0, 0, 0};
-  pos_phys_t dst = {10.0f, 0, 0};
+  pos_phys_t dst = {10, 0, 0};
 
-  pb_init(&pb, &src, &dst, true);
+  pb_init(&pb, &src, &dst);
 
   // Move forward much more than history size can track
   // EDM_HISTORY_SIZE=201, EDM_RESOLUTION_MM=0.005, so max history ~1mm
@@ -81,10 +68,10 @@ ZTEST(motion_base, test_pb_move_to_end) {
   pos_phys_t src = {0, 0, 0};
   pos_phys_t dst = {0.5f, 0, 0};  // Short segment
 
-  pb_init(&pb, &src, &dst, true);
+  pb_init(&pb, &src, &dst);
 
-  // Move beyond segment end
-  pb_move(&pb, 1.0f);  // Try to move 1mm on 0.5mm segment
+  // Move beyond current end
+  pb_move(&pb, 1.0f);  // Try to move 1mm (> 0.5mm)
 
   zassert_true(pb_at_end(&pb), "Should be at end after overshooting");
   pos_phys_t pos = pb_get_pos(&pb);
@@ -99,18 +86,18 @@ ZTEST(motion_base, test_pb_write_and_traverse) {
   pos_phys_t p2 = {1, 0, 0};
   pos_phys_t p3 = {1, 1, 0};  // L-shaped path
 
-  pb_init(&pb, &p1, &p2, false);
+  pb_init(&pb, &p1, &p2);
 
   zassert_true(pb_can_write(&pb), "Should be able to write to non-end segment");
-  pb_write(&pb, &p3, true);
+  pb_write(&pb, &p3);
 
   // Move through both segments
   pb_move(&pb, 1.5f);  // Should be halfway through second segment
   pos_phys_t pos = pb_get_pos(&pb);
   zassert_within(pos.x, 1.0f, EDM_RESOLUTION_MM + 1e-4f,
-                 "X should be at corner");
+                 "X must be middle of p2-p3 segment");
   zassert_within(pos.y, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
-                 "Y should be halfway up");
+                 "Y must be middle of p2-p3 segment");
 }
 
 ZTEST(motion_base, test_pb_write_buffer_full) {
@@ -119,18 +106,13 @@ ZTEST(motion_base, test_pb_write_buffer_full) {
   pos_phys_t p2 = {1, 0, 0};
   pos_phys_t p3 = {2, 0, 0};
 
-  pb_init(&pb, &p1, &p2, false);
-  pb_write(&pb, &p3, false);  // Fill the buffer
-
-  zassert_false(pb_can_write(&pb), "Buffer should be full after one write");
-  zassert_true(pb_is_ready(&pb),
-               "If can't write, must be ready (buffer populated)");
+  pb_init(&pb, &p1, &p2);
+  pb_write(&pb, &p3);  // Fill the buffer
+  zassert_false(pb_can_write(&pb), "buffer should be full");
 
   // Move to consume the buffered segment
   pb_move(&pb, 1.1f);  // Move past first segment
-
-  zassert_true(pb_can_write(&pb),
-               "Should be able to write after consuming buffer");
+  zassert_true(pb_can_write(&pb), "first segment must be consumed");
 }
 
 // Test edge cases
@@ -139,7 +121,7 @@ ZTEST(motion_base, test_pb_tiny_movements) {
   pos_phys_t src = {0, 0, 0};
   pos_phys_t dst = {1, 0, 0};
 
-  pb_init(&pb, &src, &dst, true);
+  pb_init(&pb, &src, &dst);
 
   // Move less than EDM_RESOLUTION_MM - should not change position
   pos_phys_t pos_before = pb_get_pos(&pb);
@@ -154,7 +136,7 @@ ZTEST(motion_base, test_pb_zero_length_segment) {
   path_buffer_t pb;
   pos_phys_t same = {5, 5, 5};
 
-  pb_init(&pb, &same, &same, true);  // Zero-length segment
+  pb_init(&pb, &same, &same);  // Zero-length segment
 
   pb_move(&pb, 1.0f);  // Should not crash
   zassert_true(pb_at_end(&pb), "Zero-length segment should be at end");
@@ -168,7 +150,7 @@ ZTEST(motion_base, test_pb_accumulated_tiny_movements) {
   pos_phys_t src = {0, 0, 0};
   pos_phys_t dst = {1, 0, 0};
 
-  pb_init(&pb, &src, &dst, true);
+  pb_init(&pb, &src, &dst);
 
   // Accumulate tiny movements until they add up to one notch
   float tiny = EDM_RESOLUTION_MM * 0.3f;
