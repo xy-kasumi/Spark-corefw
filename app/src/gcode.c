@@ -105,7 +105,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
 
     if (cont_prev) {
-      motion_move_enqueue_pos(machine_target);
+      motion_move_enqueue_pos(machine_target, cont_next);
     } else {
       motion_start_fast_move(machine_target);
     }
@@ -151,11 +151,11 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
 
     if (cont_prev) {
-      motion_move_enqueue_pos(machine_target);
+      motion_move_enqueue_pos(machine_target, cont_next);
     } else {
       pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
                       pulser_config.current_a, pulser_config.duty_pct);
-      motion_start_edm_move(machine_target);
+      motion_start_edm_move(machine_target, cont_next);
     }
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
@@ -200,6 +200,13 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
       // Execute: home the specified axis
       axis_t target_axis = x_specified ? AXIS_X : y_specified ? AXIS_Y : AXIS_Z;
       motion_start_home(target_axis);
+      while (true) {
+        if (motion_is_stopped(NULL)) {
+          break;
+        }
+        k_sleep(K_MSEC(10));
+      }
+      return;
     } else {
       comm_print_err(
           "G28 requires no parameters (all axes) or exactly one axis");
@@ -278,16 +285,28 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
   }
 
   // Wait until next g-code block become executable.
-  while (true) {
-    if (motion_is_stopped(NULL)) {
-      pulser_deenergize();
-      break;
+  if (cont_next) {
+    while (true) {
+      if (canceler_cancel_needed()) {
+        break;
+      }
+      if (motion_move_can_enqueue()) {
+        break;
+      }
+      k_sleep(K_MSEC(10));
     }
-    if (cont_next && motion_move_can_enqueue()) {
-      // Next command can execute now.
-      break;
+  } else {
+    while (true) {
+      if (canceler_cancel_needed()) {
+        pulser_deenergize();
+        break;
+      }
+      if (motion_is_stopped(NULL)) {
+        pulser_deenergize();
+        break;
+      }
+      k_sleep(K_MSEC(10));
     }
-    k_sleep(K_MSEC(10));
   }
 }
 

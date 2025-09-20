@@ -138,6 +138,7 @@ static float edm_current_speed = 0.0f;  // For MOVEMENT_EDM_CONTROL
 
 // Stop condition flags
 static motion_stop_reason_t last_stop_reason;
+static bool stop_at_end;
 static bool stop_at_probe;
 static bool stop_at_stall;
 static bool homing;
@@ -204,9 +205,11 @@ static void motion_tick_handler(struct k_timer* timer) {
   pos = pb_get_pos(&motion_path);
 
   // Check if path completed
-  if (pb_at_end(&motion_path)) {
-    stop_motion(STOP_REASON_TARGET_REACHED);
-    return;
+  if (stop_at_end) {
+    if (pb_at_end(&motion_path)) {
+      stop_motion(STOP_REASON_TARGET_REACHED);
+      return;
+    }
   }
 
   // Convert to driver coordinates and send to motors
@@ -238,6 +241,7 @@ pos_phys_t motion_get_current_pos() {
 static void motion_enqueue_internal(pos_phys_t to_pos,
                                     movement_type_t move_type,
                                     float velocity,
+                                    bool enable_end_stop,
                                     bool enable_stall_stop,
                                     bool enable_probe_stop,
                                     bool is_homing,
@@ -261,6 +265,7 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
   movement_velocity = velocity;
 
   // Set stop conditions
+  stop_at_end = enable_end_stop;
   stop_at_stall = enable_stall_stop;
   stop_at_probe = enable_probe_stop;
 
@@ -300,18 +305,19 @@ void motion_set_home_travel(axis_t axis, float travel_mm) {
 
 void motion_start_fast_move(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY, VELOCITY_MM_PER_S,
-                          false, false, false, AXIS_X);
+                          true, false, false, false, AXIS_X);
 }
 
-void motion_start_edm_move(pos_phys_t to_pos) {
+void motion_start_edm_move(pos_phys_t to_pos, bool has_cont) {
   edm_current_speed = EDM_INITIAL_VELOCITY_MM_PER_S;
-  motion_enqueue_internal(to_pos, MOVEMENT_EDM_CONTROL, 0.0f, false, false,
-                          false, AXIS_X);
+  motion_enqueue_internal(to_pos, MOVEMENT_EDM_CONTROL, 0.0f, !has_cont, false,
+                          false, false, AXIS_X);
 }
 
 void motion_start_probe_move(pos_phys_t to_pos) {
   motion_enqueue_internal(to_pos, MOVEMENT_CONSTANT_VELOCITY,
-                          PROBE_VELOCITY_MM_PER_S, false, true, false, AXIS_X);
+                          PROBE_VELOCITY_MM_PER_S, true, false, true, false,
+                          AXIS_X);
 }
 
 void motion_start_home(axis_t axis) {
@@ -334,17 +340,20 @@ void motion_start_home(axis_t axis) {
 
   // Execute
   motion_enqueue_internal(home_target, MOVEMENT_CONSTANT_VELOCITY,
-                          VELOCITY_MM_PER_S, true, false, true, axis);
+                          VELOCITY_MM_PER_S, true, true, false, true, axis);
 }
 
 bool motion_move_can_enqueue() {
   return pb_can_write(&motion_path);
 }
 
-void motion_move_enqueue_pos(pos_phys_t to_pos) {
+void motion_move_enqueue_pos(pos_phys_t to_pos, bool has_cont) {
   if (!pb_can_write(&motion_path)) {
     // should not happen
     return;
+  }
+  if (!has_cont) {
+    stop_at_end = true;
   }
   pb_write(&motion_path, &to_pos);
 }

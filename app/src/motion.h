@@ -33,7 +33,7 @@ bool motion_init();
 /**
  * Start an EDM move. Can accept further motion_move_enqueue_pos().
  */
-void motion_start_edm_move(pos_phys_t to_pos);
+void motion_start_edm_move(pos_phys_t to_pos, bool has_cont);
 
 /**
  * Start fast move. Can accept further motion_move_enqueue_pos().
@@ -65,7 +65,7 @@ bool motion_move_can_enqueue();
 /**
  * Tell next point to move to.
  */
-void motion_move_enqueue_pos(pos_phys_t to_pos);
+void motion_move_enqueue_pos(pos_phys_t to_pos, bool has_cont);
 
 /**
  * Returns current position in machine coordinates.
