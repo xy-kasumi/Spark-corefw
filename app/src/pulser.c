@@ -173,6 +173,7 @@ void pulser_dump_status() {
     return;
   }
 
+  comm_ps_k_vbool(PS_STAT, "pulser.energized", energized);
   comm_ps_k_vint(PS_STAT, "pulser.poll_count", poll_count);
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_pulse", last_r_pulse * (1 / 255.0f));
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_short", last_r_short * (1 / 255.0f));
@@ -185,6 +186,27 @@ void pulser_dump_status() {
     comm_ps_k_vint(PS_STAT, "pulser.temp_c", temperature);
   } else {
     comm_ps_k_vfmtstr(PS_STAT, "pulser.temp_c", "error");
+  }
+
+  uint8_t curr_100ma;
+  if (read_register(REG_PULSE_CURRENT, &curr_100ma)) {
+    comm_ps_k_vfloat(PS_STAT, "pulser.pulse_current_a", curr_100ma * 0.1f);
+  } else {
+    comm_ps_k_vfmtstr(PS_STAT, "pulser.pulse_current_a", "error");
+  }
+
+  uint8_t dur_10us;
+  if (read_register(REG_PULSE_DUR, &dur_10us)) {
+    comm_ps_k_vfloat(PS_STAT, "pulser.pulse_dur_us", dur_10us * 10.0f);
+  } else {
+    comm_ps_k_vfmtstr(PS_STAT, "pulser.pulse_dur_us", "error");
+  }
+
+  uint8_t duty_pct;
+  if (read_register(REG_MAX_DUTY, &duty_pct)) {
+    comm_ps_k_vfloat(PS_STAT, "pulser.max_duty_pct", duty_pct);
+  } else {
+    comm_ps_k_vfmtstr(PS_STAT, "pulser.max_duty_pct", "error");
   }
 }
 

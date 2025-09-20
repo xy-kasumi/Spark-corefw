@@ -400,7 +400,12 @@ void exec_gcode(char* block, char* maybe_next_block) {
   } else if (parsed.cmd_type == CMD_TYPE_M) {
     exec_mcode_cmd(&parsed);
   }
-  last_has_cont = cont_next;
+
+  if (canceler_cancel_needed()) {
+    last_has_cont = false;
+  } else {
+    last_has_cont = cont_next;
+  }
 }
 
 coord_system_t gcode_get_current_coord_system() {
