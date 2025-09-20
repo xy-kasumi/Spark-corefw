@@ -5,6 +5,8 @@
  */
 #pragma once
 
+#include "strutil.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -52,9 +54,10 @@ typedef struct {
 } gcode_parsed_t;
 
 /**
- * Parse a G-code or M-code command line
- * @param line Input command line (e.g., "G0 X10.5 Y20.3" or "M3 P500 Q2.5")
- * @param parsed Output structure to fill with parsed data
+ * Parse a G-code or M-code block.
+ *
+ * @param block Single block (e.g., "G0 X10.5 Y20.3" or "M3 P500 Q2.5")
+ * @param parsed output
  * @return true if parsing succeeded, false on error
  */
-bool parse_gcode(const char* line, gcode_parsed_t* parsed);
+bool parse_gcode(slice_t block, gcode_parsed_t* parsed);

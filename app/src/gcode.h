@@ -6,13 +6,14 @@
 #pragma once
 
 #include "coords.h"
+#include "strutil.h"
 
 /**
  * Execute a G-code or M-code command.
  * @param block The complete G/M-code command string
- * @param maybe_next_block NULL or next block in queue
+ * @param maybe_next_block next block in queue. empty if none.
  */
-void exec_gcode(char* block, char* maybe_next_block);
+void exec_gcode(slice_t block, slice_t maybe_next_block);
 
 /**
  * Get current coordinate system.

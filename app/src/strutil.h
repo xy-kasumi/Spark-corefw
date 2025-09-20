@@ -6,56 +6,115 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
- * Destuctively splits string at first delimiter, by overwriting 0 to str.
- * Returns non-NULL even if the second part is empty.
+ * Slice is a view into a byte array.
+ * slice_t merely borrows data; it is user's responsibility to ensure data is
+ * available while it's used by slice_t.
  *
- * @param str string pointer. after the call, it will point the first part.
- * @param delim Delimiter character to split on
- * @return NULL if no delimiter found. Otherwise returns pointer to the second
- * part of the string (may be empty "").
+ * Slice methods do not modify arguments, unless explicitly stated.
+ */
+typedef struct {
+  int size;
+  uint8_t* ptr;
+} slice_t;
+
+/**
+ * Create empty slice.
+ */
+slice_t sl_empty();
+
+/**
+ * Create slice from c-string.
+ */
+slice_t sl_from_str(char* str);
+
+/**
+ * Check if slice is empty.
+ */
+bool sl_is_empty(slice_t s);
+
+/**
+ * Copy slice into a new buffer, and returns slice pointing to it.
+ * If buffer is too small, result will be truncated.
+ */
+slice_t sl_copy(slice_t s, uint8_t* buffer, int size);
+
+/**
+ * Compare two slices for equality.
+ * @return true if equal.
+ */
+bool sl_eq(slice_t s1, slice_t s2);
+
+/**
+ * Compare slice with c-string for equality.
+ * sl_eq_str(s1, s2) == sl_eq(s1, sl_from_str(s2)).
+ *
+ * @return true if equal.
+ */
+bool sl_eq_str(slice_t s1, const char* s2);
+
+/**
+ * Return sub-slice of s.
+ * If begin >= end, returns empty slice.
+ *
+ * @param begin inclusive. If < 0, treated as 0.
+ * @param end exclusive. If > size, treated as size.
+ */
+slice_t sl_sub(slice_t s, int begin, int end);
+
+/**
+ * Split string by first appearance of delim.
  *
  * Examples:
- *   split_at("a.b", '.') -> str="a", return="b"
- *   split_at("a.", '.') -> str="a", return=""
- *   split_at("a", '.') -> str="a", return=NULL
- *   split_at("", '.') -> str="", return=NULL
+ *   sl_split_at("a.b.c", '.') -> ret="a", rem="b.c"
+ *   sl_split_at("a.", '.') -> ret="a", rem=""
+ *   sl_split_at("a", '.') -> ret="a", rem=""
+ *   sl_split_at(".a", '.') -> ret="", rem="a"
+ *   sl_split_at("", '.') -> ret="", rem=""
+ *
+ * @param remaining (optional) Parts after delim. Empty if no delim found. OK to
+ * specify &s.
+ * @return Part before delim. Entire s if no delim found.
  */
-char* split_at(char* str, char delim);
+slice_t sl_split_at(slice_t s, char delim, slice_t* remaining);
 
 /**
- * Destructively splits string at first whitespace sequence, by overwriting 0 to
- * str. Skips multiple consecutive whitespace characters (spaces, tabs, etc).
- * Returns NULL if no meaningful content follows the whitespace.
- *
- * @param str string pointer. after the call, it will point the first part.
- * @return NULL if no whitespace found or only whitespace remains. Otherwise
- * returns pointer to the second part of the string (after skipping all
- * whitespace).
+ * Split string by first appearance of spaces.
  *
  * Examples:
- *   split_by_space("a b") -> str="a", return="b"
- *   split_by_space("a  b") -> str="a", return="b"
- *   split_by_space("a ") -> str="a", return=NULL
- *   split_by_space("a") -> str="a", return=NULL
- *   split_by_space("") -> str="", return=NULL
- *   split_by_space(" ") -> str="", return=NULL
+ *   sl_split_by_spaces("a b c") -> ret="a", rem="b c"
+ *   sl_split_by_spaces("a  b") -> str="a", rem="b"
+ *   sl_split_by_spaces("a ") -> str="a", rem=""
+ *   sl_split_by_spaces("a") -> str="a", rem=""
+ *   sl_split_by_spaces("  a") -> ret="", rem="a"
+ *   sl_split_by_spaces(" ") -> ret="", retm=""
+ *   sl_split_by_spaces("") -> ret="", rem=""
+ * @param remaining (optional) TBD
  */
-char* split_by_space(char* str);
+slice_t sl_split_by_spaces(slice_t s, slice_t* remaining);
 
 /**
- * Parse string to int with validation.
- * @param str String to parse
- * @param value Output int value
- * @return true if valid int, false otherwise
+ * Find index of first byte matching predicate.
+ * @param pred return true if match.
+ * @param pred_ctx context pointer passed to pred.
+ * @return Index of first matching character, or -1 if none found.
  */
-bool parse_int(const char* str, int* value);
+int sl_find(slice_t s, bool (*pred)(uint8_t b, void* ctx), void* pred_ctx);
 
 /**
- * Parse string to float with validation.
- * @param str String to parse
- * @param value Output float value
- * @return true if valid float, false otherwise
+ * Parse int32 from entire s. (base 10)
+ * Too big/small value results in failure.
+ *
+ * @param s input string
+ * @param value output value
+ * @return true if successful.
  */
-bool parse_float(const char* str, float* value);
+bool sl_parse_int(slice_t s, int* value);
+
+/**
+ * Parse float32 from entire s.
+ * Overflow, inf, nans will result in failure.
+ */
+bool sl_parse_float(slice_t s, float* value);

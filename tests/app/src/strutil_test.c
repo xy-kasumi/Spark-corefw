@@ -4,147 +4,196 @@
 
 #include <zephyr/ztest.h>
 
-ZTEST(strutil, test_split_at) {
-  char str[] = "a,b";
-  char* rem = split_at(str, ',');
-
-  zassert_not_null(rem, "Split should return non-NULL");
-  zassert_equal(str[0], 'a', "First part should be 'a'");
-  zassert_equal(str[1], 0, "First part should be null-terminated");
-  zassert_equal(rem[0], 'b', "Second part should be 'b'");
-  zassert_equal(rem[1], 0, "Second part should be null-terminated");
+ZTEST(strutil, test_sl_is_empty) {
+  zassert_true(sl_is_empty(sl_empty()));
+  zassert_true(sl_is_empty(sl_from_str("")));
+  zassert_false(sl_is_empty(sl_from_str("abc")));
 }
 
-ZTEST(strutil, test_split_at_dupe) {
-  char str[] = "a,,b";
-  char* rem = split_at(str, ',');
+ZTEST(strutil, test_sl_eq) {
+  zassert_true(sl_eq(sl_empty(), sl_empty()));
+  zassert_true(sl_eq(sl_from_str("abc"), sl_from_str("abc")));
 
-  zassert_not_null(rem, "Split should return non-NULL");
-  zassert_equal(str[0], 'a', "First part should be 'a'");
-  zassert_equal(str[1], 0, "First part should be null-terminated");
-  zassert_equal(rem[0], ',', "Second part should be ','");
-  zassert_equal(rem[1], 'b', "Second part should be 'b'");
-  zassert_equal(rem[2], 0, "Second part should be null-terminated");
+  {
+    uint8_t buf1[1];
+    uint8_t buf2[1];
+    buf1[0] = 'a';
+    buf2[0] = 'a';
+    slice_t s1 = {.size = 1, .ptr = buf1};
+    slice_t s2 = {.size = 1, .ptr = buf2};
+    zassert_true(sl_eq(s1, s2), "different pointer, same content");
+  }
+
+  {
+    uint8_t buf1[2];
+    uint8_t buf2[2];
+    slice_t s1 = {.size = 2, .ptr = buf1};
+    slice_t s2 = {.size = 2, .ptr = buf2};
+    buf1[0] = 0;
+    buf1[1] = 'a';
+    buf2[0] = 0;
+    buf2[1] = 'a';
+    zassert_true(sl_eq(s1, s2), "content after null matters");
+
+    buf1[0] = 0;
+    buf1[1] = 'a';
+    buf2[0] = 0;
+    buf2[1] = 'b';
+    zassert_false(sl_eq(s1, s2), "content after null matters");
+  }
 }
 
-ZTEST(strutil, test_split_not_found) {
-  char str[] = "a";
-  char* rem = split_at(str, ',');
+ZTEST(strutil, test_sl_eq_str) {
+  zassert_true(sl_eq_str(sl_empty(), ""));
+  zassert_true(sl_eq_str(sl_from_str("abc"), "abc"));
 
-  zassert_is_null(rem, "Second part should be NULL.");
-  zassert_equal(str[0], 'a', "First part should be 'a'");
-  zassert_equal(str[1], 0, "First part should be null-terminated");
+  zassert_false(sl_eq_str(sl_empty(), "a"));
+  zassert_false(sl_eq_str(sl_from_str("a"), ""));
 }
 
-ZTEST(strutil, test_split_at_edge_cases) {
-  // Test split_at("a.", '.') -> str="a", return=""
-  char str1[] = "a.";
-  char* rem1 = split_at(str1, '.');
-  zassert_not_null(rem1, "Should return non-NULL for empty second part");
-  zassert_equal(str1[0], 'a', "First part should be 'a'");
-  zassert_equal(str1[1], 0, "First part should be null-terminated");
-  zassert_equal(rem1[0], 0, "Second part should be empty string");
+ZTEST(strutil, test_sl_sub) {
+  slice_t s = sl_from_str("abc");
 
-  // Test split_at("", '.') -> str="", return=NULL
-  char str2[] = "";
-  char* rem2 = split_at(str2, '.');
-  zassert_is_null(rem2, "Should return NULL for empty input");
-  zassert_equal(str2[0], 0, "First part should remain empty");
+  // basic use cases
+  zassert_true(sl_eq_str(sl_sub(s, 0, 3), "abc"));
+  zassert_true(sl_eq_str(sl_sub(s, 0, 2), "ab"));
+  zassert_true(sl_eq_str(sl_sub(s, 1, 3), "bc"));
+  zassert_true(sl_eq_str(sl_sub(s, 0, 0), ""));
+
+  // edge cases
+  zassert_true(sl_eq_str(sl_sub(s, 0, 10), "abc"));
+  zassert_true(sl_eq_str(sl_sub(s, -10, 3), "abc"));
+  zassert_true(sl_eq_str(sl_sub(s, 3, 0), ""));
 }
 
-ZTEST(strutil, test_split_by_space_basic) {
-  // Test split_by_space("a b") -> str="a", return="b"
-  char str[] = "a b";
-  char* rem = split_by_space(str);
+ZTEST(strutil, test_sl_split_at) {
+  slice_t ret, rem;
 
-  zassert_not_null(rem, "Should return non-NULL");
-  zassert_equal(str[0], 'a', "First part should be 'a'");
-  zassert_equal(str[1], 0, "First part should be null-terminated");
-  zassert_equal(rem[0], 'b', "Second part should be 'b'");
-  zassert_equal(rem[1], 0, "Second part should be null-terminated");
+  ret = sl_split_at(sl_from_str("a.b.c"), '.', &rem);
+  zassert_true(sl_eq_str(ret, "a"));
+  zassert_true(sl_eq_str(rem, "b.c"));
+
+  ret = sl_split_at(sl_from_str("a."), '.', &rem);
+  zassert_true(sl_eq_str(ret, "a"));
+  zassert_true(sl_is_empty(rem));
+
+  ret = sl_split_at(sl_from_str("a"), '.', &rem);
+  zassert_true(sl_eq_str(ret, "a"));
+  zassert_true(sl_is_empty(rem));
+
+  ret = sl_split_at(sl_from_str(".a"), '.', &rem);
+  zassert_true(sl_is_empty(ret));
+  zassert_true(sl_eq_str(rem, "a"));
+
+  ret = sl_split_at(sl_from_str("."), '.', &rem);
+  zassert_true(sl_is_empty(ret));
+  zassert_true(sl_is_empty(rem));
+
+  ret = sl_split_at(sl_from_str(""), '.', &rem);
+  zassert_true(sl_is_empty(ret));
+  zassert_true(sl_is_empty(rem));
 }
 
-ZTEST(strutil, test_split_by_space_multiple_spaces) {
-  // Test split_by_space("a  b") -> str="a", return="b"
-  char str[] = "a  b";
-  char* rem = split_by_space(str);
-
-  zassert_not_null(rem, "Should return non-NULL");
-  zassert_equal(str[0], 'a', "First part should be 'a'");
-  zassert_equal(str[1], 0, "First part should be null-terminated");
-  zassert_equal(rem[0], 'b', "Second part should be 'b'");
+ZTEST(strutil, test_sl_split_at_null_rem) {
+  slice_t ret = sl_split_at(sl_from_str("a.b.c"), '.', NULL);
+  zassert_true(sl_eq_str(ret, "a"));
 }
 
-ZTEST(strutil, test_split_by_space_edge_cases) {
-  // Test split_by_space("a ") -> str="a", return=NULL
-  char str1[] = "a ";
-  char* rem1 = split_by_space(str1);
-  zassert_is_null(rem1, "Should return NULL when only whitespace follows");
-  zassert_equal(str1[0], 'a', "First part should be 'a'");
-  zassert_equal(str1[1], 0, "First part should be null-terminated");
+ZTEST(strutil, test_sl_split_by_spaces) {
+  slice_t ret, rem;
 
-  // Test split_by_space("a") -> str="a", return=NULL
-  char str2[] = "a";
-  char* rem2 = split_by_space(str2);
-  zassert_is_null(rem2, "Should return NULL when no whitespace");
-  zassert_equal(str2[0], 'a', "First part should be 'a'");
+  ret = sl_split_by_spaces(sl_from_str("a  b  c"), &rem);
+  zassert_true(sl_eq_str(ret, "a"));
+  zassert_true(sl_eq_str(rem, "b  c"));
 
-  // Test split_by_space("") -> str="", return=NULL
-  char str3[] = "";
-  char* rem3 = split_by_space(str3);
-  zassert_is_null(rem3, "Should return NULL for empty string");
-  zassert_equal(str3[0], 0, "First part should remain empty");
+  ret = sl_split_by_spaces(sl_from_str("a "), &rem);
+  zassert_true(sl_eq_str(ret, "a"));
+  zassert_true(sl_is_empty(rem));
 
-  // Test split_by_space(" ") -> str="", return=NULL
-  char str4[] = " ";
-  char* rem4 = split_by_space(str4);
-  zassert_is_null(rem4, "Should return NULL for whitespace-only string");
-  zassert_equal(str4[0], 0, "First part should be empty after split");
+  ret = sl_split_by_spaces(sl_from_str("a"), &rem);
+  zassert_true(sl_eq_str(ret, "a"));
+  zassert_true(sl_is_empty(rem));
+
+  ret = sl_split_by_spaces(sl_from_str(" a"), &rem);
+  zassert_true(sl_is_empty(ret));
+  zassert_true(sl_eq_str(rem, "a"));
+
+  ret = sl_split_by_spaces(sl_from_str("  "), &rem);
+  zassert_true(sl_is_empty(ret));
+  zassert_true(sl_is_empty(rem));
+
+  ret = sl_split_by_spaces(sl_from_str(""), &rem);
+  zassert_true(sl_is_empty(ret));
+  zassert_true(sl_is_empty(rem));
 }
 
-ZTEST(strutil, test_parse_int_valid) {
+ZTEST(strutil, test_sl_split_by_spaces_null_rem) {
+  slice_t ret;
+
+  ret = sl_split_by_spaces(sl_from_str("a  b  c"), NULL);
+  zassert_true(sl_eq_str(ret, "a"));
+
+  ret = sl_split_by_spaces(sl_from_str("a "), NULL);
+  zassert_true(sl_eq_str(ret, "a"));
+
+  ret = sl_split_by_spaces(sl_from_str("a"), NULL);
+  zassert_true(sl_eq_str(ret, "a"));
+
+  ret = sl_split_by_spaces(sl_from_str(" a"), NULL);
+  zassert_true(sl_is_empty(ret));
+
+  ret = sl_split_by_spaces(sl_from_str("  "), NULL);
+  zassert_true(sl_is_empty(ret));
+
+  ret = sl_split_by_spaces(sl_from_str(""), NULL);
+  zassert_true(sl_is_empty(ret));
+}
+
+ZTEST(strutil, test_sl_parse_int_valid) {
   int value;
-  zassert_true(parse_int("123", &value), "Should parse valid int");
-  zassert_equal(value, 123, "Value should be 123");
+  zassert_true(sl_parse_int(sl_from_str("123"), &value));
+  zassert_equal(value, 123);
 
-  zassert_true(parse_int("-456", &value), "Should parse negative int");
-  zassert_equal(value, -456, "Value should be -456");
+  zassert_true(sl_parse_int(sl_from_str("-456"), &value));
+  zassert_equal(value, -456);
 
-  zassert_true(parse_int("0", &value), "Should parse zero");
-  zassert_equal(value, 0, "Value should be 0");
+  zassert_true(sl_parse_int(sl_from_str("0"), &value));
+  zassert_equal(value, 0);
+
+  zassert_true(sl_parse_int(sl_from_str("2147483647"), &value), "max int32");
+  zassert_equal(value, 2147483647);
+
+  zassert_true(sl_parse_int(sl_from_str("-2147483648"), &value), "min int32");
+  zassert_equal(value, -2147483648);
 }
 
-ZTEST(strutil, test_parse_int_invalid) {
+ZTEST(strutil, test_sl_parse_int_invalid) {
   int value;
-  zassert_false(parse_int("abc", &value), "Should reject non-numeric");
-  zassert_false(parse_int("123x", &value), "Should reject partial numeric");
-  zassert_false(parse_int("", &value), "Should reject empty string");
-  zassert_false(parse_int(NULL, &value), "Should reject NULL string");
-  zassert_false(parse_int("123", NULL), "Should reject NULL output");
+  zassert_false(sl_parse_int(sl_from_str(" 123"), &value), "pre-space");
+  zassert_false(sl_parse_int(sl_from_str("123 "), &value), "post-space");
+  zassert_false(sl_parse_int(sl_from_str("1.2"), &value), "float");
+  zassert_false(sl_parse_int(sl_from_str("0x123"), &value), "hex");
+  zassert_false(sl_parse_int(sl_from_str("1000000000000000"), &value),
+                "bigint");
 }
 
-ZTEST(strutil, test_parse_float_valid) {
+ZTEST(strutil, test_sl_parse_float_valid) {
   float value;
-  zassert_true(parse_float("123.5", &value), "Should parse valid float");
-  zassert_within(value, 123.5f, 0.001f, "Value should be 123.5");
+  zassert_true(sl_parse_float(sl_from_str("123.45"), &value));
+  zassert_equal(value, 123.45f);
 
-  zassert_true(parse_float("-45.67", &value), "Should parse negative float");
-  zassert_within(value, -45.67f, 0.001f, "Value should be -45.67");
-
-  zassert_true(parse_float("0.0", &value), "Should parse zero float");
-  zassert_within(value, 0.0f, 0.001f, "Value should be 0.0");
-
-  zassert_true(parse_float("42", &value), "Should parse int as float");
-  zassert_within(value, 42.0f, 0.001f, "Value should be 42.0");
+  zassert_true(sl_parse_float(sl_from_str("1.2345e2"), &value));
+  zassert_equal(value, 123.45f);
 }
 
-ZTEST(strutil, test_parse_float_invalid) {
+ZTEST(strutil, test_sl_parse_float_invalid) {
   float value;
-  zassert_false(parse_float("abc", &value), "Should reject non-numeric");
-  zassert_false(parse_float("12.3x", &value), "Should reject partial numeric");
-  zassert_false(parse_float("", &value), "Should reject empty string");
-  zassert_false(parse_float(NULL, &value), "Should reject NULL string");
-  zassert_false(parse_float("12.3", NULL), "Should reject NULL output");
+  zassert_false(sl_parse_float(sl_from_str(" 123.45"), &value), "pre-space");
+  zassert_false(sl_parse_float(sl_from_str("123.45 "), &value), "post-space");
+  zassert_false(sl_parse_float(sl_from_str("12.3.4"), &value), "multi-dot");
+  zassert_false(sl_parse_float(sl_from_str("1e1000"), &value), "big float");
+  zassert_false(sl_parse_float(sl_from_str("NAN"), &value), "NAN");
+  zassert_false(sl_parse_float(sl_from_str("INF"), &value), "INF");
 }
 
 ZTEST_SUITE(strutil, NULL, NULL, NULL, NULL, NULL);

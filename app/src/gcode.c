@@ -341,7 +341,7 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
   }
 }
 
-void exec_gcode(char* block, char* maybe_next_block) {
+void exec_gcode(slice_t block, slice_t maybe_next_block) {
   gcode_parsed_t parsed;
   if (!parse_gcode(block, &parsed)) {
     // CM:comm_print_err("Failed to parse G/M-code: %s", full_command);
@@ -351,7 +351,7 @@ void exec_gcode(char* block, char* maybe_next_block) {
   // Detect continuation condition.
   // Only continuation for now is G1->G1.
   bool cont_next = false;
-  if (maybe_next_block) {
+  if (!sl_is_empty(maybe_next_block)) {
     gcode_parsed_t parsed_next;
     if (parse_gcode(maybe_next_block, &parsed_next)) {
       if (parsed.cmd_type == CMD_TYPE_G && parsed_next.cmd_type == CMD_TYPE_G) {

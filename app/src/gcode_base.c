@@ -7,54 +7,61 @@
 #include <string.h>
 
 // Parse G/M command number, handling decimals like G38.3
-static bool parse_command_number(char* token,
+static bool parse_command_number(slice_t token,
                                  cmd_type_t* cmd_type,
                                  int* code,
                                  int* sub_code) {
-  if (token[0] == 'G') {
+  if (sl_is_empty(token)) {
+    return false;
+  }
+
+  char first_char = token.ptr[0];
+  if (first_char == 'G') {
     *cmd_type = CMD_TYPE_G;
-  } else if (token[0] == 'M') {
+  } else if (first_char == 'M') {
     *cmd_type = CMD_TYPE_M;
   } else {
     return false;
   }
 
-  // Skip command letter and parse main code
-  char* code_part = token + 1;
-  char* sub_part = split_at(code_part, '.');
+  // Parse maincode(.subcode) part.
+  slice_t sub;
+  slice_t main = sl_split_at(sl_sub(token, 1, token.size), '.', &sub);
 
-  if (!parse_int(code_part, code) || *code < 0 || *code > 999) {
+  if (!sl_parse_int(main, code) || *code < 0 || *code > 999) {
     return false;
   }
-
-  if (sub_part) {
-    if (!parse_int(sub_part, sub_code) || *sub_code < 0 || *sub_code > 9) {
+  if (!sl_is_empty(sub)) {
+    if (!sl_parse_int(sub, sub_code) || *sub_code < 0 || *sub_code > 9) {
       return false;
     }
   } else {
     *sub_code = -1;
   }
-
   return true;
 }
 
 // Parse axis parameter like "X123" or "X"
-static bool parse_axis_param(const char* token,
+static bool parse_axis_param(slice_t token,
                              char expected_axis,
                              axis_state_t* state,
                              float* value) {
-  if (token[0] != expected_axis) {
+  if (sl_is_empty(token)) {
     return false;
   }
 
-  if (strlen(token) == 1) {
+  if (token.ptr[0] != expected_axis) {
+    return false;
+  }
+
+  if (token.size == 1) {
     // Axis only (e.g., "X" for G28 X)
     *state = AXIS_ONLY;
     return true;
   } else {
     // Axis with value (e.g., "X10.5")
-    const char* value_str = token + 1;  // Skip axis letter
-    if (!parse_float(value_str, value)) {
+    slice_t s_value = sl_sub(token, 1, token.size);
+    if (!sl_parse_float(s_value, value)) {
       return false;
     }
     *state = AXIS_WITH_VALUE;
@@ -63,43 +70,41 @@ static bool parse_axis_param(const char* token,
 }
 
 // Parse parameter like "P500" or "Q2.5"
-static bool parse_param(const char* token,
+static bool parse_param(slice_t token,
                         char expected_param,
                         param_state_t* state,
                         float* value) {
-  if (token[0] != expected_param) {
+  if (sl_is_empty(token)) {
     return false;
   }
 
-  if (strlen(token) == 1) {
+  if (token.ptr[0] != expected_param) {
+    return false;
+  }
+
+  if (token.size == 1) {
     return false;  // Parameter must have value
   }
 
-  const char* value_str = token + 1;  // Skip parameter letter
-  if (!parse_float(value_str, value)) {
+  // Parse number
+  slice_t s_value = sl_sub(token, 1, token.size);
+  if (!sl_parse_float(s_value, value)) {
     return false;
   }
-
   *state = PARAM_SPECIFIED;
   return true;
 }
 
-bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
-  if (!line || !parsed) {
+bool parse_gcode(slice_t block, gcode_parsed_t* parsed) {
+  if (sl_is_empty(block)) {
     return false;
   }
 
   // Initialize result structure
   *parsed = (gcode_parsed_t){0};
 
-  // Make mutable copy for parsing
-  char mut_line[256];
-  strncpy(mut_line, line, sizeof(mut_line) - 1);
-  mut_line[sizeof(mut_line) - 1] = '\0';
-
   // Split into tokens by whitespace
-  char* token = mut_line;
-  char* rest = split_by_space(token);
+  slice_t token = sl_split_by_spaces(block, &block);
 
   // First token must be G or M command
   if (!parse_command_number(token, &parsed->cmd_type, &parsed->code,
@@ -108,11 +113,10 @@ bool parse_gcode(const char* line, gcode_parsed_t* parsed) {
   }
 
   // Parse remaining parameters
-  while (rest) {
-    token = rest;
-    rest = split_by_space(token);
-
-    char param = token[0];
+  while (!sl_is_empty(block)) {
+    slice_t token = sl_split_by_spaces(block, &block);
+    // assert(!sl_is_empty(token));
+    char param = token.ptr[0];
 
     // Try axis parameters (for G-codes)
     if (param == 'X') {

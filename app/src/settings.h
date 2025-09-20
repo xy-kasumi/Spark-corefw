@@ -10,13 +10,15 @@
  */
 #pragma once
 
+#include "strutil.h"
+
 #include <stdbool.h>
 
 /** (blocking) Set a setting value. Returns true on success. */
-bool settings_set(const char* key, float value);
+bool settings_set(slice_t key, float value);
 
 /** Get a setting value. Returns 0.0f if key not found. */
-float settings_get(const char* key);
+float settings_get(slice_t key);
 
 /** Get setting by index. Returns false if index out of bounds. */
 bool settings_get_by_index(int index, const char** key, float* value);

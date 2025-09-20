@@ -92,9 +92,9 @@ static setting_entry_t settings[] = {
 #define SETTINGS_COUNT (sizeof(settings) / sizeof(settings[0]))
 
 // Dictionary operations
-static int find_setting_index(const char* key) {
+static int find_setting_index(slice_t key) {
   for (int i = 0; i < SETTINGS_COUNT; i++) {
-    if (strcmp(settings[i].key, key) == 0) {
+    if (sl_eq_str(key, settings[i].key)) {
       return i;
     }
   }
@@ -102,45 +102,44 @@ static int find_setting_index(const char* key) {
 }
 
 // Motor-specific setting application under "m."
-static bool apply_motor(char* mut_key, float value) {
+static bool apply_motor(slice_t key, float value) {
   // Parse: {motor_num}.{key}
-  char* rest = split_at(mut_key, '.');
-  if (!rest) {
+  slice_t motor_s = sl_split_at(key, '.', &key);
+  if (sl_is_empty(motor_s)) {
     // invalid key format.
     return false;
   }
 
   // Get motor device
   int motor_num;
-  if (!parse_int(mut_key, &motor_num)) {
-    return false;  // Invalid motor number
+  if (!sl_parse_int(motor_s, &motor_num)) {
+    return false;
   }
-
   const struct device* motor = motor_get_device(motor_num);
   if (!motor) {
-    return false;  // Invalid motor number
+    return false;
   }
 
   // Apply setting
   int ret = 0;
-  if (strcmp(rest, "microstep") == 0) {
+  if (sl_eq_str(key, "microstep")) {
     ret = tmc_set_microstep(motor, (int)value);
-  } else if (strcmp(rest, "current") == 0) {
+  } else if (sl_eq_str(key, "current")) {
     ret = tmc_set_current(motor, (int)value, (int)value);
-  } else if (strcmp(rest, "thresh") == 0) {
+  } else if (sl_eq_str(key, "thresh")) {
     bool enable_stall_detection = value >= 0;
     motor_set_stall_detection(motor_num, enable_stall_detection);
     if (enable_stall_detection) {
       ret = tmc_set_stallguard_threshold(motor, (int)value);
     }
-  } else if (strcmp(rest, "unitsteps") == 0) {
+  } else if (sl_eq_str(key, "unitsteps")) {
     motion_set_motor_unitsteps(motor_num, value);
     // Also update wirefeed if this is motor6
     if (motor_num == 6) {
       wirefeed_set_unitsteps(value);
     }
     ret = 0;  // Always succeeds
-  } else if (strcmp(rest, "idlems") == 0) {
+  } else if (sl_eq_str(key, "idlems")) {
     motor_deenergize_after(motor_num, (int)value);
     ret = 0;  // Always succeeds
   } else {
@@ -151,92 +150,72 @@ static bool apply_motor(char* mut_key, float value) {
 }
 
 // Axis-specific setting application under "a."
-static bool apply_axis(char* mut_key, float value) {
+static bool apply_axis(slice_t key, float value) {
   // Parse: {axis_name}.{key}
-  char* rest = split_at(mut_key, '.');
-  if (!rest) {
-    return false;  // invalid key format
-  }
-
-  // Get axis number from name
+  slice_t axis = sl_split_at(key, '.', &key);
   axis_t axis_num;
-  if (strcmp(mut_key, "x") == 0) {
+  if (sl_eq_str(axis, "x")) {
     axis_num = AXIS_X;
-  } else if (strcmp(mut_key, "y") == 0) {
+  } else if (sl_eq_str(axis, "y")) {
     axis_num = AXIS_Y;
-  } else if (strcmp(mut_key, "z") == 0) {
+  } else if (sl_eq_str(axis, "z")) {
     axis_num = AXIS_Z;
   } else {
     return false;  // Invalid axis name
   }
 
   // Parse {subsystem}.{property} (e.g., "home.origin")
-  char* property = split_at(rest, '.');
-  if (!property) {
-    return false;
-  }
-
-  if (strcmp(rest, "home") != 0) {
+  slice_t subsystem = sl_split_at(key, '.', &key);
+  if (sl_eq_str(subsystem, "home") != 0) {
     return false;  // Must be "home"
   }
 
   // Apply setting
-  if (strcmp(property, "origin") == 0) {
+  if (sl_eq_str(key, "origin")) {
     motion_set_home_origin(axis_num, value);
     return true;
-  } else if (strcmp(property, "side") == 0) {
+  } else if (sl_eq_str(key, "side")) {
     motion_set_home_side(axis_num, value);
     return true;
-  } else if (strcmp(property, "phase") == 0) {
+  } else if (sl_eq_str(key, "phase")) {
     gcode_set_home_phase(axis_num, (int)value);
     return true;
-  } else if (strcmp(property, "travel") == 0) {
+  } else if (sl_eq_str(key, "travel")) {
     motion_set_home_travel(axis_num, value);
     return true;
   }
-
   return false;
 }
 
 // Coordinate system-specific setting application under "cs."
-static bool apply_cs(char* mut_key, float value) {
+static bool apply_cs(slice_t key, float value) {
   // Parse: {coord_system}.pos.{axis}
-  char* rest = split_at(mut_key, '.');
-  if (!rest) {
-    return false;
-  }
-
-  // Parse coordinate system and axis
-  char* axis = split_at(rest, '.');
-  if (!axis) {
-    return false;
-  }
-
-  if (strcmp(rest, "pos") != 0) {
-    return false;  // Must be "pos"
-  }
-
-  // Apply to appropriate coordinate system
+  slice_t coord_sys = sl_split_at(key, '.', &key);
   coord_system_t cs_type;
-  axis_t axis_index;
-
-  if (strcmp(mut_key, "g") == 0) {
+  if (sl_eq_str(coord_sys, "g")) {
     cs_type = COORD_SYSTEM_GRINDER;
-  } else if (strcmp(mut_key, "w") == 0) {
+  } else if (sl_eq_str(coord_sys, "w")) {
     cs_type = COORD_SYSTEM_WORK;
-  } else if (strcmp(mut_key, "ts") == 0) {
+  } else if (sl_eq_str(coord_sys, "ts")) {
     cs_type = COORD_SYSTEM_TOOLSUPPLY;
   } else {
     return false;
   }
 
-  if (strcmp(axis, "x") == 0) {
+  slice_t attrib = sl_split_at(key, '.', &key);
+  if (sl_eq_str(attrib, "pos") != 0) {
+    return false;
+  }
+
+  slice_t axis = key;
+  axis_t axis_index;
+  if (sl_eq_str(axis, "x")) {
     axis_index = AXIS_X;
-  } else if (strcmp(axis, "y") == 0) {
+  } else if (sl_eq_str(axis, "y")) {
     axis_index = AXIS_Y;
-  } else if (strcmp(axis, "z") == 0) {
+  } else if (sl_eq_str(axis, "z")) {
     axis_index = AXIS_Z;
-  } else if (strcmp(axis, "c") == 0) {
+  } else if (sl_eq_str(axis, "c")) {
     axis_index = AXIS_C;
   } else {
     return false;
@@ -247,22 +226,17 @@ static bool apply_cs(char* mut_key, float value) {
 }
 
 // Tool supply-specific setting application under "ts."
-static bool apply_ts(char* mut_key, float value) {
-  // Parse: servo.{open|close}
-  char* rest = split_at(mut_key, '.');
-  if (!rest) {
+static bool apply_ts(slice_t key, float value) {
+  // Parse: servo.{openms|closems}
+  slice_t subsys = sl_split_at(key, '.', &key);
+  if (!sl_eq_str(subsys, "servo")) {
     return false;
   }
 
-  if (strcmp(mut_key, "servo") != 0) {
-    return false;  // Must be "servo"
-  }
-
-  // Apply setting
-  if (strcmp(rest, "openms") == 0) {
+  if (sl_eq_str(key, "openms")) {
     configure_tool_supply_servo_on(TOOL_SUPPLY_OPEN, value);
     return true;
-  } else if (strcmp(rest, "closems") == 0) {
+  } else if (sl_eq_str(key, "closems")) {
     configure_tool_supply_servo_on(TOOL_SUPPLY_CLOSED, value);
     return true;
   }
@@ -271,32 +245,22 @@ static bool apply_ts(char* mut_key, float value) {
 }
 
 // Hierarchical apply dispatcher
-static bool apply_setting(const char* key, float value) {
-  // Make mutable copy for parsing
-  char mut_key[64];
-  strncpy(mut_key, key, sizeof(mut_key) - 1);
-  mut_key[sizeof(mut_key) - 1] = '\0';
-
-  char* rest = split_at(mut_key, '.');
-  if (!rest) {
-    // invalid key format.
-    return false;
-  }
-
-  if (strcmp(mut_key, "m") == 0) {
-    return apply_motor(rest, value);
-  } else if (strcmp(mut_key, "a") == 0) {
-    return apply_axis(rest, value);
-  } else if (strcmp(mut_key, "cs") == 0) {
-    return apply_cs(rest, value);
-  } else if (strcmp(mut_key, "ts") == 0) {
-    return apply_ts(rest, value);
+static bool apply_setting(slice_t key, float value) {
+  slice_t category = sl_split_at(key, '.', &key);
+  if (sl_eq_str(category, "m")) {
+    return apply_motor(key, value);
+  } else if (sl_eq_str(category, "a")) {
+    return apply_axis(key, value);
+  } else if (sl_eq_str(category, "cs")) {
+    return apply_cs(key, value);
+  } else if (sl_eq_str(category, "ts")) {
+    return apply_ts(key, value);
   }
   return false;
 }
 
 // Public API
-bool settings_set(const char* key, float value) {
+bool settings_set(slice_t key, float value) {
   // Check if key exists
   int index = find_setting_index(key);
   if (index < 0) {
@@ -312,7 +276,7 @@ bool settings_set(const char* key, float value) {
   return false;  // Apply failed
 }
 
-float settings_get(const char* key) {
+float settings_get(slice_t key) {
   int index = find_setting_index(key);
   return (index >= 0) ? settings[index].value : 0.0f;
 }
@@ -332,7 +296,8 @@ bool settings_get_by_index(int index, const char** key, float* value) {
 
 bool settings_apply_all() {
   for (int i = 0; i < SETTINGS_COUNT; i++) {
-    bool res = apply_setting(settings[i].key, settings[i].value);
+    bool res =
+        apply_setting(sl_from_str((char*)settings[i].key), settings[i].value);
     if (!res) {
       // CM:comm_ps_old_kv_bool("settings.ok", false);
       // CM:comm_ps_old_kv_str("settings.msg", "failed to apply %s",

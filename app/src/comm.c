@@ -15,15 +15,16 @@ static const struct device* uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
 ///// Transport layer
 
-#define LINE_BUFFER_SIZE \
-  107  // 100 (payload) + 1 (seq) + 4 (hash) + 1 (newline) + 1 (0-term)
+// 100 (payload) + 1 (seq) + 4 (hash) + 1 (newline)
+#define LINE_BUFFER_SIZE 106
 
 // Line ending for output
 static const uint8_t LINE_ENDING[] = "\r\n";
 #define LINE_ENDING_LEN 2
 
 // RX buffer and state
-static char line_buffer[LINE_BUFFER_SIZE];
+static uint8_t line_buffer[LINE_BUFFER_SIZE];
+static slice_t line_slice;
 static volatile int rx_pos = 0;
 static K_EVENT_DEFINE(rx_events);
 
@@ -78,7 +79,9 @@ static void uart_isr(const struct device* dev, void* user_data) {
       if (c == '\n') {
         // Newline: complete current buffer and notify
         if (rx_pos > 0) {
-          line_buffer[rx_pos] = '\0';
+          line_slice.size = rx_pos;
+          line_slice.ptr = line_buffer;
+
           rx_pos = 0;
           // TODO: what if previous RX_EVENT_PAYLOAD_RECEIVED was not proceeded
           // yet? (e.g. signal handler taking long)
@@ -164,16 +167,18 @@ static void comm_thread(void* p1, void* p2, void* p3) {
 
       uart_write(LINE_ENDING, LINE_ENDING_LEN);  // echo new line
 
-      if (line_buffer[0] == '!' || line_buffer[0] == '?') {
+      char first_char = line_slice.ptr[0];
+      if (first_char == '!' || first_char == '?') {
         // signal
-        on_signal(line_buffer);
+        on_signal(line_slice);
       } else {
         // command
         // Copy command to caller's buffer
         k_mutex_lock(&rbuf_mutex, K_FOREVER);
         if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
-          strncpy(recv_buffer[recv_buffer_ix_write].data, line_buffer,
-                  sizeof(payload_t));
+          recv_buffer[recv_buffer_ix_write].slice =
+              sl_copy(line_slice, recv_buffer[recv_buffer_ix_write].data,
+                      PAYLOAD_BUFFER_SIZE);
           recv_buffer_ix_write =
               (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
           recv_buffer_num++;
@@ -382,15 +387,15 @@ int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   k_mutex_lock(&rbuf_mutex, K_FOREVER);
   if (recv_buffer_num >= 2) {
     num = 2;
-    strncpy(cmd->data, recv_buffer[recv_buffer_ix_read(0)].data,
-            sizeof(payload_t));
-    strncpy(next_cmd->data, recv_buffer[recv_buffer_ix_read(1)].data,
-            sizeof(payload_t));
+    cmd->slice = sl_copy(recv_buffer[recv_buffer_ix_read(0)].slice, cmd->data,
+                         PAYLOAD_BUFFER_SIZE);
+    next_cmd->slice = sl_copy(recv_buffer[recv_buffer_ix_read(1)].slice,
+                              next_cmd->data, PAYLOAD_BUFFER_SIZE);
     recv_buffer_num--;
   } else if (recv_buffer_num == 1) {
     num = 1;
-    strncpy(cmd->data, recv_buffer[recv_buffer_ix_read(0)].data,
-            sizeof(payload_t));
+    cmd->slice = sl_copy(recv_buffer[recv_buffer_ix_read(0)].slice, cmd->data,
+                         PAYLOAD_BUFFER_SIZE);
     recv_buffer_num--;
   } else {
     num = 0;

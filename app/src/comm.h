@@ -8,11 +8,13 @@
  */
 #pragma once
 
+#include "strutil.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
 // Handles borrowed const payload.
-typedef void (*payload_handler_t)(const char* payload);
+typedef void (*payload_handler_t)(slice_t payload);
 
 /**
  * (blocking) Initialize communication subsystem.
@@ -54,10 +56,11 @@ typedef enum {
 typedef struct {
 } pstate_t;
 
-#define PAYLOAD_BUFFER_SIZE 101  // 100 (payload) + 1 (0-term)
+#define PAYLOAD_BUFFER_SIZE 100
 
 typedef struct {
-  char data[PAYLOAD_BUFFER_SIZE];
+  slice_t slice;
+  uint8_t data[PAYLOAD_BUFFER_SIZE];
 } payload_t;
 
 /**
