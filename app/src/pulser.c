@@ -245,8 +245,7 @@ void pulser_energize(bool negative,
   }
 
   energized = true;
-  // CM:comm_print("pulser: energized (%s, %.0fµs, %.1fA, %.0f%%)",negative ?
-  // "T-" : "T+", (double)pulse_us, (double)current_a,(double)duty_pct);
+  comm_ps_raw(PS_ERROR, "pulser.energized:true");
 }
 
 void pulser_deenergize() {
@@ -263,7 +262,7 @@ void pulser_deenergize() {
     return;
   }
 
-  // CM:comm_print("pulser: deenergized");
+  comm_ps_raw(PS_ERROR, "pulser.energized:false");
 }
 
 uint32_t pulser_get_buffer_count() {

@@ -168,27 +168,14 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
 
     // Wait until next g-code block become executable.
     if (cont_next) {
-      while (true) {
-        if (canceler_cancel_needed()) {
-          break;
-        }
-        if (motion_move_can_enqueue()) {
-          break;
-        }
+      while (!canceler_cancel_needed() && !motion_move_can_enqueue()) {
         k_sleep(K_MSEC(10));
       }
     } else {
-      while (true) {
-        if (canceler_cancel_needed()) {
-          pulser_deenergize();
-          break;
-        }
-        if (motion_is_stopped(NULL)) {
-          pulser_deenergize();
-          break;
-        }
+      while (!canceler_cancel_needed() && !motion_is_stopped(NULL)) {
         k_sleep(K_MSEC(10));
       }
+      pulser_deenergize();
     }
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
@@ -210,17 +197,8 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
       get_home_order(home_order);
 
       for (int i = 0; i < 3; i++) {
-        // CM:comm_print("homing axis %c", axis_to_letter(home_order[i]));
         motion_start_home(home_order[i]);
-
-        // Wait for motion completion
-        while (true) {
-          if (canceler_cancel_needed()) {
-            break;
-          }
-          if (motion_is_stopped(NULL)) {
-            break;
-          }
+        while (!canceler_cancel_needed() && !motion_is_stopped(NULL)) {
           k_sleep(K_MSEC(10));
         }
 
@@ -229,13 +207,10 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         }
       }
     } else if (axis_count == 1) {
-      // Execute: home the specified axis
+      // Home specified axis
       axis_t target_axis = x_specified ? AXIS_X : y_specified ? AXIS_Y : AXIS_Z;
       motion_start_home(target_axis);
-      while (true) {
-        if (motion_is_stopped(NULL)) {
-          break;
-        }
+      while (!canceler_cancel_needed() && !motion_is_stopped(NULL)) {
         k_sleep(K_MSEC(10));
       }
     } else {
@@ -288,17 +263,10 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
                     pulser_config.current_a, pulser_config.duty_pct);
 
     motion_start_probe_move(machine_target);
-    while (true) {
-      if (canceler_cancel_needed()) {
-        pulser_deenergize();
-        break;
-      }
-      if (motion_is_stopped(NULL)) {
-        pulser_deenergize();
-        break;
-      }
+    while (!canceler_cancel_needed() && !motion_is_stopped(NULL)) {
       k_sleep(K_MSEC(10));
     }
+    pulser_deenergize();
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
     current_coord_system = COORD_SYSTEM_MACHINE;
   } else if (parsed->code == 54 && parsed->sub_code == -1) {
