@@ -6,7 +6,7 @@
 #pragma once
 
 #include "coords.h"
-#include "strutil.h"
+#include "slice.h"
 
 /**
  * Execute a G-code or M-code command.

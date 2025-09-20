@@ -6,5 +6,5 @@ tests:
     tags: unit_test
   spark.app.coords:
     tags: unit_test
-  spark.app.strutil:
+  spark.app.slice:
     tags: unit_test

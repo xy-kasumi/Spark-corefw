@@ -1,16 +1,16 @@
 // SPDX-FileCopyrightText: 2025 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#include "strutil.h"
+#include "slice.h"
 
 #include <zephyr/ztest.h>
 
-ZTEST(strutil, test_sl_is_empty) {
+ZTEST(slice, test_sl_is_empty) {
   zassert_true(sl_is_empty(sl_empty()));
   zassert_true(sl_is_empty(sl_from_str("")));
   zassert_false(sl_is_empty(sl_from_str("abc")));
 }
 
-ZTEST(strutil, test_sl_eq) {
+ZTEST(slice, test_sl_eq) {
   zassert_true(sl_eq(sl_empty(), sl_empty()));
   zassert_true(sl_eq(sl_from_str("abc"), sl_from_str("abc")));
 
@@ -43,7 +43,7 @@ ZTEST(strutil, test_sl_eq) {
   }
 }
 
-ZTEST(strutil, test_sl_eq_str) {
+ZTEST(slice, test_sl_eq_str) {
   zassert_true(sl_eq_str(sl_empty(), ""));
   zassert_true(sl_eq_str(sl_from_str("abc"), "abc"));
 
@@ -51,7 +51,7 @@ ZTEST(strutil, test_sl_eq_str) {
   zassert_false(sl_eq_str(sl_from_str("a"), ""));
 }
 
-ZTEST(strutil, test_sl_sub) {
+ZTEST(slice, test_sl_sub) {
   slice_t s = sl_from_str("abc");
 
   // basic use cases
@@ -66,7 +66,7 @@ ZTEST(strutil, test_sl_sub) {
   zassert_true(sl_eq_str(sl_sub(s, 3, 0), ""));
 }
 
-ZTEST(strutil, test_sl_split_at) {
+ZTEST(slice, test_sl_split_at) {
   slice_t ret, rem;
 
   ret = sl_split_at(sl_from_str("a.b.c"), '.', &rem);
@@ -94,12 +94,12 @@ ZTEST(strutil, test_sl_split_at) {
   zassert_true(sl_is_empty(rem));
 }
 
-ZTEST(strutil, test_sl_split_at_null_rem) {
+ZTEST(slice, test_sl_split_at_null_rem) {
   slice_t ret = sl_split_at(sl_from_str("a.b.c"), '.', NULL);
   zassert_true(sl_eq_str(ret, "a"));
 }
 
-ZTEST(strutil, test_sl_split_by_spaces) {
+ZTEST(slice, test_sl_split_by_spaces) {
   slice_t ret, rem;
 
   ret = sl_split_by_spaces(sl_from_str("a  b  c"), &rem);
@@ -127,7 +127,7 @@ ZTEST(strutil, test_sl_split_by_spaces) {
   zassert_true(sl_is_empty(rem));
 }
 
-ZTEST(strutil, test_sl_split_by_spaces_null_rem) {
+ZTEST(slice, test_sl_split_by_spaces_null_rem) {
   slice_t ret;
 
   ret = sl_split_by_spaces(sl_from_str("a  b  c"), NULL);
@@ -149,7 +149,7 @@ ZTEST(strutil, test_sl_split_by_spaces_null_rem) {
   zassert_true(sl_is_empty(ret));
 }
 
-ZTEST(strutil, test_sl_parse_int_valid) {
+ZTEST(slice, test_sl_parse_int_valid) {
   int value;
   zassert_true(sl_parse_int(sl_from_str("123"), &value));
   zassert_equal(value, 123);
@@ -167,7 +167,7 @@ ZTEST(strutil, test_sl_parse_int_valid) {
   zassert_equal(value, -2147483648);
 }
 
-ZTEST(strutil, test_sl_parse_int_invalid) {
+ZTEST(slice, test_sl_parse_int_invalid) {
   int value;
   zassert_false(sl_parse_int(sl_from_str(" 123"), &value), "pre-space");
   zassert_false(sl_parse_int(sl_from_str("123 "), &value), "post-space");
@@ -177,7 +177,7 @@ ZTEST(strutil, test_sl_parse_int_invalid) {
                 "bigint");
 }
 
-ZTEST(strutil, test_sl_parse_float_valid) {
+ZTEST(slice, test_sl_parse_float_valid) {
   float value;
   zassert_true(sl_parse_float(sl_from_str("123.45"), &value));
   zassert_equal(value, 123.45f);
@@ -186,7 +186,7 @@ ZTEST(strutil, test_sl_parse_float_valid) {
   zassert_equal(value, 123.45f);
 }
 
-ZTEST(strutil, test_sl_parse_float_invalid) {
+ZTEST(slice, test_sl_parse_float_invalid) {
   float value;
   zassert_false(sl_parse_float(sl_from_str(" 123.45"), &value), "pre-space");
   zassert_false(sl_parse_float(sl_from_str("123.45 "), &value), "post-space");
@@ -196,4 +196,4 @@ ZTEST(strutil, test_sl_parse_float_invalid) {
   zassert_false(sl_parse_float(sl_from_str("INF"), &value), "INF");
 }
 
-ZTEST_SUITE(strutil, NULL, NULL, NULL, NULL, NULL);
+ZTEST_SUITE(slice, NULL, NULL, NULL, NULL, NULL);

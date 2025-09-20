@@ -7,7 +7,7 @@
 #include "gcode.h"
 #include "motion.h"
 #include "motor.h"
-#include "strutil.h"
+#include "slice.h"
 #include "toolsupply.h"
 #include "wirefeed.h"
 

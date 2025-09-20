@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#include "strutil.h"
+#include "slice.h"
 
 #include <stdbool.h>
 #include <stdint.h>

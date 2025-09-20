@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "gcode_base.h"
 
-#include "strutil.h"
+#include "slice.h"
 
 #include <string.h>
 

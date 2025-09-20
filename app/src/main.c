@@ -12,7 +12,7 @@
 #include "motor.h"
 #include "pulser.h"
 #include "settings.h"
-#include "strutil.h"
+#include "slice.h"
 #include "toolsupply.h"
 #include "wirefeed.h"
 
