@@ -174,7 +174,8 @@ static void comm_thread(void* p1, void* p2, void* p3) {
         if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
           strncpy(recv_buffer[recv_buffer_ix_write].data, line_buffer,
                   sizeof(payload_t));
-          recv_buffer_ix_write = (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
+          recv_buffer_ix_write =
+              (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
           recv_buffer_num++;
         } else {
           // silently drop when buffer is full.

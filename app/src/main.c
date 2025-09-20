@@ -188,35 +188,39 @@ static void handle_signal(const char* payload) {
     coord_system_t current_cs = gcode_get_current_coord_system();
     const coord_offsets_t* offsets = gcode_get_coord_offsets();
 
-    if (current_cs == COORD_SYSTEM_MACHINE) {
-      comm_ps_raw(PS_POS,
-                  "< sys:\"machine\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f >",
-                  (double)machine_pos.x, (double)machine_pos.y,
-                  (double)machine_pos.z, (double)(machine_pos.c * 360.0f));
-    } else {
-      // Convert machine position to current coordinate system for display
-      /*pos_phys_t cs_pos =*/coords_from_machine(&machine_pos, current_cs,
-                                                 offsets);
-      const char* cs_name = "";
-      switch (current_cs) {
-        case COORD_SYSTEM_GRINDER:
-          cs_name = "grinder";
-          break;
-        case COORD_SYSTEM_WORK:
-          cs_name = "work";
-          break;
-        case COORD_SYSTEM_TOOLSUPPLY:
-          cs_name = "toolsupply";
-          break;
-        case COORD_SYSTEM_MACHINE:
-          // shouldn't happen
-      }
-      // CM:comm_print("ready X%.3f Y%.3f Z%.3f C%.3f (%s) X%.3f Y%.3f Z%.3f
-      // C%.3f (machine)",(double)cs_pos.x, (double)cs_pos.y,
-      // (double)cs_pos.z,(double)(cs_pos.c * 360.0f), cs_name,
-      // (double)machine_pos.x,(double)machine_pos.y,
-      // (double)machine_pos.z,(double)(machine_pos.c * 360.0f));
+    const char* cs_name = "";
+    const char* prefix = "";
+    switch (current_cs) {
+      case COORD_SYSTEM_GRINDER:
+        cs_name = "grinder";
+        prefix = "g";
+        break;
+      case COORD_SYSTEM_WORK:
+        cs_name = "work";
+        prefix = "w";
+        break;
+      case COORD_SYSTEM_TOOLSUPPLY:
+        cs_name = "toolsupply";
+        prefix = "t";
+        break;
+      case COORD_SYSTEM_MACHINE:
+        cs_name = "machine";
+        prefix = "m";
+        break;
     }
+
+    comm_ps_raw(PS_POS, "< sys:\"%s\" m.x:%.3f m.y:%.3f m.z:%.3f m.c:%.3f%s",
+                cs_name, (double)machine_pos.x, (double)machine_pos.y,
+                (double)machine_pos.z, (double)(machine_pos.c * 360.0f),
+                (current_cs == COORD_SYSTEM_MACHINE ? " >" : ""));
+    if (current_cs == COORD_SYSTEM_MACHINE) {
+      return;
+    }
+
+    pos_phys_t cs_pos = coords_from_machine(&machine_pos, current_cs, offsets);
+    comm_ps_raw(PS_POS, "%s.x:%.3f %s.y:%.3f %s.z:%.3f %s.c:%.3f >", prefix,
+                (double)cs_pos.x, prefix, (double)cs_pos.y, prefix,
+                (double)cs_pos.z, prefix, (double)(cs_pos.c * 360.0f));
   } else if (strcmp(payload, "?queue") == 0) {
     int cap;
     int used;
