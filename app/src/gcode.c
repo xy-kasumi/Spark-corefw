@@ -104,10 +104,18 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
     pos_phys_t machine_target =
         coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
 
-    if (cont_prev) {
-      motion_move_enqueue_pos(machine_target, cont_next);
-    } else {
-      motion_start_fast_move(machine_target);
+    motion_start_fast_move(machine_target);
+
+    while (true) {
+      if (canceler_cancel_needed()) {
+        pulser_deenergize();
+        break;
+      }
+      if (motion_is_stopped(NULL)) {
+        pulser_deenergize();
+        break;
+      }
+      k_sleep(K_MSEC(10));
     }
   } else if (parsed->code == 1 && parsed->sub_code == -1) {
     // G1 - controlled EDM move
@@ -157,6 +165,31 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
                       pulser_config.current_a, pulser_config.duty_pct);
       motion_start_edm_move(machine_target, cont_next);
     }
+
+    // Wait until next g-code block become executable.
+    if (cont_next) {
+      while (true) {
+        if (canceler_cancel_needed()) {
+          break;
+        }
+        if (motion_move_can_enqueue()) {
+          break;
+        }
+        k_sleep(K_MSEC(10));
+      }
+    } else {
+      while (true) {
+        if (canceler_cancel_needed()) {
+          pulser_deenergize();
+          break;
+        }
+        if (motion_is_stopped(NULL)) {
+          pulser_deenergize();
+          break;
+        }
+        k_sleep(K_MSEC(10));
+      }
+    }
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
     // Validate: no axis specified (home all) or exactly one axis (X, Y, Z only)
@@ -181,21 +214,20 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         motion_start_home(home_order[i]);
 
         // Wait for motion completion
-        motion_stop_reason_t stop_reason;
         while (true) {
-          if (motion_is_stopped(&stop_reason)) {
+          if (canceler_cancel_needed()) {
+            break;
+          }
+          if (motion_is_stopped(NULL)) {
             break;
           }
           k_sleep(K_MSEC(10));
         }
 
-        if (stop_reason == STOP_REASON_CANCELLED) {
-          // CM:comm_print("homing cancelled");
-          return;
+        if (canceler_cancel_needed()) {
+          break;
         }
       }
-      // CM:comm_print("all axes homed");
-      return;
     } else if (axis_count == 1) {
       // Execute: home the specified axis
       axis_t target_axis = x_specified ? AXIS_X : y_specified ? AXIS_Y : AXIS_Z;
@@ -206,11 +238,9 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         }
         k_sleep(K_MSEC(10));
       }
-      return;
     } else {
       comm_print_err(
           "G28 requires no parameters (all axes) or exactly one axis");
-      return;
     }
   } else if (parsed->code == 38 && parsed->sub_code == 3) {
     // G38.3 - probe towards target, no error
@@ -258,44 +288,6 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
                     pulser_config.current_a, pulser_config.duty_pct);
 
     motion_start_probe_move(machine_target);
-  } else if (parsed->code == 53 && parsed->sub_code == -1) {
-    // G53 - Use machine coordinate system
-    current_coord_system = COORD_SYSTEM_MACHINE;
-    return;  // No motion, return early
-  } else if (parsed->code == 54 && parsed->sub_code == -1) {
-    // G54 - Use grinder coordinate system
-    current_coord_system = COORD_SYSTEM_GRINDER;
-    return;  // No motion, return early
-  } else if (parsed->code == 55 && parsed->sub_code == -1) {
-    // G55 - Use work coordinate system
-    current_coord_system = COORD_SYSTEM_WORK;
-    return;  // No motion, return early
-  } else if (parsed->code == 56 && parsed->sub_code == -1) {
-    // G56 - Use tool supply coordinate system
-    current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
-    return;  // No motion, return early
-  } else {
-    if (parsed->sub_code != -1) {
-      comm_print_err("Unsupported G-code: G%d.%d", parsed->code,
-                     parsed->sub_code);
-    } else {
-      comm_print_err("Unsupported G-code: G%d", parsed->code);
-    }
-    return;
-  }
-
-  // Wait until next g-code block become executable.
-  if (cont_next) {
-    while (true) {
-      if (canceler_cancel_needed()) {
-        break;
-      }
-      if (motion_move_can_enqueue()) {
-        break;
-      }
-      k_sleep(K_MSEC(10));
-    }
-  } else {
     while (true) {
       if (canceler_cancel_needed()) {
         pulser_deenergize();
@@ -306,6 +298,21 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         break;
       }
       k_sleep(K_MSEC(10));
+    }
+  } else if (parsed->code == 53 && parsed->sub_code == -1) {
+    current_coord_system = COORD_SYSTEM_MACHINE;
+  } else if (parsed->code == 54 && parsed->sub_code == -1) {
+    current_coord_system = COORD_SYSTEM_GRINDER;
+  } else if (parsed->code == 55 && parsed->sub_code == -1) {
+    current_coord_system = COORD_SYSTEM_WORK;
+  } else if (parsed->code == 56 && parsed->sub_code == -1) {
+    current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
+  } else {
+    if (parsed->sub_code != -1) {
+      comm_print_err("Unsupported G-code: G%d.%d", parsed->code,
+                     parsed->sub_code);
+    } else {
+      comm_print_err("Unsupported G-code: G%d", parsed->code);
     }
   }
 }
@@ -378,7 +385,7 @@ void exec_gcode(char* block, char* maybe_next_block) {
   bool cont_next = false;
   if (maybe_next_block) {
     gcode_parsed_t parsed_next;
-    if (parse_gcode(block, &parsed_next)) {
+    if (parse_gcode(maybe_next_block, &parsed_next)) {
       if (parsed.cmd_type == CMD_TYPE_G && parsed_next.cmd_type == CMD_TYPE_G) {
         if ((parsed.code == 1 && parsed.sub_code == -1) &&
             (parsed_next.code == 1 && parsed_next.sub_code == -1)) {
