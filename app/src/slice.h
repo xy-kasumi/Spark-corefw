@@ -14,6 +14,8 @@
  * available while it's used by slice_t.
  *
  * Slice methods do not modify arguments, unless explicitly stated.
+ * Size is always >= 0.
+ * When size > 0, ptr is never NULL. When size == 0, ptr is undefined.
  */
 typedef struct {
   int size;
