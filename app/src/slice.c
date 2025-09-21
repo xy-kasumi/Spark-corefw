@@ -84,12 +84,10 @@ slice_t sl_split_at(slice_t s, char delim, slice_t* remaining) {
 }
 
 static bool pred_is_space(uint8_t b, void* ctx) {
-  (void)ctx;
   return isspace((char)b);
 }
 
 static bool pred_is_not_space(uint8_t b, void* ctx) {
-  (void)ctx;
   return !isspace((char)b);
 }
 

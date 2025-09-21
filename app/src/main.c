@@ -122,7 +122,7 @@ static void cmd_test(slice_t args) {
   slice_t params;
   slice_t target = sl_split_at(args, ' ', &params);
 
-  if (sl_eq_str(target, "pulser") == 0) {
+  if (sl_eq_str(target, "pulser")) {
     // Parse duration parameter
     if (sl_is_empty(params)) {
       // CM:comm_print_err("Usage: test pulser <duration_sec>");
@@ -155,18 +155,18 @@ static void handle_command(slice_t command, slice_t next_command) {
     cmd_gcode(command, next_avail ? next_command : sl_empty());
   } else {
     slice_t args;
-    slice_t cmd = sl_split_at(command, ' ', &args);
+    slice_t cmd = sl_split_by_spaces(command, &args);
 
     // Dispatch to command handler
-    if (sl_eq_str(cmd, "stat") == 0) {
+    if (sl_eq_str(cmd, "stat")) {
       cmd_stat(args);
-    } else if (sl_eq_str(cmd, "set") == 0) {
+    } else if (sl_eq_str(cmd, "set")) {
       cmd_set(args);
-    } else if (sl_eq_str(cmd, "get") == 0) {
+    } else if (sl_eq_str(cmd, "get")) {
       cmd_get(args);
-    } else if (sl_eq_str(cmd, "download") == 0) {
+    } else if (sl_eq_str(cmd, "download")) {
       cmd_download(args);
-    } else if (sl_eq_str(cmd, "test") == 0) {
+    } else if (sl_eq_str(cmd, "test")) {
       cmd_test(args);
     } else {
       // CM:comm_print_err("unknown command: %s; type 'help' for available
@@ -176,9 +176,9 @@ static void handle_command(slice_t command, slice_t next_command) {
 }
 
 static void handle_signal(slice_t payload) {
-  if (sl_eq_str(payload, "!") == 0) {
+  if (sl_eq_str(payload, "!")) {
     canceler_cancel();
-  } else if (sl_eq_str(payload, "?pos") == 0) {
+  } else if (sl_eq_str(payload, "?pos")) {
     // print pos
 
     // Print ready with current position
@@ -220,7 +220,7 @@ static void handle_signal(slice_t payload) {
     comm_ps_raw(PS_POS, "%s.x:%.3f %s.y:%.3f %s.z:%.3f %s.c:%.3f >", prefix,
                 (double)cs_pos.x, prefix, (double)cs_pos.y, prefix,
                 (double)cs_pos.z, prefix, (double)(cs_pos.c * 360.0f));
-  } else if (sl_eq_str(payload, "?queue") == 0) {
+  } else if (sl_eq_str(payload, "?queue")) {
     int cap;
     int used;
     comm_stat_command_queue(&cap, &used);

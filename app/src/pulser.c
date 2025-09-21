@@ -245,7 +245,7 @@ void pulser_energize(bool negative,
   }
 
   energized = true;
-  comm_ps_raw(PS_ERROR, "pulser.energized:true");
+  comm_ps_raw(PS_ERROR, "< pulser.energized:true >");
 }
 
 void pulser_deenergize() {
@@ -262,7 +262,7 @@ void pulser_deenergize() {
     return;
   }
 
-  comm_ps_raw(PS_ERROR, "pulser.energized:false");
+  comm_ps_raw(PS_ERROR, "< pulser.energized:false >");
 }
 
 uint32_t pulser_get_buffer_count() {
