@@ -347,8 +347,35 @@ void comm_ps_end(ps_type_t ps) {
   uart_write(buffer, offset);
 }
 
-void comm_print_err(const char* fmt, ...) {
-  // GONE
+void comm_error(slice_t source, const char* fmt, ...) {
+  uint8_t buffer[PAYLOAD_BUFFER_SIZE];
+  int offset = copy_ps_tag(PS_ERROR, buffer);
+
+  offset += copy_str(buffer + offset, "<");
+
+  if (!sl_is_empty(source)) {
+    source = sl_sub(source, 0, 50);  // limit size
+    offset += copy_str(buffer + offset, " src:");
+    offset += copy_str(buffer + offset, "\"");
+    memcpy(buffer + offset, source.ptr,
+           source.size);  // TODO: size check & escape
+    offset += source.size;
+    offset += copy_str(buffer + offset, "\"");
+  }
+
+  // msg
+  offset += copy_str(buffer + offset, " msg:");
+  offset += copy_str(buffer + offset, "\"");
+  // TODO: escape
+  va_list args;
+  va_start(args, fmt);
+  offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
+  va_end(args);
+
+  offset += copy_str(buffer + offset, "\"");
+
+  offset += copy_str(buffer + offset, " >");
+  uart_write(buffer, offset);
 }
 
 /**

@@ -121,7 +121,17 @@ void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value);
 void comm_ps_end(ps_type_t ps);
 
 /** (blocking) Print error message. */
-void comm_print_err(const char* fmt, ...);
+void comm_error(slice_t source, const char* fmt, ...);
+
+#define comm_assert(cond)                                                    \
+  {                                                                          \
+    if (!(cond)) {                                                           \
+      char* fname = strrchr(__FILE__, '/');                                  \
+      fname = fname == NULL ? __FILE__ : (fname + 1);                        \
+      comm_ps_raw(PS_ERROR, "< msg:\"assert failed\" file:\"%s\" line:%d >", \
+                  fname, __LINE__);                                          \
+    }                                                                        \
+  }
 
 /**
  * (blocking) Print blob as base64 with checksum in one big line.

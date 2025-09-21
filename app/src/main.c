@@ -29,35 +29,34 @@ static void cmd_gcode(slice_t full_command, slice_t maybe_next_command) {
 }
 
 // Command: set <key> <value>
-static void cmd_set(slice_t args) {
-  if (!sl_is_empty(args)) {
-    // CM:comm_print_err("Usage: set <key> <value>");
+static void cmd_set(slice_t command, slice_t args) {
+  if (sl_is_empty(args)) {
+    comm_error(command, "missing args");
     return;
   }
 
   slice_t value;
   slice_t key = sl_split_by_spaces(args, &value);
   if (sl_is_empty(value)) {
-    // CM:comm_print_err("Usage: set <key> <value>");
+    comm_error(command, "missing value");
     return;
   }
 
   // Parse and validate float value
   float float_value;
   if (!sl_parse_float(value, &float_value)) {
-    // CM:comm_print_err("Invalid number: %s", value);
+    comm_error(command, "invalid float value");
     return;
   }
-
   if (!settings_set(key, float_value)) {
-    // CM:comm_print_err("Failed to set %s", key);
+    comm_error(command, "setting failed");
   }
 }
 
 // Command: get
-static void cmd_get(slice_t args) {
+static void cmd_get(slice_t command, slice_t args) {
   if (!sl_is_empty(args)) {
-    // CM:comm_print_err("Usage: get");
+    comm_error(command, "extra args");
     return;
   }
 
@@ -72,9 +71,9 @@ static void cmd_get(slice_t args) {
 }
 
 // Command: stat
-static void cmd_stat(slice_t args) {
+static void cmd_stat(slice_t command, slice_t args) {
   if (!sl_is_empty(args)) {
-    // CM:comm_print_err("Usage: stat <subsystem>");
+    comm_error(command, "extra args");
     return;
   }
 
@@ -95,26 +94,23 @@ static void cmd_stat(slice_t args) {
 }
 
 // Command: download
-static void cmd_download(slice_t args) {
+static void cmd_download(slice_t command, slice_t args) {
   // Copy EDM log data to download buffer
   download_buffer_size =
       pulser_copy_log_to_buffer(download_buffer, sizeof(download_buffer));
 
   if (download_buffer_size == 0) {
-    // CM:comm_print("No EDM data available");
+    comm_error(command, "no data");
     return;
   }
 
-  // uint32_t entry_count = download_buffer_size / 4;  // 4 bytes per entry
-  // CM:comm_print("Sending %u bytes (%u EDM entries)",
-  // download_buffer_size,entry_count);
   comm_print_blob(download_buffer, download_buffer_size);
 }
 
 // Command: test
-static void cmd_test(slice_t args) {
+static void cmd_test(slice_t command, slice_t args) {
   if (sl_is_empty(args)) {
-    // CM:comm_print_err("Usage: test <target> <params...>");
+    comm_error(command, "missing args");
     return;
   }
 
@@ -125,19 +121,19 @@ static void cmd_test(slice_t args) {
   if (sl_eq_str(target, "pulser")) {
     // Parse duration parameter
     if (sl_is_empty(params)) {
-      // CM:comm_print_err("Usage: test pulser <duration_sec>");
+      comm_error(command, "missing duration[sec]");
       return;
     }
 
     int duration;
     if (!sl_parse_int(params, &duration) || duration <= 0) {
-      // CM:comm_print_err("Invalid duration: %s", params);
+      comm_error(command, "invalid duration");
       return;
     }
 
     exec_test_pulser(duration);
   } else {
-    // CM:comm_print_err("Unknown test target: %s", target);
+    comm_error(command, "unknown target");
   }
 }
 
@@ -159,18 +155,17 @@ static void handle_command(slice_t command, slice_t next_command) {
 
     // Dispatch to command handler
     if (sl_eq_str(cmd, "stat")) {
-      cmd_stat(args);
+      cmd_stat(command, args);
     } else if (sl_eq_str(cmd, "set")) {
-      cmd_set(args);
+      cmd_set(command, args);
     } else if (sl_eq_str(cmd, "get")) {
-      cmd_get(args);
+      cmd_get(command, args);
     } else if (sl_eq_str(cmd, "download")) {
-      cmd_download(args);
+      cmd_download(command, args);
     } else if (sl_eq_str(cmd, "test")) {
-      cmd_test(args);
+      cmd_test(command, args);
     } else {
-      // CM:comm_print_err("unknown command: %s; type 'help' for available
-      // commands",cmd);
+      comm_error(command, "unknown command");
     }
   }
 }
@@ -225,6 +220,8 @@ static void handle_signal(slice_t payload) {
     int used;
     comm_stat_command_queue(&cap, &used);
     comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used);
+  } else {
+    // Unknown signal. Probably better to ignore, to not clog stream.
   }
 }
 

@@ -166,7 +166,7 @@ static bool apply_axis(slice_t key, float value) {
 
   // Parse {subsystem}.{property} (e.g., "home.origin")
   slice_t subsystem = sl_split_at(key, '.', &key);
-  if (sl_eq_str(subsystem, "home") != 0) {
+  if (!sl_eq_str(subsystem, "home")) {
     return false;  // Must be "home"
   }
 
@@ -203,7 +203,7 @@ static bool apply_cs(slice_t key, float value) {
   }
 
   slice_t attrib = sl_split_at(key, '.', &key);
-  if (sl_eq_str(attrib, "pos") != 0) {
+  if (!sl_eq_str(attrib, "pos")) {
     return false;
   }
 
@@ -299,12 +299,12 @@ bool settings_apply_all() {
     bool res =
         apply_setting(sl_from_str((char*)settings[i].key), settings[i].value);
     if (!res) {
-      // CM:comm_ps_old_kv_bool("settings.ok", false);
-      // CM:comm_ps_old_kv_str("settings.msg", "failed to apply %s",
-      // settings[i].key);
+      comm_ps_k_vbool(PS_INIT, "settings.ok", false);
+      comm_ps_k_vfmtstr(PS_INIT, "settings.msg", "failed to apply %s",
+                        settings[i].key);
       return false;
     }
   }
-  // CM:comm_ps_old_kv_bool("settings.ok", true);
+  comm_ps_k_vbool(PS_INIT, "settings.ok", true);
   return true;
 }

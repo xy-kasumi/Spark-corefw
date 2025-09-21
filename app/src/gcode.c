@@ -60,7 +60,8 @@ static void get_home_order(axis_t result[3]) {
   }
 }
 
-static void exec_gcode_cmd(const gcode_parsed_t* parsed,
+static void exec_gcode_cmd(slice_t block,
+                           const gcode_parsed_t* parsed,
                            bool cont_prev,
                            bool cont_next) {
   if (parsed->code == 0 && parsed->sub_code == -1) {
@@ -68,14 +69,14 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
     // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
     if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
         parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
-      comm_print_err("G0 requires axis values (e.g., X10.5), not bare axes");
+      comm_error(block, "missing axis value");
       return;
     }
     if (parsed->x_state == AXIS_NOT_SPECIFIED &&
         parsed->y_state == AXIS_NOT_SPECIFIED &&
         parsed->z_state == AXIS_NOT_SPECIFIED &&
         parsed->c_state == AXIS_NOT_SPECIFIED) {
-      comm_print_err("G0 requires at least one axis parameter");
+      comm_error(block, "1 or more axes needed");
       return;
     }
 
@@ -122,14 +123,14 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
     // Same validation as G0
     if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
         parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
-      comm_print_err("G1 requires axis values (e.g., X10.5), not bare axes");
+      comm_error(block, "missing axis value");
       return;
     }
     if (parsed->x_state == AXIS_NOT_SPECIFIED &&
         parsed->y_state == AXIS_NOT_SPECIFIED &&
         parsed->z_state == AXIS_NOT_SPECIFIED &&
         parsed->c_state == AXIS_NOT_SPECIFIED) {
-      comm_print_err("G1 requires at least one axis parameter");
+      comm_error(block, "1 or more axes needed");
       return;
     }
 
@@ -187,7 +188,7 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
     int axis_count = x_specified + y_specified + z_specified + c_specified;
 
     if (c_specified) {
-      comm_print_err("G28 C not supported (C-axis has no home position)");
+      comm_error(block, "C homing not supported");
       return;
     }
 
@@ -214,22 +215,21 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
         k_sleep(K_MSEC(10));
       }
     } else {
-      comm_print_err(
-          "G28 requires no parameters (all axes) or exactly one axis");
+      comm_error(block, "too many axes");
     }
   } else if (parsed->code == 38 && parsed->sub_code == 3) {
     // G38.3 - probe towards target, no error
     // Same validation as G0/G1
     if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
         parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
-      comm_print_err("G38.3 requires axis values (e.g., X10.5), not bare axes");
+      comm_error(block, "missing axis value");
       return;
     }
     if (parsed->x_state == AXIS_NOT_SPECIFIED &&
         parsed->y_state == AXIS_NOT_SPECIFIED &&
         parsed->z_state == AXIS_NOT_SPECIFIED &&
         parsed->c_state == AXIS_NOT_SPECIFIED) {
-      comm_print_err("G38.3 requires at least one axis parameter");
+      comm_error(block, "1 or more axes needed");
       return;
     }
 
@@ -276,19 +276,12 @@ static void exec_gcode_cmd(const gcode_parsed_t* parsed,
   } else if (parsed->code == 56 && parsed->sub_code == -1) {
     current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
   } else {
-    if (parsed->sub_code != -1) {
-      comm_print_err("Unsupported G-code: G%d.%d", parsed->code,
-                     parsed->sub_code);
-    } else {
-      comm_print_err("Unsupported G-code: G%d", parsed->code);
-    }
+    comm_error(block, "unknown G-code");
   }
 }
 
-static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
+static void exec_mcode_cmd(slice_t block, const gcode_parsed_t* parsed) {
   if (parsed->code == 3 && parsed->sub_code == -1) {
-    // M3 - Configure EDM parameters, tool negative voltage
-    // Validate: P (pulse time), Q (current), R (duty) are optional
     pulser_config.tool_negative = true;
     pulser_config.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
                                  ? parsed->p
@@ -298,12 +291,7 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
     pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
                                  ? parsed->r
                                  : 25.0f;  // Default 25%
-    // CM:comm_print("M3: pulser configured (T-, %.0fµs, %.1fA,
-    // %.0f%%)",(double)pulser_config.pulse_us,
-    // (double)pulser_config.current_a,(double)pulser_config.duty_pct);
   } else if (parsed->code == 4 && parsed->sub_code == -1) {
-    // M4 - Configure EDM parameters, tool positive voltage
-    // Validate: P (pulse time), Q (current), R (duty) are optional
     pulser_config.tool_negative = false;
     pulser_config.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
                                  ? parsed->p
@@ -313,38 +301,30 @@ static void exec_mcode_cmd(const gcode_parsed_t* parsed) {
     pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
                                  ? parsed->r
                                  : 25.0f;  // Default 25%
-    // CM:comm_print("M4: pulser configured (T+, %.0fµs, %.1fA,
-    // %.0f%%)",(double)pulser_config.pulse_us,
-    // (double)pulser_config.current_a,(double)pulser_config.duty_pct);
   } else if (parsed->code == 10 && parsed->sub_code == -1) {
     // M10 - Start wire feeding
     if (parsed->r_state != PARAM_SPECIFIED) {
-      comm_print_err("M10 requires R parameter (feed rate in mm/min)");
+      comm_error(block, "R (feed[mm/min]) required");
       return;
     }
     wirefeed_start(parsed->r);
     // Wait 2 seconds for tension stabilization
     k_sleep(K_MSEC(2000));
   } else if (parsed->code == 11 && parsed->sub_code == -1) {
-    // M11 - Stop wire feeding
     wirefeed_stop();
   } else if (parsed->code == 60 && parsed->sub_code == -1) {
-    // M60 - Open tool supply
     set_tool_supply_state(TOOL_SUPPLY_OPEN);
-    // CM:comm_print("tool supply opened");
   } else if (parsed->code == 61 && parsed->sub_code == -1) {
-    // M61 - Close tool supply
     set_tool_supply_state(TOOL_SUPPLY_CLOSED);
-    // CM:comm_print("tool supply closed");
   } else {
-    // CM:comm_print_err("Unsupported M-code: M%d", parsed->code);
+    comm_error(block, "unknown M-cpde");
   }
 }
 
 void exec_gcode(slice_t block, slice_t maybe_next_block) {
   gcode_parsed_t parsed;
   if (!parse_gcode(block, &parsed)) {
-    // CM:comm_print_err("Failed to parse G/M-code: %s", full_command);
+    comm_error(block, "syntax error");
     return;
   }
 
@@ -364,9 +344,9 @@ void exec_gcode(slice_t block, slice_t maybe_next_block) {
   }
 
   if (parsed.cmd_type == CMD_TYPE_G) {
-    exec_gcode_cmd(&parsed, last_has_cont, cont_next);
+    exec_gcode_cmd(block, &parsed, last_has_cont, cont_next);
   } else if (parsed.cmd_type == CMD_TYPE_M) {
-    exec_mcode_cmd(&parsed);
+    exec_mcode_cmd(block, &parsed);
   }
 
   if (canceler_cancel_needed()) {
@@ -428,7 +408,6 @@ void exec_test_pulser(int dur_sec) {
 
   for (int i = 0; i < dur_sec * 10; i++) {
     if (canceler_cancel_needed()) {
-      // CM:comm_print("test pulser: cancelled");
       break;
     }
 
