@@ -28,6 +28,7 @@ static const struct device* i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c1));
 // Status tracking
 static bool init_success = false;
 static uint32_t poll_count = 0;
+static uint32_t num_i2c_fail = 0;
 
 static bool energized = false;
 
@@ -91,6 +92,7 @@ static void edm_poll_work_handler(struct k_work* work) {
   uint8_t val_ps = 0;
   int ret = i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &val_ps);
   if (ret != 0) {
+    num_i2c_fail++;
     return;
   }
 
@@ -99,6 +101,7 @@ static void edm_poll_work_handler(struct k_work* work) {
   if (val_p + val_s > 15) {
     // should not happen according to the protcol. maybe data was corrupted due
     // to I2C noise. handle like comm failure.
+    num_i2c_fail++;
     return;
   }
 
@@ -155,6 +158,7 @@ void pulser_dump_status() {
 
   comm_ps_k_vbool(PS_STAT, "pulser.energized", energized);
   comm_ps_k_vint(PS_STAT, "pulser.poll_count", poll_count);
+  comm_ps_k_vint(PS_STAT, "pulser.i2c_fail", num_i2c_fail);
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_pulse", last_r_pulse * (1 / 255.0f));
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_short", last_r_short * (1 / 255.0f));
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_open", last_r_open * (1 / 255.0f));
