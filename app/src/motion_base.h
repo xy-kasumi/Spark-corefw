@@ -57,6 +57,9 @@ typedef struct {
   // internal_pos (notch-aligned) + fraction = current pb_move() position.
   // always |fraction| < EDM_RESOLUTION_MM
   float fraction;
+
+  // Cumulative current notch index since init.
+  int cum_notches;
 } path_buffer_t;
 
 /** Initialize path buffer with single line segment.
@@ -93,3 +96,21 @@ void pb_write(path_buffer_t* pb, const pos_phys_t* next_pos);
  * @return true if ok. Returns false iff max retraction was exceeded.
  */
 bool pb_move(path_buffer_t* pb, float d);
+
+/**
+ * Get how much distance can be moved forward without being clipped.
+ * @returns >= 0.
+ */
+float pb_get_forward_buffer(const path_buffer_t* pb);
+
+/**
+ * Get how much distance can be moved backward without being clipped.
+ * @returns >= 0.
+ */
+float pb_get_backward_buffer(const path_buffer_t* pb);
+
+/**
+ * Get distance from the first point (src in pb_init) on the segment.
+ * @returns >= 0.
+ */
+float pb_get_distance(const path_buffer_t* pb);

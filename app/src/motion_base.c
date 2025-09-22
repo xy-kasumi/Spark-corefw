@@ -69,18 +69,22 @@ bool pb_move(path_buffer_t* pb, float d) {
     if (d_notches < -available) {
       // Retract limit exceeded. Clip to furthest possible with error.
       pb->notches_retract += available;
+      pb->cum_notches -= available;
       return false;
     } else {
       pb->notches_retract += -d_notches;
+      pb->cum_notches -= -d_notches;
       return true;
     }
   } else {
     // for forward in history as much as possible.
     if (pb->notches_retract > d_notches) {
       pb->notches_retract -= d_notches;
+      pb->cum_notches += d_notches;
       return true;
     } else {
       d_notches -= pb->notches_retract;
+      pb->cum_notches += pb->notches_retract;
       pb->notches_retract = 0;
       // need to continue
     }
@@ -118,6 +122,7 @@ bool pb_move(path_buffer_t* pb, float d) {
                   pb->curr_seg_d / seg_len, &pos);
     }
     push_history(pb, &pos);
+    pb->cum_notches++;
 
     // If clipped, history nor seg_d will not move further. (not an error)
     if (clipped) {
@@ -125,4 +130,24 @@ bool pb_move(path_buffer_t* pb, float d) {
     }
   }
   return true;
+}
+
+float pb_get_forward_buffer(const path_buffer_t* pb) {
+  float d_segs_in_buf = posp_dist(&pb->curr_seg_src, &pb->curr_seg_dst);
+  if (pb->next_seg_avail) {
+    d_segs_in_buf += posp_dist(&pb->curr_seg_dst, &pb->next_pos);
+  }
+  if (pb->notches_retract == 0) {
+    return d_segs_in_buf - pb->curr_seg_d;
+  } else {
+    return d_segs_in_buf + pb->notches_retract * EDM_RESOLUTION_MM;
+  }
+}
+
+float pb_get_backward_buffer(const path_buffer_t* pb) {
+  return ((pb->num_history - 1) - pb->notches_retract) * EDM_RESOLUTION_MM;
+}
+
+float pb_get_distance(const path_buffer_t* pb) {
+  return pb->cum_notches * EDM_RESOLUTION_MM + pb->fraction;
 }

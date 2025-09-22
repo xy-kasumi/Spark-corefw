@@ -221,10 +221,18 @@ static void handle_signal(payload_t* payload) {
     comm_stat_command_queue(&cap, &used);
     comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used);
   } else if (sl_eq_str(signal, "?edm")) {
-    // TODO: these are not thread-safe.
-
-    // comm_ps_raw(PS_EDM, "< open:%.1f short:%.1f pb_f:%.3f pb_b:%.3f
-    // dist:%.3f>");
+    ps_edm_t edm = motion_get_edm_state();
+    comm_ps_begin(PS_EDM);
+    if (edm.has_edm_data) {
+      comm_ps_raw(PS_EDM, "open:%.1f short:%.1f", (double)edm.r_open,
+                  (double)edm.r_short);
+    }
+    if (edm.is_moving) {
+      comm_ps_raw(PS_EDM, "pb_f:%.3f pb_b:%.3f dist:%.3f dist_max:%.3f",
+                  (double)edm.pb_front, (double)edm.pb_back,
+                  (double)edm.distance, (double)edm.distance_max);
+    }
+    comm_ps_end(PS_EDM);
   } else {
     // Unknown signal. Probably better to ignore, to not clog stream.
   }

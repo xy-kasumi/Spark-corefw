@@ -4,6 +4,13 @@
 
 #include <zephyr/ztest.h>
 
+// Float version of zassert_within, with value printing
+#define zassert_within_f(a, b, d, ...)                                      \
+  zassert(((a) >= ((b) - (d))) && ((a) <= ((b) + (d))),                     \
+          #a " not within " #b " +/- " #d, "observed=%g, expected=[%g,%g]", \
+          (double)(a), (double)((b) - (d)), (double)((b) + (d)),            \
+          ##__VA_ARGS__)
+
 // Test path_buffer_t initialization
 ZTEST(motion_base, test_pb_init_basic) {
   path_buffer_t pb;
@@ -13,7 +20,7 @@ ZTEST(motion_base, test_pb_init_basic) {
   pb_init(&pb, &src, &dst);
 
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 0.0f, 1e-4f, "initial pos");
+  zassert_within_f(pos.x, 0.0f, 1e-4f, "initial pos");
   zassert_true(pb_can_write(&pb), "buffer available after construction");
   zassert_false(pb_at_end(&pb), "initial pos is not end");
 }
@@ -29,7 +36,8 @@ ZTEST(motion_base, test_pb_move_forward_simple) {
   // Move 0.5mm forward
   zassert_true(pb_move(&pb, 0.5f), "move forward should succeed");
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 0.5f, EDM_RESOLUTION_MM + 1e-4f, "should be at 0.5mm");
+  zassert_within_f(pos.x, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
+                   "should be at 0.5mm");
 }
 
 ZTEST(motion_base, test_pb_move_backward) {
@@ -43,8 +51,8 @@ ZTEST(motion_base, test_pb_move_backward) {
   pb_move(&pb, 0.5f);
   zassert_true(pb_move(&pb, -0.2f), "move backward should succeed");
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 0.3f, EDM_RESOLUTION_MM + 1e-4f,
-                 "should be at 0.3mm (+0.5mm - 0.2mm)");
+  zassert_within_f(pos.x, 0.3f, EDM_RESOLUTION_MM + 1e-4f,
+                   "should be at 0.3mm (+0.5mm - 0.2mm)");
 }
 
 ZTEST(motion_base, test_pb_move_retraction_limit) {
@@ -75,8 +83,8 @@ ZTEST(motion_base, test_pb_move_to_end) {
 
   zassert_true(pb_at_end(&pb), "Should be at end after overshooting");
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
-                 "Should be clipped to segment end");
+  zassert_within_f(pos.x, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
+                   "Should be clipped to segment end");
 }
 
 // Test path_buffer_t multi-segment
@@ -94,10 +102,10 @@ ZTEST(motion_base, test_pb_write_and_traverse) {
   // Move through both segments
   pb_move(&pb, 1.5f);  // Should be halfway through second segment
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 1.0f, EDM_RESOLUTION_MM + 1e-4f,
-                 "X must be middle of p2-p3 segment");
-  zassert_within(pos.y, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
-                 "Y must be middle of p2-p3 segment");
+  zassert_within_f(pos.x, 1.0f, EDM_RESOLUTION_MM + 1e-4f,
+                   "X must be middle of p2-p3 segment");
+  zassert_within_f(pos.y, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
+                   "Y must be middle of p2-p3 segment");
 }
 
 ZTEST(motion_base, test_pb_write_buffer_full) {
@@ -128,8 +136,8 @@ ZTEST(motion_base, test_pb_tiny_movements) {
   pb_move(&pb, EDM_RESOLUTION_MM * 0.5f);
   pos_phys_t pos_after = pb_get_pos(&pb);
 
-  zassert_within(pos_before.x, pos_after.x, 1e-4f,
-                 "Tiny movement should not change discrete position");
+  zassert_within_f(pos_before.x, pos_after.x, 1e-4f,
+                   "Tiny movement should not change discrete position");
 }
 
 ZTEST(motion_base, test_pb_zero_length_segment) {
@@ -142,7 +150,7 @@ ZTEST(motion_base, test_pb_zero_length_segment) {
   zassert_true(pb_at_end(&pb), "Zero-length segment should be at end");
 
   pos_phys_t pos = pb_get_pos(&pb);
-  zassert_within(pos.x, 5.0f, 1e-4f, "Should stay at same position");
+  zassert_within_f(pos.x, 5.0f, 1e-4f, "Should stay at same position");
 }
 
 ZTEST(motion_base, test_pb_accumulated_tiny_movements) {
@@ -162,6 +170,71 @@ ZTEST(motion_base, test_pb_accumulated_tiny_movements) {
   pos_phys_t pos = pb_get_pos(&pb);
   zassert_true(pos.x >= EDM_RESOLUTION_MM - 1e-4f,
                "Accumulated tiny movements should eventually advance position");
+}
+
+ZTEST(motion_base, test_pb_get_buffers) {
+  path_buffer_t pb;
+  pos_phys_t src = {0, 0, 0};
+  pos_phys_t dst = {1, 0, 0};
+
+  pb_init(&pb, &src, &dst);
+  zassert_within_f(pb_get_forward_buffer(&pb), 1.0f, EDM_RESOLUTION_MM);
+  zassert_within_f(pb_get_backward_buffer(&pb), 0.0f, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, 0.25);
+  zassert_within_f(pb_get_forward_buffer(&pb), 0.75f, EDM_RESOLUTION_MM);
+  zassert_within_f(pb_get_backward_buffer(&pb), 0.25f, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, 0.75);
+  zassert_within_f(pb_get_forward_buffer(&pb), 0.0f, EDM_RESOLUTION_MM);
+  zassert_within_f(pb_get_backward_buffer(&pb), 1.0f, EDM_RESOLUTION_MM);
+}
+
+ZTEST(motion_base, test_pb_get_buffers_added) {
+  path_buffer_t pb;
+  pos_phys_t src = {0, 0, 0};
+  pos_phys_t p1 = {1, 0, 0};
+  pos_phys_t p2 = {1, 1, 0};
+
+  pb_init(&pb, &src, &p1);
+  pb_write(&pb, &p2);
+  zassert_within_f(pb_get_forward_buffer(&pb), 2, EDM_RESOLUTION_MM);
+  zassert_within_f(pb_get_backward_buffer(&pb), 0, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, 1.5f);
+  zassert_within_f(pb_get_forward_buffer(&pb), 0.5f,
+                   EDM_RESOLUTION_MM);  // to p2
+  zassert_within_f(pb_get_backward_buffer(&pb),
+                   (EDM_HISTORY_SIZE - 1) * EDM_RESOLUTION_MM,
+                   EDM_RESOLUTION_MM);  // 2, but some history gone
+}
+
+ZTEST(motion_base, test_pb_get_distance) {
+  path_buffer_t pb;
+  pos_phys_t src = {0, 0, 0};
+  pos_phys_t p1 = {1, 0, 0};
+  pos_phys_t p2 = {1, 1, 0};
+
+  pb_init(&pb, &src, &p1);
+  zassert_within_f(pb_get_distance(&pb), 0, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, 0.5f);  // now at 0
+  zassert_within_f(pb_get_distance(&pb), 0.5f, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, -0.25f);  // now at 0.25
+  zassert_within_f(pb_get_distance(&pb), 0.25f, EDM_RESOLUTION_MM);
+
+  pb_write(&pb, &p2);
+  pb_move(&pb, 1.0f);  // now at 1.25
+  zassert_within_f(pb_get_distance(&pb), 1.25f, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, 100.0f);  // now at 2
+  zassert_within_f(pb_get_distance(&pb), 2.0f, EDM_RESOLUTION_MM);
+
+  pb_move(&pb, -50.0f);  // now at (max retract from 2.0)
+  zassert_within_f(pb_get_distance(&pb),
+                   2.0f - ((EDM_HISTORY_SIZE - 1) * EDM_RESOLUTION_MM),
+                   EDM_RESOLUTION_MM);
 }
 
 ZTEST_SUITE(motion_base, NULL, NULL, NULL, NULL, NULL);

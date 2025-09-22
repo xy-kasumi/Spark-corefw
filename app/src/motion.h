@@ -37,6 +37,7 @@ typedef struct {
   float pb_front;
   float pb_back;
   float distance;
+  float distance_max;
 } ps_edm_t;
 
 /**

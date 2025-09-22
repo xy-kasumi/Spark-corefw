@@ -163,9 +163,10 @@ static void stop_motion(motion_stop_reason_t reason) {
 static void motion_tick_handler(struct k_work* work) {
   k_work_reschedule(&motion_tick_work, K_MSEC(1));
 
+  latest_edm_state.has_edm_data = false;
+  latest_edm_state.is_moving = false;
+
   if (state != MOTION_STATE_MOVING) {
-    latest_edm_state.has_edm_data = false;
-    latest_edm_state.is_moving = false;
     return;
   }
 
@@ -223,6 +224,14 @@ static void motion_tick_handler(struct k_work* work) {
       return;
     }
   }
+
+  // Update stats
+  float dist = pb_get_distance(&motion_path);
+  latest_edm_state.is_moving = true;
+  latest_edm_state.pb_front = pb_get_forward_buffer(&motion_path);
+  latest_edm_state.pb_back = pb_get_backward_buffer(&motion_path);
+  latest_edm_state.distance = dist;
+  latest_edm_state.distance_max = fmaxf(latest_edm_state.distance_max, dist);
 
   // Convert to driver coordinates and send to motors
   pos_drv_t target_drv = phys_to_drv(pos);
