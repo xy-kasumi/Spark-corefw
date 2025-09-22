@@ -118,8 +118,7 @@ void comm_init(payload_handler_t on_signal) {
   // Command / signal process
   k_thread_create(&comm_thread_data, comm_stack_area,
                   K_THREAD_STACK_SIZEOF(comm_stack_area), comm_thread,
-                  (void*)on_signal, NULL, NULL, -1, K_FP_REGS,
-                  K_NO_WAIT);  // lower than main thread(-1), cooperative thread
+                  (void*)on_signal, NULL, NULL, 0, K_FP_REGS, K_NO_WAIT);
 }
 
 static int copy_str(uint8_t* buf, const char* str) {
