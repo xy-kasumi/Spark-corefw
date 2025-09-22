@@ -37,20 +37,23 @@ typedef enum {
   /** (signal result @ comm thread) */
   PS_POS = 2,
 
+  /** (signal result @ comm thread) */
+  PS_EDM = 3,
+
   /** (automatic @ main thread) */
-  PS_INIT = 3,
+  PS_INIT = 4,
 
   /** (@ main thread) */
-  PS_SETTINGS = 4,
+  PS_SETTINGS = 5,
 
   /** (@main thread) */
-  PS_STAT = 5,
+  PS_STAT = 6,
 
   /** (@ main thread) */
-  PS_BLOB = 6,  // should be separate?
+  PS_BLOB = 7,  // should be separate?
 } ps_type_t;
 
-#define NUM_PS_TYPES 7
+#define NUM_PS_TYPES 8
 
 /** Partial state. */
 typedef struct {

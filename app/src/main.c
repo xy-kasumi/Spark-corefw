@@ -174,8 +174,6 @@ static void handle_signal(slice_t payload) {
   if (sl_eq_str(payload, "!")) {
     canceler_cancel();
   } else if (sl_eq_str(payload, "?pos")) {
-    // print pos
-
     // Print ready with current position
     // TODO: these are not thread-safe.
     pos_phys_t machine_pos = motion_get_current_pos();
@@ -220,6 +218,11 @@ static void handle_signal(slice_t payload) {
     int used;
     comm_stat_command_queue(&cap, &used);
     comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used);
+  } else if (sl_eq_str(payload, "?edm")) {
+    // TODO: these are not thread-safe.
+
+    // comm_ps_raw(PS_EDM, "< open:%.1f short:%.1f pb_f:%.3f pb_b:%.3f
+    // dist:%.3f>");
   } else {
     // Unknown signal. Probably better to ignore, to not clog stream.
   }

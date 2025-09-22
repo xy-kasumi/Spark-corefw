@@ -221,7 +221,7 @@ static int copy_str(uint8_t* buf, const char* str) {
 }
 
 static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
-  const char* tag;
+  const char* tag = "";  // not used, but to suppress warning
   switch (ps) {
     case PS_ERROR:
       tag = "error ";
@@ -231,6 +231,9 @@ static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
       break;
     case PS_QUEUE:
       tag = "queue ";
+      break;
+    case PS_EDM:
+      tag = "edm ";
       break;
     case PS_INIT:
       tag = "init ";
@@ -244,9 +247,6 @@ static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
     case PS_STAT:
       tag = "stat ";
       break;
-    default:
-      // bug!
-      return 0;
   }
   return copy_str(buf, tag);
 }

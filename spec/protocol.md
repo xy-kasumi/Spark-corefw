@@ -229,6 +229,16 @@ Keys
 
 `m` will always be present. `g` or `t` or `w` will be present iff it's current coordinate system as defined by `sys`.
 
+#### "edm": Signal-driven ("?edm")
+`edm` reports current EDM status.
+
+Keys
+* `open` (float | undef): [0, 1] open time ratio. Undef if data is unavailable (not in EDM mode).
+* `short` (float | undef): [0, 1] short time ratio. Undef if data is unavailable (not in EDM mode).
+* `pb_f` (float): Remaining position buffer length (mm) in forward direction.
+* `pf_b` (float): Remaining position buffer length (mm) in backward direction.
+* `dist` (float): Cumulative distance from current current continuous motion start.
+
 #### "init": Event-driven
 `init` reports core initialization status.
 Triggered just once after every boot.
