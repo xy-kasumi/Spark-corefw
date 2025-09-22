@@ -15,14 +15,10 @@
 // Maximum payload size defined by the protocol.
 #define PAYLOAD_BUFFER_SIZE 100
 
-// Maximum valid line size allowed by the protocol.
-// payload + 1 (seq) + 4 (hash) + 1 (newline)
-#define LINE_BUFFER_SIZE (PAYLOAD_BUFFER_SIZE + 6)
-
 typedef struct {
   int size;
-  uint8_t buf[LINE_BUFFER_SIZE];
-} line_buf_t;
+  uint8_t data[PAYLOAD_BUFFER_SIZE];
+} payload_t;
 
 /**
  * Init transport layer.
@@ -37,15 +33,16 @@ bool tran_init();
  * @returns 0 if data is copied to out. -ENOMSG if no message (when K_NO_WAIT).
  * -EAGAIN timed out.
  */
-int tran_get_payload(line_buf_t* out, k_timeout_t timeout);
+int tran_get_payload(payload_t* out, k_timeout_t timeout);
+
+/**
+ * Configures poll event for tran_get_payload() availability.
+ */
+void tran_poll_event_get(struct k_poll_event* event);
 
 /**
  * Write data. Caller is free to reuse data for other purposes.
  * This function will block until transmit is complete and internal buffer is
  * ready.
- *
- * @param data data to transmit
- * @param len Length of data (must be <= 256 bytes, excess will be silently
- * truncated)
  */
-void tran_put_payload(const uint8_t* data, int len);
+void tran_put_payload(const payload_t* payload);

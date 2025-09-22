@@ -9,8 +9,11 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 
-// Recv buffer
+////////////////////
+// RX (down)
+
 #define RECV_BUFFER_CAPACITY 100
+
 static K_MUTEX_DEFINE(rbuf_mutex);
 payload_t recv_buffer[RECV_BUFFER_CAPACITY];
 int recv_buffer_num = 0;       // number of commands
@@ -24,40 +27,81 @@ inline int recv_buffer_ix_read(int offset) {
          RECV_BUFFER_CAPACITY;
 }
 
-// Tx buffer
-typedef struct {
-  int size;  // size w/o 0
-  char data[PAYLOAD_BUFFER_SIZE];
-} ps_buf_entry_t;
+////////////////////
+// TX (up)
 
-ps_buf_entry_t send_buffer[NUM_PS_TYPES];
+#define TX_QUEUE_PRIO_CAPACITY 25
+#define TX_QUEUE_CAPACITY 100
+
+K_MSGQ_DEFINE(tx_msgq_prio, sizeof(payload_t), TX_QUEUE_PRIO_CAPACITY, 1);
+K_MSGQ_DEFINE(tx_msgq, sizeof(payload_t), TX_QUEUE_CAPACITY, 1);
+
+static bool payload_is_signal(slice_t payload) {
+  if (payload.size == 0) {
+    return false;
+  }
+  char first_char = payload.ptr[0];
+  return first_char == '!' || first_char == '?';
+}
 
 static void comm_thread(void* p1, void* p2, void* p3) {
   payload_handler_t on_signal = (payload_handler_t)p1;
-  while (true) {
-    line_buf_t payload;
-    tran_get_payload(&payload, K_FOREVER);
 
-    slice_t line_slice = {payload.size, payload.buf};
-    char first_char = payload.buf[0];
-    if (first_char == '!' || first_char == '?') {
-      // signal
-      on_signal(line_slice);
-    } else {
-      // command
-      // Copy command to caller's buffer
-      k_mutex_lock(&rbuf_mutex, K_FOREVER);
-      if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
-        recv_buffer[recv_buffer_ix_write].slice =
-            sl_copy(line_slice, recv_buffer[recv_buffer_ix_write].data,
-                    PAYLOAD_BUFFER_SIZE);
-        recv_buffer_ix_write =
-            (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
-        recv_buffer_num++;
+  struct k_poll_event events[3];
+  const int EV_IX_TX_PRIO = 0;
+  const int EV_IX_TX = 1;
+  const int EV_IX_RX = 2;
+  k_poll_event_init(&events[EV_IX_TX_PRIO], K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
+                    K_POLL_MODE_NOTIFY_ONLY, &tx_msgq_prio);
+  k_poll_event_init(&events[EV_IX_TX], K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
+                    K_POLL_MODE_NOTIFY_ONLY, &tx_msgq);
+  tran_poll_event_get(&events[EV_IX_RX]);
+
+  while (true) {
+    if (k_poll(events, ARRAY_SIZE(events), K_FOREVER) != 0) {
+      // (shouldn't happen) err on the side of communication.
+      continue;
+    }
+
+    // Events matter in this order.
+    // 1. TX_PRIO might contain critical error/debug information
+    // 2. RX might contain cancel signal which nullifies further TX.
+    // 3. TX is most likely to get stuck with infinite data bug.
+
+    if (events[EV_IX_TX_PRIO].state == K_POLL_STATE_MSGQ_DATA_AVAILABLE) {
+      payload_t payload;
+      k_msgq_get(&tx_msgq_prio, &payload, K_NO_WAIT);
+      tran_put_payload(&payload);
+
+      events[EV_IX_TX_PRIO].state = K_POLL_STATE_NOT_READY;
+    } else if (events[EV_IX_RX].state == K_POLL_STATE_MSGQ_DATA_AVAILABLE) {
+      payload_t payload;
+      tran_get_payload(&payload, K_FOREVER);
+
+      slice_t line_slice = {payload.size, payload.data};
+      if (payload_is_signal(line_slice)) {
+        on_signal(line_slice);
       } else {
-        // silently drop when buffer is full.
+        // Copy command to caller's buffer
+        k_mutex_lock(&rbuf_mutex, K_FOREVER);
+        if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
+          recv_buffer[recv_buffer_ix_write] = payload;
+          recv_buffer_ix_write =
+              (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
+          recv_buffer_num++;
+        } else {
+          // silently drop when buffer is full.
+        }
+        k_mutex_unlock(&rbuf_mutex);
       }
-      k_mutex_unlock(&rbuf_mutex);
+
+      events[EV_IX_RX].state = K_POLL_STATE_NOT_READY;
+    } else if (events[EV_IX_TX].state == K_POLL_STATE_MSGQ_DATA_AVAILABLE) {
+      payload_t payload;
+      k_msgq_get(&tx_msgq, &payload, K_NO_WAIT);
+      tran_put_payload(&payload);
+
+      events[EV_IX_TX].state = K_POLL_STATE_NOT_READY;
     }
   }
 }
@@ -76,10 +120,6 @@ void comm_init(payload_handler_t on_signal) {
                   K_THREAD_STACK_SIZEOF(comm_stack_area), comm_thread,
                   (void*)on_signal, NULL, NULL, -1, K_FP_REGS,
                   K_NO_WAIT);  // lower than main thread(-1), cooperative thread
-
-  // send empty payload to flush pre-init broken data (often bunch of zeros) on
-  // the serial line
-  tran_put_payload("", 0);
 }
 
 static int copy_str(uint8_t* buf, const char* str) {
@@ -119,6 +159,19 @@ static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
   return copy_str(buf, tag);
 }
 
+static void put_payload(const uint8_t* ptr, int size, ps_type_t ps) {
+  payload_t payload;
+  payload.size = size;
+  memcpy(payload.data, ptr, size);
+
+  bool high_prio = (ps == PS_ERROR);
+  if (high_prio) {
+    k_msgq_put(&tx_msgq_prio, &payload, K_FOREVER);
+  } else {
+    k_msgq_put(&tx_msgq, &payload, K_FOREVER);
+  }
+}
+
 void comm_ps_raw(ps_type_t ps, const char* fmt, ...) {
   uint8_t buffer[PAYLOAD_BUFFER_SIZE];
   int offset = copy_ps_tag(ps, buffer);
@@ -128,7 +181,7 @@ void comm_ps_raw(ps_type_t ps, const char* fmt, ...) {
   offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
   va_end(args);
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_begin(ps_type_t ps) {
@@ -138,7 +191,7 @@ void comm_ps_begin(ps_type_t ps) {
   buffer[offset] = '<';
   offset++;
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_k_vfmtstr(ps_type_t ps, const char* key, const char* fmt, ...) {
@@ -157,7 +210,7 @@ void comm_ps_k_vfmtstr(ps_type_t ps, const char* key, const char* fmt, ...) {
 
   offset += copy_str(buffer + offset, "\"");
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_k_v32hex(ps_type_t ps, const char* key, uint32_t value) {
@@ -168,7 +221,7 @@ void comm_ps_k_v32hex(ps_type_t ps, const char* key, uint32_t value) {
   offset += copy_str(buffer + offset, ":");
   offset += snprintf(buffer + offset, sizeof(buffer) - offset, "0x%08x", value);
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_k_vfloat(ps_type_t ps, const char* key, float value) {
@@ -180,7 +233,7 @@ void comm_ps_k_vfloat(ps_type_t ps, const char* key, float value) {
   offset +=
       snprintf(buffer + offset, sizeof(buffer) - offset, "%g", (double)value);
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_k_vint(ps_type_t ps, const char* key, int value) {
@@ -191,7 +244,7 @@ void comm_ps_k_vint(ps_type_t ps, const char* key, int value) {
   offset += copy_str(buffer + offset, ":");
   offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d", value);
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value) {
@@ -202,7 +255,7 @@ void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value) {
   offset += copy_str(buffer + offset, ":");
   offset += copy_str(buffer + offset, value ? "true" : "false");
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_ps_end(ps_type_t ps) {
@@ -212,7 +265,7 @@ void comm_ps_end(ps_type_t ps) {
   buffer[offset] = '>';
   offset++;
 
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, ps);
 }
 
 void comm_error(slice_t source, const char* fmt, ...) {
@@ -243,7 +296,7 @@ void comm_error(slice_t source, const char* fmt, ...) {
   offset += copy_str(buffer + offset, "\"");
 
   offset += copy_str(buffer + offset, " >");
-  tran_put_payload(buffer, offset);
+  put_payload(buffer, offset, PS_ERROR);
 }
 
 /**
@@ -282,15 +335,13 @@ int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   k_mutex_lock(&rbuf_mutex, K_FOREVER);
   if (recv_buffer_num >= 2) {
     num = 2;
-    cmd->slice = sl_copy(recv_buffer[recv_buffer_ix_read(0)].slice, cmd->data,
-                         PAYLOAD_BUFFER_SIZE);
-    next_cmd->slice = sl_copy(recv_buffer[recv_buffer_ix_read(1)].slice,
-                              next_cmd->data, PAYLOAD_BUFFER_SIZE);
+    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
+    memcpy(next_cmd, &recv_buffer[recv_buffer_ix_read(1)], sizeof(payload_t));
+
     recv_buffer_num--;
   } else if (recv_buffer_num == 1) {
     num = 1;
-    cmd->slice = sl_copy(recv_buffer[recv_buffer_ix_read(0)].slice, cmd->data,
-                         PAYLOAD_BUFFER_SIZE);
+    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
     recv_buffer_num--;
   } else {
     num = 0;

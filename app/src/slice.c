@@ -13,6 +13,10 @@ slice_t sl_empty() {
   return (slice_t){.size = 0, .ptr = NULL};
 }
 
+slice_t sl_from_buf(uint8_t* buf, int size) {
+  return (slice_t){.size = size, .ptr = buf};
+}
+
 slice_t sl_from_str(char* str) {
   return (slice_t){.size = (int)strlen(str), .ptr = (uint8_t*)str};
 }

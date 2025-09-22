@@ -288,7 +288,9 @@ int main() {
         // comm_clear_commands() was called or queue exhausted
         break;
       }
-      handle_command(cmd.slice, num_avail >= 2 ? next_cmd.slice : sl_empty());
+      handle_command(sl_from_buf(cmd.data, cmd.size),
+                     num_avail >= 2 ? sl_from_buf(next_cmd.data, next_cmd.size)
+                                    : sl_empty());
     }
   }
 

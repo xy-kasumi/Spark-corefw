@@ -26,44 +26,18 @@ typedef void (*payload_handler_t)(slice_t payload);
  */
 void comm_init(payload_handler_t on_signal);
 
-// Sent in this order (lower number = higher prio)
-// Must be densely packed as [0, NUM_PS_TYPES).
+// P-state types.
+// PS_ERROR is special, as it's sent in high-priority queue.
 typedef enum {
-  /** (automatic @ comm thread) */
-  PS_ERROR = 0,
-
-  /** (signal result @ comm thread) */
-  PS_QUEUE = 1,
-
-  /** (signal result @ comm thread) */
-  PS_POS = 2,
-
-  /** (signal result @ comm thread) */
-  PS_EDM = 3,
-
-  /** (automatic @ main thread) */
-  PS_INIT = 4,
-
-  /** (@ main thread) */
-  PS_SETTINGS = 5,
-
-  /** (@main thread) */
-  PS_STAT = 6,
-
-  /** (@ main thread) */
-  PS_BLOB = 7,  // should be separate?
+  PS_ERROR,
+  PS_QUEUE,
+  PS_POS,
+  PS_EDM,
+  PS_INIT,
+  PS_SETTINGS,
+  PS_STAT,
+  PS_BLOB,
 } ps_type_t;
-
-#define NUM_PS_TYPES 8
-
-/** Partial state. */
-typedef struct {
-} pstate_t;
-
-typedef struct {
-  slice_t slice;
-  uint8_t data[PAYLOAD_BUFFER_SIZE];
-} payload_t;
 
 /**
  * (blocking) Wait until a command become available.

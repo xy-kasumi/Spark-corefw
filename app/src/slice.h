@@ -28,6 +28,11 @@ typedef struct {
 slice_t sl_empty();
 
 /**
+ * Create slice from buffer.
+ */
+slice_t sl_from_buf(uint8_t* buf, int size);
+
+/**
  * Create slice from c-string.
  */
 slice_t sl_from_str(char* str);

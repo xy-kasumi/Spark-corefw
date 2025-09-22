@@ -12,6 +12,17 @@
 
 static const struct device* uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
+// Maximum valid line size allowed by the protocol.
+// payload + 1 (seq) + 4 (hash) + 1 (newline)
+#define LINE_BUFFER_SIZE (PAYLOAD_BUFFER_SIZE + 6)
+
+typedef struct {
+  int size;
+  uint8_t data[LINE_BUFFER_SIZE];
+} line_buf_t;
+
+////////////////////
+// Control
 static bool mode_interactive = true;
 
 ////////////////////
@@ -23,8 +34,8 @@ static bool mode_interactive = true;
 #define RX_QUEUE_CAPACITY 2
 
 // empty (size == 0) data not allowed in tran_rx_msgq
-K_MSGQ_DEFINE(tran_rx_msgq, sizeof(line_buf_t), RX_QUEUE_CAPACITY, 1);
-static line_buf_t rx_assembly;
+K_MSGQ_DEFINE(tran_rx_msgq, sizeof(payload_t), RX_QUEUE_CAPACITY, 1);
+static payload_t rx_assembly;
 
 ////////////////////
 // TX (up)
@@ -48,7 +59,7 @@ static void echo_if_should(const char* data) {
   }
   line_buf_t buf;
   buf.size = strlen(data);
-  memcpy(buf.buf, data, buf.size);
+  memcpy(buf.data, data, buf.size);
   k_msgq_put(&tran_tx_msgq, &buf, K_NO_WAIT);
 }
 
@@ -78,7 +89,7 @@ static void uart_isr(const struct device* dev, void* user_data) {
       } else if (c >= 0x20 && c <= 0x7E) {
         // Valid line content
         if (rx_assembly.size < LINE_BUFFER_SIZE) {
-          rx_assembly.buf[rx_assembly.size] = c;
+          rx_assembly.data[rx_assembly.size] = c;
           rx_assembly.size++;
         }
       }
@@ -101,7 +112,7 @@ static void uart_isr(const struct device* dev, void* user_data) {
     if (tx_sending_pos >= 0) {
       int to_send = tx_sending_buf.size - tx_sending_pos;
       int sent =
-          uart_fifo_fill(dev, &tx_sending_buf.buf[tx_sending_pos], to_send);
+          uart_fifo_fill(dev, &tx_sending_buf.data[tx_sending_pos], to_send);
       tx_sending_pos += sent;
       if (tx_sending_pos >= tx_sending_buf.size) {
         tx_sending_pos = -1;
@@ -119,24 +130,31 @@ bool tran_init() {
   // Configure UART interrupts
   uart_irq_callback_user_data_set(uart_dev, uart_isr, NULL);
   uart_irq_rx_enable(uart_dev);
+
+  // send empty line to flush pre-init broken data (often bunch of zeros) on the
+  // serial line.
+  line_buf_t buf;
+  buf.size = 1;
+  buf.data[0] = '\n';
+  k_msgq_put(&tran_tx_msgq, &buf, K_FOREVER);
   return true;
 }
 
-int tran_get_payload(line_buf_t* out, k_timeout_t timeout) {
+int tran_get_payload(payload_t* out, k_timeout_t timeout) {
   return k_msgq_get(&tran_rx_msgq, out, timeout);
 }
 
-void tran_put_payload(const uint8_t* data, int len) {
-  // Silently truncate because too low layer to report error.
-  if (len > 100) {
-    len = 100;
-  }
+void tran_poll_event_get(struct k_poll_event* event) {
+  k_poll_event_init(event, K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
+                    K_POLL_MODE_NOTIFY_ONLY, &tran_rx_msgq);
+}
 
+void tran_put_payload(const payload_t* payload) {
   line_buf_t buf;
-  buf.size = len;
-  memcpy(buf.buf, data, len);
-  buf.buf[len] = '\n';
-  buf.size = len + 1;
+  buf.size = payload->size;
+  memcpy(buf.data, payload->data, payload->size);
+  buf.data[payload->size] = '\n';
+  buf.size = payload->size + 1;
 
   uart_irq_tx_enable(uart_dev);
   k_msgq_put(&tran_tx_msgq, &buf, K_FOREVER);
