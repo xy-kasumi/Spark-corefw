@@ -24,29 +24,20 @@ typedef struct {
   uint8_t buf[LINE_BUFFER_SIZE];
 } line_buf_t;
 
-// RX event definitions
-extern struct k_event tran_rx_events;
-
 /**
- * One or more payload became available in tran_rx_msgq.
- * Caller should exhaust a queue on this event (because event might get missed
- * when busy).
- */
-#define RX_EVENT_PAYLOAD_RECEIVED BIT(0)
-
-/**
- * Backspace was received. (caller might want to send echo)
- */
-#define RX_EVENT_BACKSPACE BIT(1)
-
-// RX buffer
-extern struct k_msgq tran_rx_msgq;
-
-/**
- * (blocking) Init transport layer.
+ * Init transport layer.
  * @returns true on success.
  */
 bool tran_init();
+
+/**
+ * Get received payload.
+ * @param out output buffer. Guaranteed to have size > 0 on success.
+ * @param timeout timeout
+ * @returns 0 if data is copied to out. -ENOMSG if no message (when K_NO_WAIT).
+ * -EAGAIN timed out.
+ */
+int tran_get_payload(line_buf_t* out, k_timeout_t timeout);
 
 /**
  * Write data. Caller is free to reuse data for other purposes.
@@ -57,4 +48,4 @@ bool tran_init();
  * @param len Length of data (must be <= 256 bytes, excess will be silently
  * truncated)
  */
-void tran_uart_write(const uint8_t* data, int len);
+void tran_put_payload(const uint8_t* data, int len);

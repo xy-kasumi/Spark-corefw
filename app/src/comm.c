@@ -9,8 +9,6 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 
-///// Application layer
-
 // Recv buffer
 #define RECV_BUFFER_CAPACITY 100
 static K_MUTEX_DEFINE(rbuf_mutex);
@@ -36,56 +34,30 @@ ps_buf_entry_t send_buffer[NUM_PS_TYPES];
 
 static void comm_thread(void* p1, void* p2, void* p3) {
   payload_handler_t on_signal = (payload_handler_t)p1;
+  while (true) {
+    line_buf_t payload;
+    tran_get_payload(&payload, K_FOREVER);
 
-  while (1) {
-    // Wait for RX events
-    uint32_t events = k_event_wait(
-        &tran_rx_events, RX_EVENT_PAYLOAD_RECEIVED | RX_EVENT_BACKSPACE, false,
-        K_FOREVER);
-
-    if (events & RX_EVENT_BACKSPACE) {
-      k_event_clear(&tran_rx_events, RX_EVENT_BACKSPACE);
-      tran_uart_write((const uint8_t*)" \b", 2);  // backspace echo
-      continue;
-    }
-
-    if (events & RX_EVENT_PAYLOAD_RECEIVED) {
-      // pop
-      k_event_clear(&tran_rx_events, RX_EVENT_PAYLOAD_RECEIVED);
-      tran_uart_write("\r\n", 2);  // echo new line
-
-      while (true) {
-        line_buf_t payload;
-        if (k_msgq_get(&tran_rx_msgq, &payload, K_NO_WAIT) != 0) {
-          break;
-        }
-        if (payload.size == 0) {
-          // empty payload (rare comm error mode)
-          continue;
-        }
-
-        slice_t line_slice = {payload.size, payload.buf};
-        char first_char = payload.buf[0];
-        if (first_char == '!' || first_char == '?') {
-          // signal
-          on_signal(line_slice);
-        } else {
-          // command
-          // Copy command to caller's buffer
-          k_mutex_lock(&rbuf_mutex, K_FOREVER);
-          if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
-            recv_buffer[recv_buffer_ix_write].slice =
-                sl_copy(line_slice, recv_buffer[recv_buffer_ix_write].data,
-                        PAYLOAD_BUFFER_SIZE);
-            recv_buffer_ix_write =
-                (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
-            recv_buffer_num++;
-          } else {
-            // silently drop when buffer is full.
-          }
-          k_mutex_unlock(&rbuf_mutex);
-        }
+    slice_t line_slice = {payload.size, payload.buf};
+    char first_char = payload.buf[0];
+    if (first_char == '!' || first_char == '?') {
+      // signal
+      on_signal(line_slice);
+    } else {
+      // command
+      // Copy command to caller's buffer
+      k_mutex_lock(&rbuf_mutex, K_FOREVER);
+      if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
+        recv_buffer[recv_buffer_ix_write].slice =
+            sl_copy(line_slice, recv_buffer[recv_buffer_ix_write].data,
+                    PAYLOAD_BUFFER_SIZE);
+        recv_buffer_ix_write =
+            (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
+        recv_buffer_num++;
+      } else {
+        // silently drop when buffer is full.
       }
+      k_mutex_unlock(&rbuf_mutex);
     }
   }
 }
@@ -107,7 +79,7 @@ void comm_init(payload_handler_t on_signal) {
 
   // send empty payload to flush pre-init broken data (often bunch of zeros) on
   // the serial line
-  tran_uart_write("", 0);
+  tran_put_payload("", 0);
 }
 
 static int copy_str(uint8_t* buf, const char* str) {
@@ -156,7 +128,7 @@ void comm_ps_raw(ps_type_t ps, const char* fmt, ...) {
   offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
   va_end(args);
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_begin(ps_type_t ps) {
@@ -166,7 +138,7 @@ void comm_ps_begin(ps_type_t ps) {
   buffer[offset] = '<';
   offset++;
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_k_vfmtstr(ps_type_t ps, const char* key, const char* fmt, ...) {
@@ -185,7 +157,7 @@ void comm_ps_k_vfmtstr(ps_type_t ps, const char* key, const char* fmt, ...) {
 
   offset += copy_str(buffer + offset, "\"");
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_k_v32hex(ps_type_t ps, const char* key, uint32_t value) {
@@ -196,7 +168,7 @@ void comm_ps_k_v32hex(ps_type_t ps, const char* key, uint32_t value) {
   offset += copy_str(buffer + offset, ":");
   offset += snprintf(buffer + offset, sizeof(buffer) - offset, "0x%08x", value);
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_k_vfloat(ps_type_t ps, const char* key, float value) {
@@ -208,7 +180,7 @@ void comm_ps_k_vfloat(ps_type_t ps, const char* key, float value) {
   offset +=
       snprintf(buffer + offset, sizeof(buffer) - offset, "%g", (double)value);
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_k_vint(ps_type_t ps, const char* key, int value) {
@@ -219,7 +191,7 @@ void comm_ps_k_vint(ps_type_t ps, const char* key, int value) {
   offset += copy_str(buffer + offset, ":");
   offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d", value);
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value) {
@@ -230,7 +202,7 @@ void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value) {
   offset += copy_str(buffer + offset, ":");
   offset += copy_str(buffer + offset, value ? "true" : "false");
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_ps_end(ps_type_t ps) {
@@ -240,7 +212,7 @@ void comm_ps_end(ps_type_t ps) {
   buffer[offset] = '>';
   offset++;
 
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 void comm_error(slice_t source, const char* fmt, ...) {
@@ -271,7 +243,7 @@ void comm_error(slice_t source, const char* fmt, ...) {
   offset += copy_str(buffer + offset, "\"");
 
   offset += copy_str(buffer + offset, " >");
-  tran_uart_write(buffer, offset);
+  tran_put_payload(buffer, offset);
 }
 
 /**
