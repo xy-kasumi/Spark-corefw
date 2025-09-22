@@ -8,6 +8,7 @@ target_sources(app PRIVATE
   src/main.c
   src/canceler.c
   src/comm.c
+  src/comm_transport.c
   src/gcode.c
   src/gcode_base.c
   src/slice.c

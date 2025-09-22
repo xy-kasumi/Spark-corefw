@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include "comm_transport.h"
 #include "slice.h"
 
 #include <stdbool.h>
@@ -58,8 +59,6 @@ typedef enum {
 /** Partial state. */
 typedef struct {
 } pstate_t;
-
-#define PAYLOAD_BUFFER_SIZE 100
 
 typedef struct {
   slice_t slice;
