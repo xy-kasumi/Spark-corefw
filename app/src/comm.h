@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 // Handles borrowed const payload.
-typedef void (*payload_handler_t)(slice_t payload);
+typedef void (*payload_handler_t)(payload_t* payload);
 
 /**
  * (blocking) Initialize communication subsystem.

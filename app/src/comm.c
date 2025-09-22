@@ -10,37 +10,31 @@
 #include <zephyr/kernel.h>
 
 ////////////////////
-// RX (down)
+// RX (down): commands (signals are immediately handled)
 
-#define RECV_BUFFER_CAPACITY 100
+// big enough to hold 1 sec of commands
+// 100 byte line takes 10ms at 100kbaud/s.
+// NOTE: command that instantly finishes always starves the queue, though. it's
+// up to the host to make commands "big" enough.
+#define COMMAND_QUEUE_CAPACITY 100
 
-static K_MUTEX_DEFINE(rbuf_mutex);
-payload_t recv_buffer[RECV_BUFFER_CAPACITY];
-int recv_buffer_num = 0;       // number of commands
-int recv_buffer_ix_write = 0;  // next write pos
-
-// only valid when recv_buffer_num > 0 && offset < recv_buffer_num
-// must be called within rbuf_mutex lock
-inline int recv_buffer_ix_read(int offset) {
-  return (recv_buffer_ix_write - recv_buffer_num + offset +
-          RECV_BUFFER_CAPACITY) %
-         RECV_BUFFER_CAPACITY;
-}
+K_MSGQ_DEFINE(cmd_msgq, sizeof(payload_t), COMMAND_QUEUE_CAPACITY, 1);
 
 ////////////////////
-// TX (up)
+// TX (up): p-states (high & normal priority)
 
+// chosen to not block any typical write burst, esp errors.
 #define TX_QUEUE_PRIO_CAPACITY 25
 #define TX_QUEUE_CAPACITY 100
 
 K_MSGQ_DEFINE(tx_msgq_prio, sizeof(payload_t), TX_QUEUE_PRIO_CAPACITY, 1);
 K_MSGQ_DEFINE(tx_msgq, sizeof(payload_t), TX_QUEUE_CAPACITY, 1);
 
-static bool payload_is_signal(slice_t payload) {
-  if (payload.size == 0) {
+static bool payload_is_signal(const payload_t* payload) {
+  if (payload->size == 0) {
     return false;
   }
-  char first_char = payload.ptr[0];
+  char first_char = payload->data[0];
   return first_char == '!' || first_char == '?';
 }
 
@@ -76,23 +70,12 @@ static void comm_thread(void* p1, void* p2, void* p3) {
       events[EV_IX_TX_PRIO].state = K_POLL_STATE_NOT_READY;
     } else if (events[EV_IX_RX].state == K_POLL_STATE_MSGQ_DATA_AVAILABLE) {
       payload_t payload;
-      tran_get_payload(&payload, K_FOREVER);
+      tran_get_payload(&payload, K_NO_WAIT);
 
-      slice_t line_slice = {payload.size, payload.data};
-      if (payload_is_signal(line_slice)) {
-        on_signal(line_slice);
+      if (payload_is_signal(&payload)) {
+        on_signal(&payload);
       } else {
-        // Copy command to caller's buffer
-        k_mutex_lock(&rbuf_mutex, K_FOREVER);
-        if (recv_buffer_num < RECV_BUFFER_CAPACITY) {
-          recv_buffer[recv_buffer_ix_write] = payload;
-          recv_buffer_ix_write =
-              (recv_buffer_ix_write + 1) % RECV_BUFFER_CAPACITY;
-          recv_buffer_num++;
-        } else {
-          // silently drop when buffer is full.
-        }
-        k_mutex_unlock(&rbuf_mutex);
+        k_msgq_put(&cmd_msgq, &payload, K_FOREVER);
       }
 
       events[EV_IX_RX].state = K_POLL_STATE_NOT_READY;
@@ -115,7 +98,7 @@ void comm_init(payload_handler_t on_signal) {
     return;
   }
 
-  // Command / signal process
+  // Create prio 0 (preemptible, same as main) thread.
   k_thread_create(&comm_thread_data, comm_stack_area,
                   K_THREAD_STACK_SIZEOF(comm_stack_area), comm_thread,
                   (void*)on_signal, NULL, NULL, 0, K_FP_REGS, K_NO_WAIT);
@@ -302,25 +285,14 @@ void comm_error(slice_t source, const char* fmt, ...) {
  * (blocking) Wait until a command become available.
  */
 void comm_wait_for_command() {
-  while (1) {
-    bool avail = false;
-    k_mutex_lock(&rbuf_mutex, K_FOREVER);
-    avail = recv_buffer_num > 0;
-    k_mutex_unlock(&rbuf_mutex);
-
-    if (avail) {
-      return;
-    }
-    // busy waiting is very inefficient, but probably good enough for
-    // interactive use
-    k_sleep(K_MSEC(10));
-  }
+  struct k_poll_event event;
+  k_poll_event_init(&event, K_POLL_TYPE_MSGQ_DATA_AVAILABLE,
+                    K_POLL_MODE_NOTIFY_ONLY, &cmd_msgq);
+  k_poll(&event, 1, K_FOREVER);
 }
 
 void comm_clear_commands() {
-  k_mutex_lock(&rbuf_mutex, K_FOREVER);
-  recv_buffer_num = 0;
-  k_mutex_unlock(&rbuf_mutex);
+  k_msgq_purge(&cmd_msgq);
 }
 
 /**
@@ -331,33 +303,29 @@ void comm_clear_commands() {
  */
 int comm_get_command_if_avail(payload_t* cmd, payload_t* next_cmd) {
   int num;
-  k_mutex_lock(&rbuf_mutex, K_FOREVER);
-  if (recv_buffer_num >= 2) {
+  k_sched_lock();
+  int num_in_q = k_msgq_num_used_get(&cmd_msgq);
+  if (num_in_q >= 2) {
     num = 2;
-    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
-    memcpy(next_cmd, &recv_buffer[recv_buffer_ix_read(1)], sizeof(payload_t));
-
-    recv_buffer_num--;
-  } else if (recv_buffer_num == 1) {
+    k_msgq_peek_at(&cmd_msgq, next_cmd, 1);
+    k_msgq_get(&cmd_msgq, cmd, K_NO_WAIT);
+  } else if (num_in_q == 1) {
     num = 1;
-    memcpy(cmd, &recv_buffer[recv_buffer_ix_read(0)], sizeof(payload_t));
-    recv_buffer_num--;
+    k_msgq_get(&cmd_msgq, cmd, K_NO_WAIT);
   } else {
     num = 0;
   }
-  k_mutex_unlock(&rbuf_mutex);
+  k_sched_unlock();
   return num;
 }
 
 void comm_stat_command_queue(int* num_cap, int* num_used) {
-  k_mutex_lock(&rbuf_mutex, K_FOREVER);
   if (num_cap) {
-    *num_cap = RECV_BUFFER_CAPACITY;
+    *num_cap = COMMAND_QUEUE_CAPACITY;
   }
   if (num_used) {
-    *num_used = recv_buffer_num;
+    *num_used = k_msgq_num_used_get(&cmd_msgq);
   }
-  k_mutex_unlock(&rbuf_mutex);
 }
 
 /**

@@ -170,10 +170,11 @@ static void handle_command(slice_t command, slice_t next_command) {
   }
 }
 
-static void handle_signal(slice_t payload) {
-  if (sl_eq_str(payload, "!")) {
+static void handle_signal(payload_t* payload) {
+  slice_t signal = sl_from_buf(payload->data, payload->size);
+  if (sl_eq_str(signal, "!")) {
     canceler_cancel();
-  } else if (sl_eq_str(payload, "?pos")) {
+  } else if (sl_eq_str(signal, "?pos")) {
     // Print ready with current position
     pos_phys_t machine_pos = motion_get_current_pos();
 
@@ -214,12 +215,12 @@ static void handle_signal(slice_t payload) {
     comm_ps_raw(PS_POS, "%s.x:%.3f %s.y:%.3f %s.z:%.3f %s.c:%.3f >", prefix,
                 (double)cs_pos.x, prefix, (double)cs_pos.y, prefix,
                 (double)cs_pos.z, prefix, (double)(cs_pos.c * 360.0f));
-  } else if (sl_eq_str(payload, "?queue")) {
+  } else if (sl_eq_str(signal, "?queue")) {
     int cap;
     int used;
     comm_stat_command_queue(&cap, &used);
     comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used);
-  } else if (sl_eq_str(payload, "?edm")) {
+  } else if (sl_eq_str(signal, "?edm")) {
     // TODO: these are not thread-safe.
 
     // comm_ps_raw(PS_EDM, "< open:%.1f short:%.1f pb_f:%.3f pb_b:%.3f
