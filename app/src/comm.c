@@ -55,7 +55,7 @@ static void comm_thread(void* p1, void* p2, void* p3) {
       tran_uart_write("\r\n", 2);  // echo new line
 
       while (true) {
-        rx_buf_t payload;
+        line_buf_t payload;
         if (k_msgq_get(&tran_rx_msgq, &payload, K_NO_WAIT) != 0) {
           break;
         }

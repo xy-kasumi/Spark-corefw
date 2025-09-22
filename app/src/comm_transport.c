@@ -10,36 +10,40 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
-// UART device
 static const struct device* uart_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
-K_EVENT_DEFINE(tran_rx_events);
+////////////////////
+// RX (down)
 
 // 2 should be enough.
 // worst case: min valid payload (2 byte -> 20us at 100kbaud/s) coming in.
 // Caller has (RX_QUEUE_CAPACITY - 1) x 20us time to consume the queue.
 #define RX_QUEUE_CAPACITY 2
 
-// RX (down)
-K_MSGQ_DEFINE(tran_rx_msgq, sizeof(rx_buf_t), RX_QUEUE_CAPACITY, 1);
-static rx_buf_t rx_assembly;
+K_EVENT_DEFINE(tran_rx_events);
+// empty (size == 0) data not allowed in tran_rx_msgq
+K_MSGQ_DEFINE(tran_rx_msgq, sizeof(line_buf_t), RX_QUEUE_CAPACITY, 1);
+static line_buf_t rx_assembly;
 
-// TX buffer and state
-static uint8_t tx_buffer[256];
-static K_MUTEX_DEFINE(tx_mutex);
-static volatile int tx_len = 0;
-static volatile int tx_pos = 0;
-static K_SEM_DEFINE(tx_done, 1, 1);
+////////////////////
+// TX (up)
+
+#define TX_QUEUE_CAPACITY 2
+
+// empty (size == 0) data not allowed in tran_tx_msgq
+K_MSGQ_DEFINE(tran_tx_msgq, sizeof(line_buf_t), TX_QUEUE_CAPACITY, 1);
+static line_buf_t tx_sending_buf;
+static int tx_sending_pos = -1;  // -1 if tx_sending_buf is of no use.
 
 // cf. CRC for 100byte is 20~40us.
 // 1 byte transmit is 100us. should not calculate CRC for entire thing in this
 // ISR. incremental CRC will be totally ok.
 
-// UART interrupt handler
+// (ISR) UART interrupt handler
 static void uart_isr(const struct device* dev, void* user_data) {
   uart_irq_update(dev);
 
-  // RX handling - directly into command_buffer
+  // RX
   if (uart_irq_rx_ready(dev)) {
     uint8_t c;
     while (uart_fifo_read(dev, &c, 1) == 1) {
@@ -66,15 +70,27 @@ static void uart_isr(const struct device* dev, void* user_data) {
     }
   }
 
-  // TX handling - from static buffer
-  if (uart_irq_tx_ready(dev) && tx_pos < tx_len) {
-    int to_send = tx_len - tx_pos;
-    int sent = uart_fifo_fill(dev, &tx_buffer[tx_pos], to_send);
-    tx_pos += sent;
+  // TX
+  if (uart_irq_tx_ready(dev)) {
+    if (tx_sending_pos < 0) {
+      if (k_msgq_get(&tran_tx_msgq, &tx_sending_buf, K_NO_WAIT) == 0) {
+        // start sending
+        tx_sending_pos = 0;
+      } else {
+        // nothing to send
+        uart_irq_tx_disable(dev);
+        return;
+      }
+    }
 
-    if (tx_pos >= tx_len) {
-      uart_irq_tx_disable(dev);
-      k_sem_give(&tx_done);
+    if (tx_sending_pos >= 0) {
+      int to_send = tx_sending_buf.size - tx_sending_pos;
+      int sent =
+          uart_fifo_fill(dev, &tx_sending_buf.buf[tx_sending_pos], to_send);
+      tx_sending_pos += sent;
+      if (tx_sending_pos >= tx_sending_buf.size) {
+        tx_sending_pos = -1;
+      }
     }
   }
 }
@@ -84,20 +100,15 @@ void tran_uart_write(const uint8_t* data, int len) {
   if (len > 100) {
     len = 100;
   }
-  k_mutex_lock(&tx_mutex, K_FOREVER);
-  k_sem_take(&tx_done, K_FOREVER);
 
-  // Copy to ISR buffer.
-  memcpy(tx_buffer, data, len);
-  tx_buffer[len] = '\n';
-  tx_len = len + 1;
-  tx_pos = 0;
+  line_buf_t buf;
+  buf.size = len;
+  memcpy(buf.buf, data, len);
+  buf.buf[len] = '\n';
+  buf.size = len + 1;
+
   uart_irq_tx_enable(uart_dev);
-
-  // Wait for completion before releasing mutex
-  k_sem_take(&tx_done, K_FOREVER);
-  k_sem_give(&tx_done);  // Reset for next use
-  k_mutex_unlock(&tx_mutex);
+  k_msgq_put(&tran_tx_msgq, &buf, K_FOREVER);
 }
 
 bool tran_init() {

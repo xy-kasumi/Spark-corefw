@@ -19,6 +19,11 @@
 // payload + 1 (seq) + 4 (hash) + 1 (newline)
 #define LINE_BUFFER_SIZE (PAYLOAD_BUFFER_SIZE + 6)
 
+typedef struct {
+  int size;
+  uint8_t buf[LINE_BUFFER_SIZE];
+} line_buf_t;
+
 // RX event definitions
 extern struct k_event tran_rx_events;
 
@@ -35,10 +40,6 @@ extern struct k_event tran_rx_events;
 #define RX_EVENT_BACKSPACE BIT(1)
 
 // RX buffer
-typedef struct {
-  int size;
-  uint8_t buf[LINE_BUFFER_SIZE];
-} rx_buf_t;
 extern struct k_msgq tran_rx_msgq;
 
 /**
