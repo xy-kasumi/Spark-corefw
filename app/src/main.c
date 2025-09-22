@@ -175,8 +175,9 @@ static void handle_signal(slice_t payload) {
     canceler_cancel();
   } else if (sl_eq_str(payload, "?pos")) {
     // Print ready with current position
-    // TODO: these are not thread-safe.
     pos_phys_t machine_pos = motion_get_current_pos();
+
+    // TODO: these are not thread-safe.
     coord_system_t current_cs = gcode_get_current_coord_system();
     const coord_offsets_t* offsets = gcode_get_coord_offsets();
 
@@ -229,6 +230,9 @@ static void handle_signal(slice_t payload) {
 }
 
 int main() {
+  k_float_enable(k_work_queue_thread_get(&k_sys_work_q), K_FP_REGS);
+  k_float_enable(k_current_get(), K_FP_REGS);
+
   // init core
   canceler_init();
   comm_init(handle_signal);

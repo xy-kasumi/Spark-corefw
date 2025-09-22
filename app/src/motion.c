@@ -17,6 +17,9 @@
 #define MOTOR_Z 2
 #define MOTOR_C 5
 
+// Latest EDM state (written only from ISR, read from various threads)
+ps_edm_t latest_edm_state;
+
 // Motion constants
 static const float VELOCITY_MM_PER_S = 10.0f;
 static const float EDM_INITIAL_VELOCITY_MM_PER_S = 0.5f;  // Start slow for EDM
@@ -144,8 +147,8 @@ static bool stop_at_stall;
 static bool homing;
 static axis_t homing_axis;  // Valid only when homing
 
-// Timer for periodic tick
-static struct k_timer motion_timer;
+// Periodic tick
+static struct k_work_delayable motion_tick_work;
 
 // only called from motion_tick_handler
 static void stop_motion(motion_stop_reason_t reason) {
@@ -156,8 +159,13 @@ static void stop_motion(motion_stop_reason_t reason) {
   state = MOTION_STATE_STOPPED;
 }
 
-static void motion_tick_handler(struct k_timer* timer) {
+// (system workqueue) Periodic motion control
+static void motion_tick_handler(struct k_work* work) {
+  k_work_reschedule(&motion_tick_work, K_MSEC(1));
+
   if (state != MOTION_STATE_MOVING) {
+    latest_edm_state.has_edm_data = false;
+    latest_edm_state.is_moving = false;
     return;
   }
 
@@ -190,6 +198,10 @@ static void motion_tick_handler(struct k_timer* timer) {
     // EDM control logic
     uint8_t open_rate = pulser_get_open_rate();
     uint8_t short_rate = pulser_get_short_rate();
+
+    latest_edm_state.has_edm_data = true;
+    latest_edm_state.r_open = open_rate * (1 / 255.0f);
+    latest_edm_state.r_short = short_rate * (1 / 255.0f);
 
     if (open_rate > 200) {
       // too much open: too far away
@@ -225,16 +237,27 @@ static void motion_tick_handler(struct k_timer* timer) {
 }
 
 bool motion_init() {
-  // Initialize timer for 1ms periodic tick
-  k_timer_init(&motion_timer, motion_tick_handler, NULL);
-  k_timer_start(&motion_timer, K_MSEC(1), K_MSEC(1));
+  k_work_init_delayable(&motion_tick_work, motion_tick_handler);
+  k_work_reschedule(&motion_tick_work, K_MSEC(1));
 
   comm_ps_k_vbool(PS_INIT, "motion.ok", true);
   return true;
 }
 
 pos_phys_t motion_get_current_pos() {
-  return pos;
+  pos_phys_t ret;
+  unsigned int key = irq_lock();
+  ret = pos;
+  irq_unlock(key);
+  return ret;
+}
+
+ps_edm_t motion_get_edm_state() {
+  ps_edm_t ret;
+  unsigned int key = irq_lock();
+  ret = latest_edm_state;
+  irq_unlock(key);
+  return ret;
 }
 
 // Unified internal motion enqueue function

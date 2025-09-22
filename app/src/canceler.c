@@ -7,6 +7,7 @@
 static struct k_timer cancel_timer;
 static bool cancel_needed = false;
 
+// (ISR) Handler to end cancelation window
 static void on_cancel_end(struct k_timer* timer) {
   cancel_needed = false;
 }

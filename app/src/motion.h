@@ -26,6 +26,20 @@ typedef enum {
 } motion_stop_reason_t;
 
 /**
+ * Data for representing "edm" p-state.
+ */
+typedef struct {
+  bool has_edm_data;
+  float r_open;
+  float r_short;
+
+  bool is_moving;
+  float pb_front;
+  float pb_back;
+  float distance;
+} ps_edm_t;
+
+/**
  * (blocking) Initialize motion subsystem.
  */
 bool motion_init();
@@ -68,10 +82,14 @@ bool motion_move_can_enqueue();
 void motion_move_enqueue_pos(pos_phys_t to_pos, bool has_cont);
 
 /**
- * Returns current position in machine coordinates.
- * TODO: must be thread safe for use in signal handler.
+ * Returns current position in machine coordinates. (thread-safe)
  */
 pos_phys_t motion_get_current_pos();
+
+/**
+ * Returns latest edm state. (thread-safe)
+ */
+ps_edm_t motion_get_edm_state();
 
 /** Set how many microsteps are needed for moving the corresponding axis in
  * +1unit (+1 mm or +1 rotation).

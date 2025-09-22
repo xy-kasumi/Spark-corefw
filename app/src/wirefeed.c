@@ -23,10 +23,13 @@ static float current_pos_mm = 0.0f;
 static float feedrate_mm_per_min = 0.0f;
 static float mm_per_tick = 0.0f;  // Calculated from feedrate
 
-// Timer for periodic tick
-static struct k_timer wirefeed_timer;
+// Periodic
+static struct k_work_delayable wirefeed_work;
 
-static void wirefeed_tick_handler(struct k_timer* timer) {
+// (system workqueue) Periodic wirefeed control
+static void wirefeed_tick_handler(struct k_work* work) {
+  k_work_reschedule(&wirefeed_work, K_MSEC(1));
+
   if (canceler_cancel_needed()) {
     wirefeed_stop();
     return;
@@ -46,9 +49,8 @@ static void wirefeed_tick_handler(struct k_timer* timer) {
 }
 
 bool wirefeed_init() {
-  // Initialize timer
-  k_timer_init(&wirefeed_timer, wirefeed_tick_handler, NULL);
-  k_timer_start(&wirefeed_timer, K_MSEC(1), K_MSEC(1));  // 1ms period
+  k_work_init_delayable(&wirefeed_work, wirefeed_tick_handler);
+  k_work_reschedule(&wirefeed_work, K_MSEC(1));
 
   comm_ps_k_vbool(PS_INIT, "wirefeed.ok", true);
   return true;

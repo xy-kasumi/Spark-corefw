@@ -52,7 +52,7 @@ typedef struct {
 
 static motor_step_state_t motor_states[MOTOR_COUNT];
 
-// Helper to ensure motor energization state
+// (ISR context) Helper to ensure motor energization state
 static inline void ensure_energized(motor_step_state_t* motor, bool energize) {
   if (motor->energized != energize) {
     tmc_energize(motor->device, energize);
@@ -60,7 +60,7 @@ static inline void ensure_energized(motor_step_state_t* motor, bool energize) {
   }
 }
 
-// Process step generation for a single motor
+// (ISR context) Process step generation for a single motor
 static void process_motor_step(motor_step_state_t* motor) {
   switch (motor->step_state) {
     case STEP_IDLE:
@@ -111,7 +111,8 @@ static void process_motor_step(motor_step_state_t* motor) {
   }
 }
 
-// Step generation ISR handler: manages step pulses (called every 30us)
+// (ISR context) Step generation handler: manages step pulses (called every
+// 30us)
 static void step_tick_handler(const struct device* dev, void* user_data) {
   for (int i = 0; i < MOTOR_COUNT; i++) {
     process_motor_step(&motor_states[i]);

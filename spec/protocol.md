@@ -235,9 +235,9 @@ Keys
 Keys
 * `open` (float | undef): [0, 1] open time ratio. Undef if data is unavailable (not in EDM mode).
 * `short` (float | undef): [0, 1] short time ratio. Undef if data is unavailable (not in EDM mode).
-* `pb_f` (float): Remaining position buffer length (mm) in forward direction.
-* `pf_b` (float): Remaining position buffer length (mm) in backward direction.
-* `dist` (float): Cumulative distance from current current continuous motion start.
+* `pb_f` (float | undef): Remaining position buffer length (mm) in forward direction. Undef if unavailable (not moving).
+* `pf_b` (float | undef): Remaining position buffer length (mm) in backward direction. Undef if unavailable (not moving).
+* `dist` (float | undef): Cumulative distance from current current continuous motion start. Undef if unavailable (not moving).
 
 #### "init": Event-driven
 `init` reports core initialization status.

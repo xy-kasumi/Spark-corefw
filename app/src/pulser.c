@@ -50,12 +50,7 @@ static edm_poll_entry_t edm_buffer[EDM_BUFFER_SIZE];
 static uint32_t edm_buffer_head = 0;   // Next write position
 static uint32_t edm_buffer_count = 0;  // Number of entries stored
 
-// Work queue for canceling
-static struct k_work edm_cancel_work;
-
-// Work queue for EDM status polling
-static struct k_work edm_poll_work;
-static struct k_timer edm_poll_timer;
+static struct k_work_delayable edm_poll_work;
 
 // Atomic flag to prevent buffer writes during copy
 static atomic_t copying_flag = ATOMIC_INIT(0);
@@ -81,8 +76,17 @@ static bool write_register(uint8_t reg_addr, uint8_t value) {
   return (ret == 0);
 }
 
-// Work handler for EDM status polling (runs in system workqueue)
+// (system workqueue) Work handler for EDM status polling & cancelation.
 static void edm_poll_work_handler(struct k_work* work) {
+  k_work_reschedule(&edm_poll_work, K_MSEC(1));
+  if (!energized) {
+    return;
+  }
+  if (canceler_cancel_needed()) {
+    pulser_deenergize();
+    return;
+  }
+
   // Read REG_CKP_PS
   uint8_t val_ps = 0;
   int ret = i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &val_ps);
@@ -118,26 +122,6 @@ static void edm_poll_work_handler(struct k_work* work) {
   }
 }
 
-// Work handler for canceling EDM (runs in system workqueue)
-static void edm_cancel_work_handler(struct k_work* work) {
-  pulser_deenergize();
-}
-
-// Timer callback - schedules EDM polling work
-static void edm_poll_timer_handler(struct k_timer* timer) {
-  if (!init_success) {
-    return;
-  }
-  if (!energized) {
-    return;
-  }
-  if (canceler_cancel_needed()) {
-    k_work_submit(&edm_cancel_work);
-    return;
-  }
-  k_work_submit(&edm_poll_work);
-}
-
 bool pulser_init() {
   if (!device_is_ready(i2c_dev)) {
     comm_ps_k_vbool(PS_INIT, "pulser.ok", false);
@@ -153,22 +137,18 @@ bool pulser_init() {
     return false;
   }
 
-  // Initialize work item
-  k_work_init(&edm_cancel_work, edm_cancel_work_handler);
-  k_work_init(&edm_poll_work, edm_poll_work_handler);
-
-  // Initialize and start polling timer (1ms period)
-  k_timer_init(&edm_poll_timer, edm_poll_timer_handler, NULL);
-  k_timer_start(&edm_poll_timer, K_MSEC(1), K_MSEC(1));
-
   init_success = true;
+
+  // Initialize work item
+  k_work_init_delayable(&edm_poll_work, edm_poll_work_handler);
+  k_work_reschedule(&edm_poll_work, K_NO_WAIT);
+
   comm_ps_k_vbool(PS_INIT, "pulser.ok", true);
   return true;
 }
 
 void pulser_dump_status() {
   if (!init_success) {
-    // TODO: Maybe we should treat this as command error?
     comm_ps_k_vfmtstr(PS_STAT, "pulser.status", "init failed");
     return;
   }
@@ -215,7 +195,6 @@ void pulser_energize(bool negative,
                      float current_a,
                      float duty_pct) {
   if (!init_success) {
-    // CM:comm_print_err("pulser: energize failed (not initialized)");
     return;
   }
 
