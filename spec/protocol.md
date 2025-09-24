@@ -12,32 +12,33 @@ Simplifying assumptions
   * will never reorder or duplicate data
 * Host has abundant compute & memory
 
-## Terminology
+## Terminology & Syntax
 We use up and down throughout, to denote each direction.
 * "up": "towards human" direction (e.g. core -> host)
 * "down": "from human" direction (e.g. host -> core)
 
+We use [RFC7405](https://datatracker.ietf.org/doc/html/rfc7405) ABNF to describe formats.
+
 ## Transport Layer & Line Contents
 Transport layer is full-duplex. Line is as follows.
+Each `line` is at most 106 byte (10.6ms or less).
 
 ```
 line
-  = payload "\n"
-  | payload seq checksum "\n"
-  | "ack" seq checksum "\n"
+  = payload LF
+  / payload seq checksum LF
+  / %s"ack" seq checksum LF
 
-payload = ?printable characters?
-seq = "*" (* 0 *) | "+" (* 1 *)
-checksum = ?regex [0-9a-f]{4}?
+payload = 1*100VCHAR
+seq = "*" / "+"  ; "*"=0, "+"=1
+checksum = 4HEXDIG
 ```
 
-`payload` cannot be "ack". "\n" is LF (0x0A).
-Implementations SHOULD silently ignore CR (0x0D) present on the channel.
-
-`payload` MUST be 100 byte or less. Making each `line` at most 106 byte (10.6ms or less).
-`payload` SHOULD be ASCII printable characters (0x20 to 0x7e, inclusive). However, implementation MAY use UTF-8.
-
+`payload` cannot be "ack".
 `checksum` is calculated from `payload`+`seq` or "ack"+`seq`, using CRC-16/CCITT-FALSE.
+Senders SHOULD use uppercase for `checksum`.
+
+Implementations SHOULD silently ignore CR (0x0D) present on the channel.
 Receivers MUST silently discard non-conformant or checksum-error lines silently as channel error.
 
 ### Transport Upgrade
@@ -115,21 +116,24 @@ P-state is designed to allow concurrent state reporing to be interleaved.
 
 P-state data format
 ```
-p-state = id [ " <" ] { " " key ":" value } [ " >" ]
+p-state = id [ SP "<" ] *(SP key ":" val) [ SP ">" ]
 
-id = ?regex [A-Za-z0-9_]+?
+key = *(id ".") id
+val
+  = val-bool
+  / val-float
+  / val-hex
+  / val-string
 
-key = id | { id "." } id
-value
-  = "true" | "false"
-  | number-float
-  | number-hex
-  | '"' [{ string-char }] '"'
-
-string-char = ?ascii char other than " or \ or control chars.? | '\\' | '\"'
-
-number-float = ?regex -?[0-9.]+?
-number-hex = ?regex 0x[0-9a-f]+?
+id = ALPHA *(ALPHA / DIGIT / "_")
+val-bool = "true" / "false"
+val-float = ?regex -?[0-9.]+?
+val-hex = "0x" 1*HEXDIG
+val-string = DQUOTE *string-char DQUOTE
+string-char
+  = %0x21 / %0x23-0x5b / %0x5d-7e  ; VCHAR other than " or \
+  / '\\'
+  / '\"'
 ```
 
 P-state value can be bool, float32, uint32, string.
@@ -140,13 +144,7 @@ Valid Examples
 ```
 stg < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3
 stg m.4.microstep:3 m.4.microstep:5 >
-stg <>
-```
-
-Invalid Examples
-```
-stg a > b
-stg < a b > < c d >
+stg < >
 ```
 
 "<" indicates start of a new p-state. ">" indicates completion.
