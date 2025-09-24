@@ -124,11 +124,17 @@ value
   = "true" | "false"
   | number-float
   | number-hex
-  | '"' ?escaped-string? '"'
+  | '"' [{ string-char }] '"'
+
+string-char = ?ascii char other than " or \ or control chars.? | '\\' | '\"'
 
 number-float = ?regex -?[0-9.]+?
 number-hex = ?regex 0x[0-9a-f]+?
 ```
+
+P-state value can be bool, float32, uint32, string.
+uint32 always is `number-hex` format. Other numbers are treated as float32.
+String cannot contain newlines.
 
 Valid Examples
 ```
