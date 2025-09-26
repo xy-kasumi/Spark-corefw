@@ -291,6 +291,7 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
 
   // Initialize path buffer with single segment
   pb_init(&motion_path, &pos, &to_pos);
+  latest_edm_state.distance_max = 0;
 
   // Set movement type and velocity
   movement_type = move_type;
