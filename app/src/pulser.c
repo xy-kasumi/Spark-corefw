@@ -37,24 +37,7 @@ static uint8_t last_r_pulse = 0;
 static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
 
-// Ring buffer for EDM polling data
-#define EDM_BUFFER_SIZE 10000
-
-typedef struct __attribute__((packed)) {
-  uint8_t r_short;
-  uint8_t r_open;
-  uint8_t num_pulse;
-  uint8_t reserved;
-} edm_poll_entry_t;
-
-static edm_poll_entry_t edm_buffer[EDM_BUFFER_SIZE];
-static uint32_t edm_buffer_head = 0;   // Next write position
-static uint32_t edm_buffer_count = 0;  // Number of entries stored
-
 static struct k_work_delayable edm_poll_work;
-
-// Atomic flag to prevent buffer writes during copy
-static atomic_t copying_flag = ATOMIC_INIT(0);
 
 // Read single register from pulser board, returns true on success
 static bool read_register(uint8_t reg_addr, uint8_t* value) {
@@ -110,19 +93,6 @@ static void edm_poll_work_handler(struct k_work* work) {
   last_r_short = ((int)val_s * 255) / 15;
   last_r_open = ((int)(15 - (val_p + val_s)) * 255) / 15;
   poll_count++;
-
-  // Record (r_short, r_open, num_pulse) in ring buffer if not copying
-  if (atomic_get(&copying_flag) == 0) {
-    edm_buffer[edm_buffer_head].r_short = last_r_short;
-    edm_buffer[edm_buffer_head].r_open = last_r_open;
-    edm_buffer[edm_buffer_head].num_pulse = 0;
-    edm_buffer[edm_buffer_head].reserved = 0;
-    edm_buffer_head = (edm_buffer_head + 1) % EDM_BUFFER_SIZE;
-
-    if (edm_buffer_count < EDM_BUFFER_SIZE) {
-      edm_buffer_count++;
-    }
-  }
 }
 
 bool pulser_init() {
@@ -162,8 +132,6 @@ void pulser_dump_status() {
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_pulse", last_r_pulse * (1 / 255.0f));
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_short", last_r_short * (1 / 255.0f));
   comm_ps_k_vfloat(PS_STAT, "pulser.edm.r_open", last_r_open * (1 / 255.0f));
-  comm_ps_k_vint(PS_STAT, "pulser.log.size", edm_buffer_count);
-  comm_ps_k_vint(PS_STAT, "pulser.log.cap", EDM_BUFFER_SIZE);
 
   uint8_t temperature;
   if (read_register(REG_TEMPERATURE, &temperature)) {
@@ -248,40 +216,6 @@ void pulser_deenergize() {
   comm_ps_raw(PS_ERROR, "< pulser.energized:false >");
 }
 
-uint32_t pulser_get_buffer_count() {
-  return edm_buffer_count;
-}
-
-bool pulser_get_buffer_entry(uint32_t index,
-                             uint8_t* r_short,
-                             uint8_t* r_open,
-                             uint8_t* num_pulse) {
-  if (index >= edm_buffer_count) {
-    return false;
-  }
-
-  uint32_t actual_index;
-  if (edm_buffer_count < EDM_BUFFER_SIZE) {
-    // Buffer not full yet, entries are from 0 to edm_buffer_count-1
-    actual_index = index;
-  } else {
-    // Buffer is full, oldest entry is at edm_buffer_head
-    actual_index = (edm_buffer_head + index) % EDM_BUFFER_SIZE;
-  }
-
-  *r_short = edm_buffer[actual_index].r_short;
-  *r_open = edm_buffer[actual_index].r_open;
-  *num_pulse = edm_buffer[actual_index].num_pulse;
-  return true;
-}
-
-void pulser_clear_buffer() {
-  atomic_set(&copying_flag, 1);
-  edm_buffer_head = 0;
-  edm_buffer_count = 0;
-  atomic_set(&copying_flag, 0);
-}
-
 uint8_t pulser_get_short_rate() {
   return last_r_short;
 }
@@ -296,35 +230,4 @@ uint8_t pulser_get_open_rate() {
 
 bool pulser_has_discharge() {
   return (last_r_pulse > 0 || last_r_short > 0);
-}
-
-uint32_t pulser_copy_log_to_buffer(uint8_t* buffer, uint32_t max_size) {
-  // Set copying flag to prevent new writes during copy
-  atomic_set(&copying_flag, 1);
-
-  uint32_t entry_size = sizeof(edm_poll_entry_t);
-  uint32_t max_entries = max_size / entry_size;
-  uint32_t entries_to_copy =
-      (edm_buffer_count < max_entries) ? edm_buffer_count : max_entries;
-
-  for (uint32_t i = 0; i < entries_to_copy; i++) {
-    uint32_t actual_index;
-    if (edm_buffer_count < EDM_BUFFER_SIZE) {
-      actual_index = i;
-    } else {
-      actual_index = (edm_buffer_head + i) % EDM_BUFFER_SIZE;
-    }
-
-    uint8_t* dest = buffer + (i * entry_size);
-    edm_poll_entry_t* src = &edm_buffer[actual_index];
-
-    dest[0] = src->r_short;
-    dest[1] = src->r_open;
-    dest[2] = src->num_pulse;
-    dest[3] = src->reserved;
-  }
-
-  // Clear copying flag to resume writes
-  atomic_set(&copying_flag, 0);
-  return entries_to_copy * entry_size;
 }

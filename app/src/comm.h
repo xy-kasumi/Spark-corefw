@@ -108,13 +108,3 @@ void comm_error(slice_t source, const char* fmt, ...);
                   fname, __LINE__);                                          \
     }                                                                        \
   }
-
-/**
- * (blocking) Print blob as base64 with checksum in one big line.
- *
- * Format: ">blob urlsafe-base64data... adler32hex"
- * Example: {1,2,3,4} outputs ">blob AQIDBA 0018000b"
- * @param ptr pointer to binary data
- * @param size number of bytes to print
- */
-void comm_print_blob(const uint8_t* ptr, int size);

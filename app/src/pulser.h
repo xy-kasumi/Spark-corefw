@@ -55,30 +55,6 @@ uint8_t pulser_get_open_rate();
 bool pulser_has_discharge();
 
 /**
- * Get number of entries currently stored in EDM buffer
- * @return number of entries (0 to 10000)
- */
-uint32_t pulser_get_buffer_count();
-
-/**
- * Get EDM polling data entry from buffer
- * @param index entry index (0 = oldest entry still in buffer)
- * @param r_short pointer to store r_short value
- * @param r_open pointer to store r_open value
- * @param num_pulse pointer to store num_pulse value
- * @return true if entry exists, false if index out of range
- */
-bool pulser_get_buffer_entry(uint32_t index,
-                             uint8_t* r_short,
-                             uint8_t* r_open,
-                             uint8_t* num_pulse);
-
-/**
- * Clear all entries from EDM buffer
- */
-void pulser_clear_buffer();
-
-/**
  * Copy EDM buffer data to download buffer
  * @param buffer destination buffer
  * @param max_size maximum size of destination buffer

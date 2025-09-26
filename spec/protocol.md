@@ -190,9 +190,6 @@ Get all setting entries. See settings.md for list of settings.
 Dump software & hardware internal status useful for debugging the firmware or hardware.
 Unlike "?" signal which responds immediately, stat can take time to query peripherals, run self-check etc.
 
-#### "download": Download Latest Available Data
-Download latest available log data.
-
 #### "test": Execute Hardware Tests
 Execute potentially unsafe operation to test the hardware.
 See main.c for details.
@@ -280,10 +277,3 @@ Keys
 * `msg`: human-readable error
 
 Note checksum errors are handled by lower-layer, and *not* reported as "error".
-
-#### "blob": Command-driven
-`blob` reports a single blob.
-
-* `0`,`1`,...: N-th payload (urlsafe base64 w/o "=")
-
-Must be concatenated to form a single blob.

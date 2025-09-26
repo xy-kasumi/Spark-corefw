@@ -20,9 +20,6 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 
-static uint8_t download_buffer[40000];
-static uint32_t download_buffer_size = 0;
-
 // Command: gcode
 static void cmd_gcode(slice_t full_command, slice_t maybe_next_command) {
   exec_gcode(full_command, maybe_next_command);
@@ -93,20 +90,6 @@ static void cmd_stat(slice_t command, slice_t args) {
   comm_ps_end(PS_STAT);
 }
 
-// Command: download
-static void cmd_download(slice_t command, slice_t args) {
-  // Copy EDM log data to download buffer
-  download_buffer_size =
-      pulser_copy_log_to_buffer(download_buffer, sizeof(download_buffer));
-
-  if (download_buffer_size == 0) {
-    comm_error(command, "no data");
-    return;
-  }
-
-  comm_print_blob(download_buffer, download_buffer_size);
-}
-
 // Command: test
 static void cmd_test(slice_t command, slice_t args) {
   if (sl_is_empty(args)) {
@@ -160,8 +143,6 @@ static void handle_command(slice_t command, slice_t next_command) {
       cmd_set(command, args);
     } else if (sl_eq_str(cmd, "get")) {
       cmd_get(command, args);
-    } else if (sl_eq_str(cmd, "download")) {
-      cmd_download(command, args);
     } else if (sl_eq_str(cmd, "test")) {
       cmd_test(command, args);
     } else {
