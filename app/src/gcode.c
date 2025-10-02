@@ -20,6 +20,11 @@ static bool last_has_cont = false;
 static coord_system_t current_coord_system = COORD_SYSTEM_MACHINE;
 static coord_offsets_t coord_offsets = {0};
 
+// Last target position specified by G-code, in current_coord_system.
+// Not available when canceled.
+static bool last_target_avail = true;
+static pos_phys_t last_target;
+
 // Home phase configuration (pushed from settings) - X, Y, Z only
 static int home_phases[3] = {0, 0, 0};
 
@@ -47,6 +52,89 @@ static int compare_axis_phase(const void* a, const void* b) {
   return axis_a->phase - axis_b->phase;
 }
 
+// Get "base pos" in current_coord_system.
+// This is used for partial commands like "G1 X10" to get other axes values.
+static pos_phys_t get_base_pos() {
+  if (last_target_avail) {
+    return last_target;
+  } else {
+    pos_phys_t machine_pos = motion_get_current_pos();
+    return coords_from_machine(&machine_pos, current_coord_system,
+                               &coord_offsets);
+  }
+}
+
+/**
+ * Validate whether block has valid move (e.g. G0, G1, G38.2) specification
+ * parameters.
+ * @returns true if valid, false if invalid. If invalid, comm_error() will be
+ * called.
+ */
+static bool validate_move_spec(slice_t block, const gcode_parsed_t* parsed) {
+  if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
+      parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
+    comm_error(block, "missing axis value");
+    return false;
+  }
+  if (parsed->x_state == AXIS_NOT_SPECIFIED &&
+      parsed->y_state == AXIS_NOT_SPECIFIED &&
+      parsed->z_state == AXIS_NOT_SPECIFIED &&
+      parsed->c_state == AXIS_NOT_SPECIFIED) {
+    comm_error(block, "1 or more axes needed");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Get move target position. Does not update last_target or last_target_avail.
+ *
+ * @param parsed must be validated by validate_move_spec() first.
+ * @returns target position in current_coord_system.
+ */
+static pos_phys_t get_move_target(const gcode_parsed_t* parsed) {
+  pos_phys_t target_pos = get_base_pos();
+  if (parsed->x_state == AXIS_WITH_VALUE) {
+    target_pos.x = parsed->x;
+  }
+  if (parsed->y_state == AXIS_WITH_VALUE) {
+    target_pos.y = parsed->y;
+  }
+  if (parsed->z_state == AXIS_WITH_VALUE) {
+    target_pos.z = parsed->z;
+  }
+  if (parsed->c_state == AXIS_WITH_VALUE) {
+    target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
+  }
+  return target_pos;
+}
+
+/**
+ * Prepares a move command. If ok, last_target will be updated.
+ *
+ * @param block context of this command
+ * @param parsed non-validated g-code
+ * @param pos_machine output target position in machine coordinates
+ * @returns true if valid, false if invalid. If invalid, comm_error() will be
+ * called.
+ */
+static bool prepare_move(slice_t block,
+                         const gcode_parsed_t* parsed,
+                         pos_phys_t* pos_machine) {
+  if (!validate_move_spec(block, parsed)) {
+    return false;
+  }
+  pos_phys_t targ = get_move_target(parsed);
+  pos_phys_t targ_machine =
+      coords_to_machine(&targ, current_coord_system, &coord_offsets);
+
+  last_target = targ;
+  last_target_avail = true;
+  *pos_machine = targ_machine;
+
+  return true;
+}
+
 // Get axes sorted by home phase (lower phase = earlier)
 static void get_home_order(axis_t result[3]) {
   axis_phase_t axes[3] = {{AXIS_X, home_phases[AXIS_X]},
@@ -60,124 +148,58 @@ static void get_home_order(axis_t result[3]) {
   }
 }
 
+/**
+ * Wait until current "move" command ends.
+ * End means either:
+ * - canceled
+ * - (if !cont_next)reached end condition
+ * - (if cont_next) motion queue become available for next write.
+ */
+static void wait_move_command_end(bool cont_next) {
+  while (!canceler_cancel_needed()) {
+    if (cont_next) {
+      if (motion_move_can_enqueue()) {
+        break;
+      }
+    } else {
+      if (motion_is_stopped(NULL)) {
+        break;
+      }
+    }
+    k_sleep(K_MSEC(10));
+  }
+
+  if (!cont_next) {
+    pulser_deenergize();
+  }
+}
+
 static void exec_gcode_cmd(slice_t block,
                            const gcode_parsed_t* parsed,
                            bool cont_prev,
                            bool cont_next) {
   if (parsed->code == 0 && parsed->sub_code == -1) {
     // G0 - rapid positioning
-    // Validate: requires AXIS_WITH_VALUE, not AXIS_ONLY, and at least one axis
-    if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
-        parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
-      comm_error(block, "missing axis value");
+    pos_phys_t targ_machine;
+    if (!prepare_move(block, parsed, &targ_machine)) {
       return;
     }
-    if (parsed->x_state == AXIS_NOT_SPECIFIED &&
-        parsed->y_state == AXIS_NOT_SPECIFIED &&
-        parsed->z_state == AXIS_NOT_SPECIFIED &&
-        parsed->c_state == AXIS_NOT_SPECIFIED) {
-      comm_error(block, "1 or more axes needed");
-      return;
-    }
-
-    // Execute: move to specified coordinates
-    // Get current position in machine coordinates
-    pos_phys_t machine_pos = motion_get_current_pos();
-    // Convert to current coordinate system for updating
-    pos_phys_t target_pos =
-        coords_from_machine(&machine_pos, current_coord_system, &coord_offsets);
-
-    // Update with parsed values
-    if (parsed->x_state == AXIS_WITH_VALUE) {
-      target_pos.x = parsed->x;
-    }
-    if (parsed->y_state == AXIS_WITH_VALUE) {
-      target_pos.y = parsed->y;
-    }
-    if (parsed->z_state == AXIS_WITH_VALUE) {
-      target_pos.z = parsed->z;
-    }
-    if (parsed->c_state == AXIS_WITH_VALUE) {
-      target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
-    }
-
-    // Convert back to machine coordinates for motion system
-    pos_phys_t machine_target =
-        coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
-
-    motion_start_fast_move(machine_target);
-
-    while (true) {
-      if (canceler_cancel_needed()) {
-        pulser_deenergize();
-        break;
-      }
-      if (motion_is_stopped(NULL)) {
-        pulser_deenergize();
-        break;
-      }
-      k_sleep(K_MSEC(10));
-    }
+    motion_start_fast_move(targ_machine);
+    wait_move_command_end(cont_next);
   } else if (parsed->code == 1 && parsed->sub_code == -1) {
     // G1 - controlled EDM move
-    // Same validation as G0
-    if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
-        parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
-      comm_error(block, "missing axis value");
+    pos_phys_t targ_machine;
+    if (!prepare_move(block, parsed, &targ_machine)) {
       return;
     }
-    if (parsed->x_state == AXIS_NOT_SPECIFIED &&
-        parsed->y_state == AXIS_NOT_SPECIFIED &&
-        parsed->z_state == AXIS_NOT_SPECIFIED &&
-        parsed->c_state == AXIS_NOT_SPECIFIED) {
-      comm_error(block, "1 or more axes needed");
-      return;
-    }
-
-    // Execute: EDM move to specified coordinates
-    // Get current position in machine coordinates
-    pos_phys_t machine_pos = motion_get_current_pos();
-    // Convert to current coordinate system for updating
-    pos_phys_t target_pos =
-        coords_from_machine(&machine_pos, current_coord_system, &coord_offsets);
-
-    // Update with parsed values
-    if (parsed->x_state == AXIS_WITH_VALUE) {
-      target_pos.x = parsed->x;
-    }
-    if (parsed->y_state == AXIS_WITH_VALUE) {
-      target_pos.y = parsed->y;
-    }
-    if (parsed->z_state == AXIS_WITH_VALUE) {
-      target_pos.z = parsed->z;
-    }
-    if (parsed->c_state == AXIS_WITH_VALUE) {
-      target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
-    }
-
-    // Convert back to machine coordinates for motion system
-    pos_phys_t machine_target =
-        coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
-
     if (cont_prev) {
-      motion_move_enqueue_pos(machine_target, cont_next);
+      motion_move_enqueue_pos(targ_machine, cont_next);
     } else {
       pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
                       pulser_config.current_a, pulser_config.duty_pct);
-      motion_start_edm_move(machine_target, cont_next);
+      motion_start_edm_move(targ_machine, cont_next);
     }
-
-    // Wait until next g-code block become executable.
-    if (cont_next) {
-      while (!canceler_cancel_needed() && !motion_move_can_enqueue()) {
-        k_sleep(K_MSEC(10));
-      }
-    } else {
-      while (!canceler_cancel_needed() && !motion_is_stopped(NULL)) {
-        k_sleep(K_MSEC(10));
-      }
-      pulser_deenergize();
-    }
+    wait_move_command_end(cont_next);
   } else if (parsed->code == 28 && parsed->sub_code == -1) {
     // G28 - homing
     // Validate: no axis specified (home all) or exactly one axis (X, Y, Z only)
@@ -218,55 +240,15 @@ static void exec_gcode_cmd(slice_t block,
       comm_error(block, "too many axes");
     }
   } else if (parsed->code == 38 && parsed->sub_code == 3) {
-    // G38.3 - probe towards target, no error
-    // Same validation as G0/G1
-    if (parsed->x_state == AXIS_ONLY || parsed->y_state == AXIS_ONLY ||
-        parsed->z_state == AXIS_ONLY || parsed->c_state == AXIS_ONLY) {
-      comm_error(block, "missing axis value");
+    // G38.3 - probe towards target, no error when not found.
+    pos_phys_t targ_machine;
+    if (!prepare_move(block, parsed, &targ_machine)) {
       return;
     }
-    if (parsed->x_state == AXIS_NOT_SPECIFIED &&
-        parsed->y_state == AXIS_NOT_SPECIFIED &&
-        parsed->z_state == AXIS_NOT_SPECIFIED &&
-        parsed->c_state == AXIS_NOT_SPECIFIED) {
-      comm_error(block, "1 or more axes needed");
-      return;
-    }
-
-    // Execute: probe move to specified coordinates
-    // Get current position in machine coordinates
-    pos_phys_t machine_pos = motion_get_current_pos();
-    // Convert to current coordinate system for updating
-    pos_phys_t target_pos =
-        coords_from_machine(&machine_pos, current_coord_system, &coord_offsets);
-
-    // Update with parsed values
-    if (parsed->x_state == AXIS_WITH_VALUE) {
-      target_pos.x = parsed->x;
-    }
-    if (parsed->y_state == AXIS_WITH_VALUE) {
-      target_pos.y = parsed->y;
-    }
-    if (parsed->z_state == AXIS_WITH_VALUE) {
-      target_pos.z = parsed->z;
-    }
-    if (parsed->c_state == AXIS_WITH_VALUE) {
-      target_pos.c = parsed->c / 360.0f;  // Convert degrees to turns
-    }
-
-    // Convert back to machine coordinates for motion system
-    pos_phys_t machine_target =
-        coords_to_machine(&target_pos, current_coord_system, &coord_offsets);
-
-    // Energize pulser with current config (configured or defaults)
     pulser_energize(pulser_config.tool_negative, pulser_config.pulse_us,
                     pulser_config.current_a, pulser_config.duty_pct);
-
-    motion_start_probe_move(machine_target);
-    while (!canceler_cancel_needed() && !motion_is_stopped(NULL)) {
-      k_sleep(K_MSEC(10));
-    }
-    pulser_deenergize();
+    motion_start_probe_move(targ_machine);
+    wait_move_command_end(cont_next);
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
     current_coord_system = COORD_SYSTEM_MACHINE;
   } else if (parsed->code == 54 && parsed->sub_code == -1) {
@@ -280,27 +262,28 @@ static void exec_gcode_cmd(slice_t block,
   }
 }
 
+/**
+ * Compute pulser_config_t from M3/M4 parameters.
+ */
+static pulser_config_t decode_pulser_params(bool tool_negative,
+                                            const gcode_parsed_t* parsed) {
+  pulser_config_t conf;
+  conf.tool_negative = tool_negative;
+  conf.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
+                      ? parsed->p
+                      : 500.0f;  // Default 500us
+  conf.current_a =
+      (parsed->q_state == PARAM_SPECIFIED) ? parsed->q : 1.0f;  // Default 1A
+  conf.duty_pct =
+      (parsed->r_state == PARAM_SPECIFIED) ? parsed->r : 25.0f;  // Default 25%
+  return conf;
+}
+
 static void exec_mcode_cmd(slice_t block, const gcode_parsed_t* parsed) {
   if (parsed->code == 3 && parsed->sub_code == -1) {
-    pulser_config.tool_negative = true;
-    pulser_config.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
-                                 ? parsed->p
-                                 : 500.0f;  // Default 500us
-    pulser_config.current_a =
-        (parsed->q_state == PARAM_SPECIFIED) ? parsed->q : 1.0f;  // Default 1A
-    pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
-                                 ? parsed->r
-                                 : 25.0f;  // Default 25%
+    pulser_config = decode_pulser_params(true, parsed);
   } else if (parsed->code == 4 && parsed->sub_code == -1) {
-    pulser_config.tool_negative = false;
-    pulser_config.pulse_us = (parsed->p_state == PARAM_SPECIFIED)
-                                 ? parsed->p
-                                 : 500.0f;  // Default 500us
-    pulser_config.current_a =
-        (parsed->q_state == PARAM_SPECIFIED) ? parsed->q : 1.0f;  // Default 1A
-    pulser_config.duty_pct = (parsed->r_state == PARAM_SPECIFIED)
-                                 ? parsed->r
-                                 : 25.0f;  // Default 25%
+    pulser_config = decode_pulser_params(false, parsed);
   } else if (parsed->code == 10 && parsed->sub_code == -1) {
     // M10 - Start wire feeding
     if (parsed->r_state != PARAM_SPECIFIED) {
@@ -317,8 +300,13 @@ static void exec_mcode_cmd(slice_t block, const gcode_parsed_t* parsed) {
   } else if (parsed->code == 61 && parsed->sub_code == -1) {
     set_tool_supply_state(TOOL_SUPPLY_CLOSED);
   } else {
-    comm_error(block, "unknown M-cpde");
+    comm_error(block, "unknown M-code");
   }
+}
+
+static bool is_g1(const gcode_parsed_t* parsed) {
+  return (parsed->cmd_type == CMD_TYPE_G && parsed->code == 1 &&
+          parsed->sub_code == -1);
 }
 
 void exec_gcode(slice_t block, slice_t maybe_next_block) {
@@ -329,17 +317,11 @@ void exec_gcode(slice_t block, slice_t maybe_next_block) {
   }
 
   // Detect continuation condition.
-  // Only continuation for now is G1->G1.
   bool cont_next = false;
   if (!sl_is_empty(maybe_next_block)) {
     gcode_parsed_t parsed_next;
     if (parse_gcode(maybe_next_block, &parsed_next)) {
-      if (parsed.cmd_type == CMD_TYPE_G && parsed_next.cmd_type == CMD_TYPE_G) {
-        if ((parsed.code == 1 && parsed.sub_code == -1) &&
-            (parsed_next.code == 1 && parsed_next.sub_code == -1)) {
-          cont_next = true;
-        }
-      }
+      cont_next = is_g1(&parsed) && is_g1(&parsed_next);
     }
   }
 
@@ -351,6 +333,7 @@ void exec_gcode(slice_t block, slice_t maybe_next_block) {
 
   if (canceler_cancel_needed()) {
     last_has_cont = false;
+    last_target_avail = false;
   } else {
     last_has_cont = cont_next;
   }
