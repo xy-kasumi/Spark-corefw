@@ -20,6 +20,8 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 
+static bool command_running = false;
+
 // Command: gcode
 static void cmd_gcode(slice_t full_command, slice_t maybe_next_command) {
   exec_gcode(full_command, maybe_next_command);
@@ -200,7 +202,8 @@ static void handle_signal(payload_t* payload) {
     int cap;
     int used;
     comm_stat_command_queue(&cap, &used);
-    comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used);
+    int num_executing = command_running ? 1 : 0;
+    comm_ps_raw(PS_QUEUE, "< cap:%d num:%d >", cap, used + num_executing);
   } else if (sl_eq_str(signal, "?edm")) {
     ps_edm_t edm = motion_get_edm_state();
     comm_ps_begin(PS_EDM);
@@ -278,9 +281,11 @@ int main() {
         // comm_clear_commands() was called or queue exhausted
         break;
       }
+      command_running = true;
       handle_command(sl_from_buf(cmd.data, cmd.size),
                      num_avail >= 2 ? sl_from_buf(next_cmd.data, next_cmd.size)
                                     : sl_empty());
+      command_running = false;
     }
   }
 

@@ -211,7 +211,9 @@ Host SHOULD query queue fast enough to achieve 75% fill rate (= num / cap) for s
 
 Keys
 * `cap`: total capacity of the queue
-* `num`: number of items in the queue
+* `num`: number of items in the queue, including currently running commands
+
+`num == 0` means that the core is idle.
 
 Example
 ```
