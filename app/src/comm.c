@@ -12,11 +12,11 @@
 ////////////////////
 // RX (down): commands (signals are immediately handled)
 
-// big enough to hold 1 sec of commands
+// big enough to hold 5 sec of commands
 // 100 byte line takes 10ms at 100kbaud/s.
 // NOTE: command that instantly finishes always starves the queue, though. it's
 // up to the host to make commands "big" enough.
-#define COMMAND_QUEUE_CAPACITY 100
+#define COMMAND_QUEUE_CAPACITY 500
 
 K_MSGQ_DEFINE(cmd_msgq, sizeof(payload_t), COMMAND_QUEUE_CAPACITY, 1);
 
