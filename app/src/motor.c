@@ -241,7 +241,7 @@ void motor_dump_status() {
     if (ret < 0) {
       comm_ps_raw(PS_STAT, "mot%d.driver:\"error\"");
     } else {
-      comm_ps_raw(PS_STAT, "mot%d.driver:%s", i, buf.driver_name);
+      comm_ps_raw(PS_STAT, "mot%d.driver:\"%s\"", i, buf.driver_name);
       for (int j = 0; j < buf.num_regs; j++) {
         comm_ps_raw(PS_STAT, "mot%d.driver.%s:0x%08x", i, buf.regs[j].name,
                     buf.regs[j].value);
