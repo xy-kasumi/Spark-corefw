@@ -37,27 +37,32 @@ G-code, the firmware, and the software should be flexible enough to allow differ
 
 
 ## Syntax Difference from RS-274/NGC
+Core G-code syntax resembles that of [Marlin](https://marlinfw.org/meta/gcode/).
+We don't support multiple G or M codes in single line, and treat `;` as the beginning of comment in the line.
+
+### Coordinate Systems
+Codes "G53", "G54", "G55", "G56" works by changing coordinate systems of the blocks that follows.
+
+Core does not support syntax like `G54 G0 Y10`. Instead, valid example would be:
+```
+G54
+G0 Y10
+```
+
+`G54` changes coordinate system to "grinder coordinate system".
+Thus, `G0 Y10` is interpreted in grinder coordinates.
+All following commands are interpreted in the grinder coordinates,
+until further coordinate system change.
+
+### Comments
 `;` is just a comment initiator. No distinction between line and "block".
 In the following G-code, ` G1 X1` part after `;` is just a comment.
 ```
 G0 X0 ; G1 X1
 ```
 
-We don't support multiple G or M codes in single line.
-
-Valid Example using multiple coordinate systems
-```
-G54
-G0 Y10
-G53
-G0 X10
-G54
-```
-Invalid Example
-```
-G54 G0 Y10
-G53 G0 X10
-```
+Although comments is allowed in G-code notations, core firmware does NOT handle it.
+Sender must not send comments or empty lines.
 
 ## Supported G-codes
 
