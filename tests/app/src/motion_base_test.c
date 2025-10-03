@@ -106,6 +106,30 @@ ZTEST(motion_base, test_pb_write_and_traverse) {
                    "X must be middle of p2-p3 segment");
   zassert_within_f(pos.y, 0.5f, EDM_RESOLUTION_MM + 1e-4f,
                    "Y must be middle of p2-p3 segment");
+  zassert_false(pb_at_end(&pb), "not ended yet (1.5 of 2.0)");
+
+  // Complete the move
+  pb_move(&pb, 0.5f);
+  zassert_true(pb_at_end(&pb), "must be ended (2.0 of 2.0)");
+}
+
+ZTEST(motion_base, test_pb_write_check_middle) {
+  path_buffer_t pb;
+  pos_phys_t p1 = {0, 0, 0};
+  pos_phys_t p2 = {1, 0, 0};
+  pos_phys_t p3 = {1, 1, 0};  // L-shaped path
+
+  pb_init(&pb, &p1, &p2);
+
+  zassert_true(pb_can_write(&pb), "Should be able to write to non-end segment");
+  pb_write(&pb, &p3);
+
+  // Move to p2
+  pb_move(&pb, 1.0f);
+  pos_phys_t pos = pb_get_pos(&pb);
+  zassert_within_f(pos.x, 1.0f, EDM_RESOLUTION_MM + 1e-4f, "X must be p2");
+  zassert_within_f(pos.y, 0.0f, EDM_RESOLUTION_MM + 1e-4f, "Y must be p2");
+  zassert_false(pb_at_end(&pb), "not ended yet (1.0 of 2.0)");
 }
 
 ZTEST(motion_base, test_pb_write_buffer_full) {

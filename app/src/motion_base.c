@@ -26,9 +26,10 @@ bool pb_at_end(const path_buffer_t* pb) {
     return false;
   }
 
-  // TODO: this is ok, but might not be consistent.
   const pos_phys_t* curr = &pb->pos_history[pb->ix_history];
-  return posp_dist(curr, &pb->curr_seg_dst) <= EDM_RESOLUTION_MM;
+  const pos_phys_t* end =
+      pb->next_seg_avail ? &pb->next_pos : &pb->curr_seg_dst;
+  return posp_dist(curr, end) <= EDM_RESOLUTION_MM;
 }
 
 bool pb_can_write(const path_buffer_t* pb) {
