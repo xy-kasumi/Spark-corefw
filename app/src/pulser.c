@@ -196,7 +196,6 @@ void pulser_energize(bool negative,
   }
 
   energized = true;
-  comm_ps_raw(PS_ERROR, "< pulser.energized:true >");
 }
 
 void pulser_deenergize() {
@@ -212,8 +211,6 @@ void pulser_deenergize() {
     // CM:comm_print_err("pulser: deenergize failed (I2C write failed)");
     return;
   }
-
-  comm_ps_raw(PS_ERROR, "< pulser.energized:false >");
 }
 
 uint8_t pulser_get_short_rate() {
