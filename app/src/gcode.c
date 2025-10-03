@@ -109,6 +109,15 @@ static pos_phys_t get_move_target(const gcode_parsed_t* parsed) {
   return target_pos;
 }
 
+static void change_coordsys(coord_system_t new_cs) {
+  if (last_target_avail) {
+    pos_phys_t targ_machine =
+        coords_to_machine(&last_target, current_coord_system, &coord_offsets);
+    last_target = coords_from_machine(&targ_machine, new_cs, &coord_offsets);
+  }
+  current_coord_system = new_cs;
+}
+
 /**
  * Prepares a move command. If ok, last_target will be updated.
  *
@@ -250,13 +259,13 @@ static void exec_gcode_cmd(slice_t block,
     motion_start_probe_move(targ_machine);
     wait_move_command_end(cont_next);
   } else if (parsed->code == 53 && parsed->sub_code == -1) {
-    current_coord_system = COORD_SYSTEM_MACHINE;
+    change_coordsys(COORD_SYSTEM_MACHINE);
   } else if (parsed->code == 54 && parsed->sub_code == -1) {
-    current_coord_system = COORD_SYSTEM_GRINDER;
+    change_coordsys(COORD_SYSTEM_GRINDER);
   } else if (parsed->code == 55 && parsed->sub_code == -1) {
-    current_coord_system = COORD_SYSTEM_WORK;
+    change_coordsys(COORD_SYSTEM_WORK);
   } else if (parsed->code == 56 && parsed->sub_code == -1) {
-    current_coord_system = COORD_SYSTEM_TOOLSUPPLY;
+    change_coordsys(COORD_SYSTEM_TOOLSUPPLY);
   } else {
     comm_error(block, "unknown G-code");
   }
