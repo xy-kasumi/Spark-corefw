@@ -23,7 +23,7 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 	* valid: >= 0, - 1
 	* when >= 0: enable stall detection (lower value: more load needed for stall detection)
 	* when -1: disable stall detection
-* **unitsteps** Fullsteps for moving +1 unit (1 mm or 1 rotation)
+* **unitsteps** Microsteps for moving +1 unit (1 mm or 1 rotation)
 	* valid: != 0
 	* negative values are allowed (invert direction)
 * **current** Motor current
