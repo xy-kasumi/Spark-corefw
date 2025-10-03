@@ -377,18 +377,23 @@ void motion_start_home(axis_t axis) {
 }
 
 bool motion_move_can_enqueue() {
-  return pb_can_write(&motion_path);
+  unsigned int key = irq_lock();
+  bool can_enqueue = pb_can_write(&motion_path);
+  irq_unlock(key);
+  return can_enqueue;
 }
 
 void motion_move_enqueue_pos(pos_phys_t to_pos, bool has_cont) {
-  if (!pb_can_write(&motion_path)) {
-    // should not happen
-    return;
-  }
+  unsigned int key = irq_lock();
   if (!has_cont) {
     stop_at_end = true;
   }
-  pb_write(&motion_path, &to_pos);
+  if (pb_can_write(&motion_path)) {
+    pb_write(&motion_path, &to_pos);
+  } else {
+    // shouldn't happen
+  }
+  irq_unlock(key);
 }
 
 bool motion_is_stopped(motion_stop_reason_t* reason) {
