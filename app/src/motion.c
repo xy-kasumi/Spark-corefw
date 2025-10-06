@@ -403,11 +403,8 @@ void motion_move_enqueue_pos(pos_phys_t to_pos, bool has_cont) {
   if (!has_cont) {
     stop_conditions |= STOP_REASON_TARGET;
   }
-  if (pb_can_write(&motion_path)) {
-    pb_write(&motion_path, &to_pos);
-  } else {
-    // shouldn't happen
-  }
+  comm_assert(pb_can_write(&motion_path));
+  pb_write(&motion_path, &to_pos);
   irq_unlock(key);
 }
 

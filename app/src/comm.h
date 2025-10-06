@@ -96,9 +96,10 @@ void comm_ps_k_vbool(ps_type_t ps, const char* key, bool value);
 /** Finish the partial state. */
 void comm_ps_end(ps_type_t ps);
 
-/** (blocking) Print error message. */
+/** Print error message. */
 void comm_error(slice_t source, const char* fmt, ...);
 
+/** Assert that cond is true, and print error otherwise. Non-blocking unless too many errors occur at once. */
 #define comm_assert(cond)                                                    \
   {                                                                          \
     if (!(cond)) {                                                           \
