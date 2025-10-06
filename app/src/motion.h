@@ -16,13 +16,15 @@ typedef enum {
 } motion_state_t;
 
 /**
- * Represents why motion stopped.
+ * Represents why motion stops (bitmask).
+ * Can be OR-ed together to specify multiple stop conditions.
+ * When STOP_REASON_NONE, only cancel can stop the motion.
  */
 typedef enum {
-  STOP_REASON_TARGET_REACHED,
-  STOP_REASON_PROBE_TRIGGERED,
-  STOP_REASON_STALL_DETECTED,
-  STOP_REASON_CANCELLED,  // Stopped due to cancel request
+  STOP_REASON_NONE = 0,           // No stop conditions
+  STOP_REASON_TARGET = (1 << 0),  // Stop at target position
+  STOP_REASON_PROBE = (1 << 1),   // Stop when probe triggers
+  STOP_REASON_STALL = (1 << 2),   // Stop when motor stalls
 } motion_stop_reason_t;
 
 /**
