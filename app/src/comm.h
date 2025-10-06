@@ -99,7 +99,8 @@ void comm_ps_end(ps_type_t ps);
 /** Print error message. */
 void comm_error(slice_t source, const char* fmt, ...);
 
-/** Assert that cond is true, and print error otherwise. Non-blocking unless too many errors occur at once. */
+/** Assert that cond is true, and print error otherwise. Non-blocking unless too
+ * many errors occur at once. */
 #define comm_assert(cond)                                                    \
   {                                                                          \
     if (!(cond)) {                                                           \

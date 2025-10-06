@@ -32,7 +32,7 @@ static uint32_t num_i2c_fail = 0;
 
 static bool energized = false;
 
-// EDM state from latest poll
+// EDM state from latest poll (255 is 100%)
 static uint8_t last_r_pulse = 0;
 static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
@@ -58,6 +58,23 @@ static bool write_register(uint8_t reg_addr, uint8_t value) {
 
   int ret = i2c_reg_write_byte(i2c_dev, PULSER_I2C_ADDR, reg_addr, value);
   return (ret == 0);
+}
+
+/**
+ * Loop several times until register write succeeds.
+ * Critical error if all of them failed.
+ */
+static void write_register_with_retry(uint8_t reg_addr, uint8_t value) {
+  for (int i = 0; i < 5; i++) {
+    if (write_register(reg_addr, value)) {
+      return;
+    } else {
+      num_i2c_fail++;
+      k_sleep(K_MSEC(1));
+    }
+  }
+  comm_error(sl_empty(), "pulser I2C failure, state unknown (critical)");
+  init_success = false;
 }
 
 // (system workqueue) Work handler for EDM status polling & cancelation.
@@ -184,17 +201,10 @@ void pulser_energize(bool negative,
   }
 
   // Write registers
-  bool all_ok = true;
-  all_ok &= write_register(REG_PULSE_CURRENT, pulse_current_100ma);
-  all_ok &= write_register(REG_PULSE_DUR, pulse_dur_10us);
-  all_ok &= write_register(REG_MAX_DUTY, pulse_duty_pct);
-  all_ok &= write_register(REG_POLARITY, polarity);
-
-  if (!all_ok) {
-    // CM:comm_print_err("pulser: energize failed (I2C write failed)");
-    return;
-  }
-
+  write_register_with_retry(REG_PULSE_CURRENT, pulse_current_100ma);
+  write_register_with_retry(REG_PULSE_DUR, pulse_dur_10us);
+  write_register_with_retry(REG_MAX_DUTY, pulse_duty_pct);
+  write_register_with_retry(REG_POLARITY, polarity);
   energized = true;
 }
 
@@ -204,13 +214,12 @@ void pulser_deenergize() {
   }
 
   energized = false;
+  last_r_pulse = 0;
+  last_r_short = 0;
+  last_r_open = 255;
 
   // Write polarity register to off
-  bool ok = write_register(REG_POLARITY, 0);
-  if (!ok) {
-    // CM:comm_print_err("pulser: deenergize failed (I2C write failed)");
-    return;
-  }
+  write_register_with_retry(REG_POLARITY, 0);
 }
 
 uint8_t pulser_get_short_rate() {
