@@ -48,6 +48,11 @@ typedef struct {
 bool motion_init();
 
 /**
+ * (blocking) Handle stat command.
+ */
+void motion_dump_status();
+
+/**
  * Start an EDM move. Can accept further motion_move_enqueue_pos().
  */
 void motion_start_edm_move(pos_phys_t to_pos, bool has_cont);

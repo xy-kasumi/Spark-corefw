@@ -17,8 +17,37 @@
 #define MOTOR_Z 2
 #define MOTOR_C 5
 
+/**
+ * Data for motion stats.
+ */
+typedef struct {
+  int start;
+  int stop;
+  int stop_probe;
+  int stop_stall;
+  int stop_target;
+} motion_stat_cnt_t;
+
+static void add_stop_cnt(motion_stat_cnt_t* cnt, motion_stop_reason_t reason) {
+  cnt->stop++;
+  switch (reason) {
+    case STOP_REASON_TARGET:
+      cnt->stop_target++;
+      break;
+    case STOP_REASON_PROBE:
+      cnt->stop_probe++;
+      break;
+    case STOP_REASON_STALL:
+      cnt->stop_stall++;
+      break;
+    default:
+      break;
+  }
+}
+
 // Latest EDM state (written only from ISR, read from various threads)
 ps_edm_t latest_edm_state;
+motion_stat_cnt_t motion_stats;
 
 // Motion constants
 static const float VELOCITY_MM_PER_S = 10.0f;
@@ -153,6 +182,7 @@ static void stop_motion(motion_stop_reason_t reason) {
   if (homing) {
     update_homing_offset(homing_axis, &pos);
   }
+  add_stop_cnt(&motion_stats, reason);
   last_stop_reason = reason;
   state = MOTION_STATE_STOPPED;
 }
@@ -300,6 +330,7 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
   }
 
   // Start moving
+  motion_stats.start++;
   state = MOTION_STATE_MOVING;
 }
 
@@ -398,4 +429,16 @@ bool motion_is_stopped(motion_stop_reason_t* reason) {
   } else {
     return false;
   }
+}
+
+void motion_dump_status() {
+  unsigned int key = irq_lock();
+  motion_stat_cnt_t stat = motion_stats;
+  irq_unlock(key);
+
+  comm_ps_k_vint(PS_STAT, "motion.n_start", stat.start);
+  comm_ps_k_vint(PS_STAT, "motion.n_stop", stat.stop);
+  comm_ps_k_vint(PS_STAT, "motion.n_stop_probe", stat.stop_probe);
+  comm_ps_k_vint(PS_STAT, "motion.n_stop_stall", stat.stop_stall);
+  comm_ps_k_vint(PS_STAT, "motion.n_stop_target", stat.stop_target);
 }

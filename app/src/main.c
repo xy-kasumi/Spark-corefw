@@ -89,6 +89,7 @@ static void cmd_stat(slice_t command, slice_t args) {
   if (canceler_cancel_needed()) {
     return;
   }
+  motion_dump_status();
   comm_ps_end(PS_STAT);
 }
 
