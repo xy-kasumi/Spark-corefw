@@ -53,22 +53,26 @@ bool motion_init();
 void motion_dump_status();
 
 /**
- * Start an EDM move. Can accept further motion_move_enqueue_pos().
+ * Start an EDM move. Only allowed when not moving.
+ * Can accept further motion_move_enqueue_pos().
  */
 void motion_start_edm_move(pos_phys_t to_pos, bool has_cont);
 
 /**
- * Start fast move. Can accept further motion_move_enqueue_pos().
+ * Start fast move. Only allowed when not moving.
+ * Can accept further motion_move_enqueue_pos().
  */
 void motion_start_fast_move(pos_phys_t to_pos);
 
 /**
- * Start probe move. Can accept further motion_move_enqueue_pos().
+ * Start probe move. Only allowed when not moving.
+ * Can accept further motion_move_enqueue_pos().
  */
 void motion_start_probe_move(pos_phys_t to_pos);
 
 /**
- * Home for the specified axis. Must not call motion_move_enqueue_pos().
+ * Home for the specified axis. Only allowed when not moving.
+ * Must not call motion_move_enqueue_pos().
  * @param axis Axis to home (X, Y, or Z only - C axis has no home)
  */
 void motion_start_home(axis_t axis);

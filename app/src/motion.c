@@ -301,16 +301,7 @@ static void motion_enqueue_internal(pos_phys_t to_pos,
                                     motion_stop_reason_t conditions,
                                     bool is_homing,
                                     axis_t home_axis) {
-  // Don't start new move if already moving
-  if (state == MOTION_STATE_MOVING) {
-    return;
-  }
-
-  // Skip if no movement needed
-  float distance = posp_dist(&pos, &to_pos);
-  if (distance < 0.001f) {
-    return;
-  }
+  comm_assert(state != MOTION_STATE_MOVING);
 
   // Initialize path buffer with single segment
   pb_init(&motion_path, &pos, &to_pos);
