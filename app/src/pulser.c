@@ -37,6 +37,8 @@ static uint8_t last_r_pulse = 0;
 static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
 
+static bool first_after_energize;
+
 static struct k_work_delayable edm_poll_work;
 
 // Read single register from pulser board, returns true on success
@@ -81,6 +83,7 @@ static void write_register_with_retry(uint8_t reg_addr, uint8_t value) {
 static void edm_poll_work_handler(struct k_work* work) {
   k_work_reschedule(&edm_poll_work, K_MSEC(1));
   if (!energized) {
+    first_after_energize = true;
     return;
   }
   if (canceler_cancel_needed()) {
@@ -105,10 +108,16 @@ static void edm_poll_work_handler(struct k_work* work) {
     return;
   }
 
-  // Update state from registers
-  last_r_pulse = ((int)val_p * 255) / 15;
-  last_r_short = ((int)val_s * 255) / 15;
-  last_r_open = ((int)(15 - (val_p + val_s)) * 255) / 15;
+  if (first_after_energize) {
+    // discard.
+    // first data after energize contains very old data since last checkpoint.
+    first_after_energize = false;
+  } else {
+    // Update state from registers
+    last_r_pulse = ((int)val_p * 255) / 15;
+    last_r_short = ((int)val_s * 255) / 15;
+    last_r_open = ((int)(15 - (val_p + val_s)) * 255) / 15;
+  }
   poll_count++;
 }
 
