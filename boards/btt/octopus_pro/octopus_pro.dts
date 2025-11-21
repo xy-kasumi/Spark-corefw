@@ -7,6 +7,11 @@
 	model = "Octopus Pro V1.1 Board";
 	compatible = "btt,octopus-pro";
 
+	zephyr,user {
+		// doc is contradicting about HE0, on which pin controls it.
+		he1-gate-gpios = <&gpioa 3 GPIO_ACTIVE_HIGH>;
+	};
+
 	chosen {
 		zephyr,console = &usart2;
 		zephyr,shell-uart = &usart2;

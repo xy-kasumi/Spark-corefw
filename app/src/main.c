@@ -11,6 +11,7 @@
 #include "motion.h"
 #include "motor.h"
 #include "pulser.h"
+#include "pump.h"
 #include "settings.h"
 #include "slice.h"
 #include "toolsupply.h"
@@ -238,6 +239,7 @@ int main() {
   ok &= motor_init();
   ok &= pulser_init();
   ok &= toolsupply_init();
+  ok &= pump_init();
   if (!ok) {
     // cannot proceed to module init if hardware is failing
     comm_ps_k_vbool(PS_INIT, "ok", false);

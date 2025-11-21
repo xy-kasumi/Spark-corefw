@@ -176,8 +176,15 @@ Not implemented yet.
 
 Internally, position movement + M60 + M61.
 
-### (future) M8: Start pump
-### (future) M9: Stop pump
+### M8: Start pump
+Parameters: none
+
+Start water filter pump.
+
+### M9: Stop pump
+Parameters: none
+
+Stop water filter pump.
 
 ### M10: Start grinder wire feeding
 Parameters: R (feed rate in mm/min, required)

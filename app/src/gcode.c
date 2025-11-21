@@ -8,6 +8,7 @@
 #include "gcode_base.h"
 #include "motion.h"
 #include "pulser.h"
+#include "pump.h"
 #include "toolsupply.h"
 #include "wirefeed.h"
 
@@ -293,6 +294,10 @@ static void exec_mcode_cmd(slice_t block, const gcode_parsed_t* parsed) {
     pulser_config = decode_pulser_params(true, parsed);
   } else if (parsed->code == 4 && parsed->sub_code == -1) {
     pulser_config = decode_pulser_params(false, parsed);
+  } else if (parsed->code == 8 && parsed->sub_code == -1) {
+    pump_set_enable(true);
+  } else if (parsed->code == 9 && parsed->sub_code == -1) {
+    pump_set_enable(false);
   } else if (parsed->code == 10 && parsed->sub_code == -1) {
     // M10 - Start wire feeding
     if (parsed->r_state != PARAM_SPECIFIED) {
