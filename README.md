@@ -70,3 +70,4 @@ See [photo for Octopus Pro](boards/btt/octopus_pro/board_pins.png)
 ### Tips
 * To make VSCode IntelliSense work, open `~/zephyr-ws-spark` folder
 * I'm running claude at `~/zephyr-ws-spark/Spark-corefw` rather than the workspace.
+* If `west` doesn't work, make sure you ran `source ~/zephyrproject/.venv/bin/activate` in current shell session

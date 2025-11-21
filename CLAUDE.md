@@ -6,7 +6,7 @@ Firmware for controlling motors, sensors etc, by consuming commands & G-code fro
 User-visible mental models & specs are located at /spec/*.md. You should check consistency with them when making
 decisions that can affect external behavior or design extensibility.
 
-The firmware is built on Zephyr RTOS. /spark is our repository, and it's located under a Zephyr workspace directory ("Zephyr workspace application").
+The firmware is built on Zephyr RTOS. Spark-corefw/ is our repository, and it's located under a Zephyr workspace directory ("Zephyr workspace application").
 
 ## Code Style
 - For C code under, we use Chromium formatting. Format files when you end editing.
