@@ -16,7 +16,7 @@ bool toolsupply_init();
  * @param state Tool supply state to configure
  * @param on_ms on-cycle time in msec
  */
-void configure_tool_supply_servo_on(tool_supply_state_t state, float on_ms);
+void toolsupply_configure_servo_on(tool_supply_state_t state, float on_ms);
 
 /** Set tool supply to target state (blocking). */
-void set_tool_supply_state(tool_supply_state_t target);
+void toolsupply_set_state(tool_supply_state_t target);

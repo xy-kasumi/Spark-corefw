@@ -310,9 +310,9 @@ static void exec_mcode_cmd(slice_t block, const gcode_parsed_t* parsed) {
   } else if (parsed->code == 11 && parsed->sub_code == -1) {
     wirefeed_stop();
   } else if (parsed->code == 60 && parsed->sub_code == -1) {
-    set_tool_supply_state(TOOL_SUPPLY_OPEN);
+    toolsupply_set_state(TOOL_SUPPLY_OPEN);
   } else if (parsed->code == 61 && parsed->sub_code == -1) {
-    set_tool_supply_state(TOOL_SUPPLY_CLOSED);
+    toolsupply_set_state(TOOL_SUPPLY_CLOSED);
   } else {
     comm_error(block, "unknown M-code");
   }

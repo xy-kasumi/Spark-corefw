@@ -234,10 +234,10 @@ static bool apply_ts(slice_t key, float value) {
   }
 
   if (sl_eq_str(key, "openms")) {
-    configure_tool_supply_servo_on(TOOL_SUPPLY_OPEN, value);
+    toolsupply_configure_servo_on(TOOL_SUPPLY_OPEN, value);
     return true;
   } else if (sl_eq_str(key, "closems")) {
-    configure_tool_supply_servo_on(TOOL_SUPPLY_CLOSED, value);
+    toolsupply_configure_servo_on(TOOL_SUPPLY_CLOSED, value);
     return true;
   }
 

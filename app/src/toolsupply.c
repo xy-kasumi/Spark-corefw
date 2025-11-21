@@ -47,7 +47,7 @@ bool toolsupply_init() {
   return true;
 }
 
-void configure_tool_supply_servo_on(tool_supply_state_t state, float pos) {
+void toolsupply_configure_servo_on(tool_supply_state_t state, float pos) {
   switch (state) {
     case TOOL_SUPPLY_OPEN:
       servo_on_ms_open = pos;
@@ -57,10 +57,10 @@ void configure_tool_supply_servo_on(tool_supply_state_t state, float pos) {
       break;
   }
   // Apply potentially changed target position.
-  set_tool_supply_state(current_state);
+  toolsupply_set_state(current_state);
 }
 
-void set_tool_supply_state(tool_supply_state_t target) {
+void toolsupply_set_state(tool_supply_state_t target) {
   const int num_cycles = 100;
   float src = current_servo_on_ms;
   float dst =
