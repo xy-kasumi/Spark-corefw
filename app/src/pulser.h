@@ -53,11 +53,3 @@ uint8_t pulser_get_open_rate();
  * @return true if r_pulse > 0 or r_short > 0
  */
 bool pulser_has_discharge();
-
-/**
- * Copy EDM buffer data to download buffer
- * @param buffer destination buffer
- * @param max_size maximum size of destination buffer
- * @return number of bytes copied
- */
-uint32_t pulser_copy_log_to_buffer(uint8_t* buffer, uint32_t max_size);
