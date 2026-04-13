@@ -49,6 +49,11 @@ uint8_t pulser_get_pulse_rate();
 uint8_t pulser_get_open_rate();
 
 /**
+ * Get latest temperature (℃)
+ */
+uint8_t pulser_get_temp();
+
+/**
  * Check if there is active discharge (pulse or short)
  * @return true if r_pulse > 0 or r_short > 0
  */

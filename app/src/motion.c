@@ -232,10 +232,12 @@ static void motion_tick_handler(struct k_work* work) {
     // EDM control logic
     uint8_t open_rate = pulser_get_open_rate();
     uint8_t short_rate = pulser_get_short_rate();
+    uint8_t temp = pulser_get_temp();
 
     latest_edm_state.has_edm_data = true;
     latest_edm_state.r_open = open_rate * (1 / 255.0f);
     latest_edm_state.r_short = short_rate * (1 / 255.0f);
+    latest_edm_state.temp = temp;
 
     if (open_rate > 200) {
       // too much open: too far away

@@ -34,6 +34,7 @@ typedef struct {
   bool has_edm_data;
   float r_open;
   float r_short;
+  float temp;
 
   bool is_moving;
   float pb_front;

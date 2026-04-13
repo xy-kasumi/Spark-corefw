@@ -14,7 +14,7 @@
 #define PULSER_I2C_ADDR 0x3b
 
 // Registers (from
-// https://github.com/xy-kasumi/Spark/blob/main/docs/user-PULSER.md)
+// https://github.com/xy-kasumi/Spark-pulser/blob/main/docs/user-manual.md)
 #define REG_POLARITY 0x01       // RW: 0=OFF, 1-4=energize with polarity
 #define REG_PULSE_CURRENT 0x02  // RW: pulse current in 100mA units (1-200)
 #define REG_TEMPERATURE 0x03    // R:  heatsink temperature in °C
@@ -36,6 +36,7 @@ static bool energized = false;
 static uint8_t last_r_pulse = 0;
 static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
+static uint8_t last_temp = 0;
 
 static bool first_after_energize;
 
@@ -82,6 +83,17 @@ static void write_register_with_retry(uint8_t reg_addr, uint8_t value) {
 // (system workqueue) Work handler for EDM status polling & cancelation.
 static void edm_poll_work_handler(struct k_work* work) {
   k_work_reschedule(&edm_poll_work, K_MSEC(1));
+
+  // Read temperature
+  uint8_t val_temp = 0;
+  int ret =
+      i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_TEMPERATURE, &val_temp);
+  if (ret != 0) {
+    num_i2c_fail++;
+    return;
+  }
+  last_temp = val_temp;
+
   if (!energized) {
     first_after_energize = true;
     return;
@@ -93,7 +105,7 @@ static void edm_poll_work_handler(struct k_work* work) {
 
   // Read REG_CKP_PS
   uint8_t val_ps = 0;
-  int ret = i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &val_ps);
+  ret = i2c_reg_read_byte(i2c_dev, PULSER_I2C_ADDR, REG_CKP_PS, &val_ps);
   if (ret != 0) {
     num_i2c_fail++;
     return;
@@ -241,6 +253,10 @@ uint8_t pulser_get_pulse_rate() {
 
 uint8_t pulser_get_open_rate() {
   return last_r_open;
+}
+
+uint8_t pulser_get_temp() {
+  return last_temp;
 }
 
 bool pulser_has_discharge() {
