@@ -16,7 +16,8 @@ target_sources(app PRIVATE
   src/motion.c
   src/motion_base.c
   src/motor.c
-  src/pulser.c
+  $<$<BOOL:${CONFIG_EDM_PULSER}>:src/pulser.c>
+  $<$<BOOL:${CONFIG_EDM_POWERCORE}>:src/powercore.c>
   src/pump.c
   src/toolsupply.c
   src/wirefeed.c

@@ -14,4 +14,10 @@ if [ ! -f "app/src/main.c" ]; then
     exit 1
 fi
 
-west build --pristine auto --board octopus_pro app
+EXTRA_ARGS=""
+if [ "$1" = "powercore" ]; then
+    EXTRA_ARGS="-DEXTRA_CONF_FILE=powercore.conf -DDTC_OVERLAY_FILE=powercore.overlay"
+    echo "Building with powercore EDM module"
+fi
+
+west build --pristine auto --board octopus_pro app -- $EXTRA_ARGS

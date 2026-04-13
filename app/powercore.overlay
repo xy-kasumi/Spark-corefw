@@ -1,0 +1,4 @@
+/* Powercore EDM module: disable I2C1 to free PB8/PB9 for GPIO use. */
+&i2c1 {
+	status = "disabled";
+};

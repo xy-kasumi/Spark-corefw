@@ -3,6 +3,19 @@ menu "Zephyr"
 source "Kconfig.zephyr"
 endmenu
 
+# EDM discharge module selection
+choice EDM_MODULE
+  prompt "EDM discharge module"
+  default EDM_PULSER
+
+config EDM_PULSER
+  bool "Pulser board (I2C)"
+
+config EDM_POWERCORE
+  bool "Powercore module (EN + PWM feedback)"
+
+endchoice
+
 # Include spark drivers
 rsource "../drivers/Kconfig"
 

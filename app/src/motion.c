@@ -239,6 +239,14 @@ static void motion_tick_handler(struct k_work* work) {
     latest_edm_state.r_short = short_rate * (1 / 255.0f);
     latest_edm_state.temp = temp;
 
+#ifdef CONFIG_EDM_POWERCORE
+    // Powercore: target 25-75% duty (duty maps to open_rate)
+    if (open_rate > 191) {
+      pb_move(&motion_path, 1e-3f);  // +1 um / tick (-> 1mm/s max)
+    } else if (short_rate > 191) {
+      pb_move(&motion_path, -5e-3f);  // -5 um / tick (-> -5mm/s max)
+    }
+#else
     if (open_rate > 200) {
       // too much open: too far away
       pb_move(&motion_path, 1e-3f);  // +1 um / tick (-> 1mm/s max)
@@ -246,6 +254,7 @@ static void motion_tick_handler(struct k_work* work) {
       // too much short: too close
       pb_move(&motion_path, -5e-3f);  // -5 um / tick (-> -5mm/s max)
     }
+#endif
   } else {
     // Constant velocity movement
     pb_move(&motion_path, movement_velocity * TICK_PERIOD_S);
