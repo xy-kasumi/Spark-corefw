@@ -35,14 +35,8 @@ west update
 Confirm that it builds
 ```shell
 cd ~/zephyr-ws-spark/Spark-corefw
-./build.sh
+west build -b octopus_pro app
 ```
-
-### EDM Module Selection
-The firmware supports two EDM discharge modules, selected at compile time via Kconfig:
-
-* **Pulser** (default) — I2C-based board on PB8/PB9. `./build.sh`
-* **Powercore** — simple EN + PWM feedback on PB8/PB9. `./build.sh powercore`
 
 ### Flashing
 Run powershell as admin.
