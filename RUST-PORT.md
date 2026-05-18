@@ -44,7 +44,7 @@ Goal criteria ("feature parity")
 
 # Steps
 
-1. Decide on crates division, establish UART (different from the spec'd protocol) with host on real device.
+1. DONE: Decide on crates division, establish UART (different from the spec'd protocol) with host on real device.
   * Basics first
 2. Attack TMC UART & stepper driver. Impl minimum comm to check if it's working on real device.
   * Biggest hardware unknown, and probably least testable & least clean part of the code
@@ -53,4 +53,3 @@ Goal criteria ("feature parity")
   * Once API is fixed, migration should be "just do" kind of work
   * Should be able to run real dashboard & spooler end-to-end (see `~/repos/Spark` for host-side stack)
 4. Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
-5. Done!
