@@ -1,22 +1,21 @@
 #![no_std]
 #![no_main]
 
-mod pins;
+mod board;
 mod soft_uart;
 mod tmc2209;
 
 use core::fmt::Write as _;
 
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::Flex;
 use embassy_stm32::usart::{Config as UartConfig, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embassy_time::{Duration, Timer};
 use heapless::String;
 use panic_halt as _;
 
-use crate::pins::{MOTOR_NAMES, NUM_MOTORS};
-use crate::soft_uart::{SoftUart, SoftUartHandle};
+use crate::board::{init_motors, MOTOR_NAMES, NUM_MOTORS};
+use crate::soft_uart::SoftUartHandle;
 use crate::tmc2209::{Tmc2209, REG_GCONF, REG_IFCNT};
 
 bind_interrupts!(struct Irqs {
@@ -42,21 +41,9 @@ async fn main(_spawner: Spawner) {
     .unwrap();
     let (mut tx, _rx) = uart.split();
 
-    let handles = SoftUart::init(
-        p.TIM7,
-        [
-            Flex::new(p.PC4),  // m0
-            Flex::new(p.PD11), // m1
-            Flex::new(p.PC6),  // m2
-            Flex::new(p.PC7),  // m3
-            Flex::new(p.PF2),  // m4
-            Flex::new(p.PE4),  // m5
-            Flex::new(p.PE1),  // m6
-        ],
+    let mut motors = init_motors(
+        p.TIM7, p.PC4, p.PD11, p.PC6, p.PC7, p.PF2, p.PE4, p.PE1,
     );
-
-    let mut motors: [Tmc2209<SoftUartHandle>; NUM_MOTORS] =
-        core::array::from_fn(|i| Tmc2209::new(handles[i], MOTOR_NAMES[i]));
 
     let _ = tx.write(b"\r\n[spark-corefw-rs] tmc2209 soft-uart bringup\r\n").await;
 
@@ -99,7 +86,7 @@ async fn main(_spawner: Spawner) {
     }
 }
 
-async fn round_trip(m: &mut Tmc2209<SoftUartHandle>) -> bool {
+async fn round_trip(m: &mut Tmc2209<SoftUartHandle<NUM_MOTORS>>) -> bool {
     if m.read_reg(REG_IFCNT).await.is_err() {
         return false;
     }
