@@ -2,7 +2,6 @@
 This protocol design aims
 * simple implemenation
 * human-usable: usable from serial terminal
-* reliable streaming: can remedy communication loss or error
 * core-friendly: assumes core has relatively lower compute power than host
 
 Simplifying assumptions
@@ -11,6 +10,7 @@ Simplifying assumptions
   * latency is at most a few ms
   * will never reorder or duplicate data
 * Host has abundant compute & memory
+
 
 ## Terminology & Syntax
 We use up and down throughout, to denote each direction.
@@ -24,83 +24,12 @@ Transport layer is full-duplex. Line is as follows.
 Each `line` is at most 106 byte (10.6ms or less).
 
 ```
-line
-  = payload LF
-  / payload seq checksum LF
-  / %s"ack" seq checksum LF
-
+line = payload LF
 payload = 1*100VCHAR
-seq = "*" / "+"  ; "*"=0, "+"=1
-checksum = 4HEXDIG
 ```
-
-`payload` cannot be "ack".
-`checksum` is calculated from `payload`+`seq` or "ack"+`seq`, using CRC-16/CCITT-FALSE.
-Senders SHOULD use uppercase for `checksum`.
 
 Implementations SHOULD silently ignore CR (0x0D) present on the channel.
 Receivers MUST silently discard non-conformant or checksum-error lines silently as channel error.
-
-### Transport Upgrade
-There are two modes of tranport:
-* Interactive mode: both ends will not compute checksum nor send ack. Assume no comm error. Never resend.
-* Machine mode: both ends compute checksum & sends ack. Both ends respect ack and resend.
-
-The protocol starts from interactive mode.
-Core implementation MAY use control characters to provide shell-like interactive line editing.
-In this case the protocol assumes `payload` is post-edit content.
-
-Host can initiate upgrade to machine mode by sending ack.
-Upon reception of ack, core enters machine mode and sends ack immediately.
-When host receives ack within 50ms, transport enters machine mode. Otherwise, host must resend ack.
-Until transport upgrade is complete, host MUST NOT send other payloads.
-During upgrade, ack with "*" is used, resulting in `ack*3B65`.
-When upgrade is complete, both ends expects/sends "+".
-
-There's no transition from machine mode to interactive mode.
-
-### Resend & Flow Control
-Sender-side pseudo-code
-```
-const num_retries: int
-curr_seq: bool
-
-fn on_payload_to_send_available(payload):
-  loop(num_retries):
-    send(payload, curr_seq)
-    wait:
-      receive ack(curr_seq):
-        curr_seq = !curr_seq
-        return
-      pass 50ms:
-        continue
-  
-  error("channel is broken")
-```
-
-Receiver-side pseudo-code
-```
-expect_seq: bool
-
-fn on_incoming_valid_payload(payload, seq):
-  if seq == expect_seq:
-    # accept must be immediate
-    if accept(payload):
-      # accepted
-      send_ack(seq)
-      expect_seq = !expect_seq
-    else:
-      # ignore if receiver is full
-  else:
-    # duplicate payload due to resend (must have been processed in previous cycle)
-    # re-send previous ack, but do not accept
-    send_ack(seq)
-```
-
-Receiver MUST send ack immediately when channel become available.
-
-Seen from the sender, worst case expected delay is 11ms = 10.6ms (full line in transit) + 0.4ms (ack).
-With 50ms wait, implementation and channel latency is allowed to have 39ms in total to do processing.
 
 
 ## Application Layer
