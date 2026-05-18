@@ -18,7 +18,7 @@
 // EDM_RESOLUTION_MM * (EDM_HISTORY_SIZE - 1) will be the maximum retractable
 // distance. e.g. if EDM_RESOLUTION_MM = 0.005, EDM_HISTORY_SIZE = 201, then
 // retraction up to 1.0 mm is possible.
-#define EDM_HISTORY_SIZE 201
+#define EDM_HISTORY_SIZE 2001
 
 // path_buffer_t represents a path and a current position, typed by pos_phys_t.
 //
