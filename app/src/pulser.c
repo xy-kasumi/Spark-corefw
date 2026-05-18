@@ -22,6 +22,9 @@
 #define REG_MAX_DUTY 0x05       // RW: max duty factor in percent (1-95)
 #define REG_CKP_PS 0x10         // R (special): rate of pulse & short
 
+// EWMA coefficient for eff_duty: ~1s time constant at 1ms polling.
+#define EFF_DUTY_ALPHA 0.001f
+
 // I2C device from device tree
 static const struct device* i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c1));
 
@@ -37,6 +40,7 @@ static uint8_t last_r_pulse = 0;
 static uint8_t last_r_short = 0;
 static uint8_t last_r_open = 0;
 static uint8_t last_temp = 0;
+static float r_pulse_smoothed = 0.0f;
 
 static bool first_after_energize;
 
@@ -129,6 +133,8 @@ static void edm_poll_work_handler(struct k_work* work) {
     last_r_pulse = ((int)val_p * 255) / 15;
     last_r_short = ((int)val_s * 255) / 15;
     last_r_open = ((int)(15 - (val_p + val_s)) * 255) / 15;
+    r_pulse_smoothed +=
+        EFF_DUTY_ALPHA * ((float)val_p / 15.0f - r_pulse_smoothed);
   }
   poll_count++;
 }
@@ -226,6 +232,7 @@ void pulser_energize(bool negative,
   write_register_with_retry(REG_PULSE_DUR, pulse_dur_10us);
   write_register_with_retry(REG_MAX_DUTY, pulse_duty_pct);
   write_register_with_retry(REG_POLARITY, polarity);
+  r_pulse_smoothed = 0.0f;
   energized = true;
 }
 
@@ -238,6 +245,7 @@ void pulser_deenergize() {
   last_r_pulse = 0;
   last_r_short = 0;
   last_r_open = 255;
+  r_pulse_smoothed = 0.0f;
 
   // Write polarity register to off
   write_register_with_retry(REG_POLARITY, 0);
@@ -257,6 +265,10 @@ uint8_t pulser_get_open_rate() {
 
 uint8_t pulser_get_temp() {
   return last_temp;
+}
+
+float pulser_get_eff_duty() {
+  return r_pulse_smoothed;
 }
 
 bool pulser_has_discharge() {

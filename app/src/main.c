@@ -210,8 +210,9 @@ static void handle_signal(payload_t* payload) {
     ps_edm_t edm = motion_get_edm_state();
     comm_ps_begin(PS_EDM);
     if (edm.has_edm_data) {
-      comm_ps_raw(PS_EDM, "open:%.1f short:%.1f temp:%d", (double)edm.r_open,
-                  (double)edm.r_short, (int)(edm.temp));
+      comm_ps_raw(PS_EDM, "eff_duty:%.3f open:%.1f short:%.1f temp:%d",
+                  (double)edm.eff_duty, (double)edm.r_open, (double)edm.r_short,
+                  (int)(edm.temp));
     }
     if (edm.is_moving) {
       comm_ps_raw(PS_EDM, "pb_f:%.3f pb_b:%.3f dist:%.3f dist_max:%.3f",

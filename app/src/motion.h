@@ -32,6 +32,7 @@ typedef enum {
  */
 typedef struct {
   bool has_edm_data;
+  float eff_duty;
   float r_open;
   float r_short;
   float temp;

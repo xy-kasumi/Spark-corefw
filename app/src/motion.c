@@ -235,6 +235,7 @@ static void motion_tick_handler(struct k_work* work) {
     uint8_t temp = pulser_get_temp();
 
     latest_edm_state.has_edm_data = true;
+    latest_edm_state.eff_duty = pulser_get_eff_duty();
     latest_edm_state.r_open = open_rate * (1 / 255.0f);
     latest_edm_state.r_short = short_rate * (1 / 255.0f);
     latest_edm_state.temp = temp;

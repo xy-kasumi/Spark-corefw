@@ -54,6 +54,12 @@ uint8_t pulser_get_open_rate();
 uint8_t pulser_get_temp();
 
 /**
+ * Get smoothed effective duty.
+ * @return [0, 1], smoothed by exponential moving average (1s time const). 0 when not energized.
+ */
+float pulser_get_eff_duty();
+
+/**
  * Check if there is active discharge (pulse or short)
  * @return true if r_pulse > 0 or r_short > 0
  */
