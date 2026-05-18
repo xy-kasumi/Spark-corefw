@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: CC0-1.0
 /dts-v1/;
-#include <st/h7/stm32h723Xg.dtsi>
+// Silicon on BTT Octopus Pro v1.1 is STM32H723ZET6 (512K flash), not the
+// ZG (1MB) BTT's product page lists. Verified via FLASH_SIZE register and
+// chip silkscreen. Pinout is identical between ZE/ZG so the ZG pinctrl
+// include is still correct.
+#include <st/h7/stm32h723Xe.dtsi>
 #include <st/h7/stm32h723zgtx-pinctrl.dtsi>
 
 / {
