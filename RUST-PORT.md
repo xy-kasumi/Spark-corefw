@@ -46,7 +46,7 @@ Goal criteria ("feature parity")
 
 1. DONE: Decide on crates division, establish UART (different from the spec'd protocol) with host on real device.
   * Basics first
-2. Attack TMC UART & stepper driver. Impl minimum comm to check if it's working on real device.
+2. DONE: Attack TMC UART & stepper driver. Impl minimum comm to check if it's working on real device.
   * Biggest hardware unknown, and probably least testable & least clean part of the code
 3. Big-port: design all the APIs, while impls are mostly not-implemented.
   * Lots of work on API design, test setup back-and-forth

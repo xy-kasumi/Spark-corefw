@@ -19,10 +19,8 @@ use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use panic_halt as _;
 
-use crate::board::{init_motors, MOTOR_NAMES, NUM_MOTORS};
-use crate::soft_uart::SoftUartHandle;
-use crate::step_gen::StepGenHandle;
-use crate::tmc2209::{Error as TmcError, Tmc2209};
+use crate::board::{init_motors, Motor, Step, MOTOR_NAMES, NUM_MOTORS};
+use crate::tmc2209::Error as TmcError;
 
 bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;
@@ -30,8 +28,6 @@ bind_interrupts!(struct Irqs {
 
 type Tx = UartTx<'static, mode::Async>;
 type TxMutex = Mutex<NoopRawMutex, Tx>;
-type Tmc = Tmc2209<SoftUartHandle<NUM_MOTORS>>;
-type Step = StepGenHandle<NUM_MOTORS>;
 
 static MOTION_ON: AtomicBool = AtomicBool::new(false);
 
@@ -82,9 +78,10 @@ async fn main(_spawner: Spawner) {
         log(&tx, line.as_bytes()).await;
     }
 
-    // Keep the moving motor energized continuously so back-and-forth is
-    // instantaneous (no de-energize gap between direction flips).
-    motors.step[MOVE_MOTOR].set_always_energized(true);
+    // Keep the moving motor energized continuously (active-low EN). Idle
+    // de-energize policy isn't implemented yet; it'll land when something
+    // else needs it.
+    motors.en[MOVE_MOTOR].set_low();
 
     let step_handle = motors.step[MOVE_MOTOR];
     join3(
@@ -99,7 +96,7 @@ async fn log(tx: &TxMutex, s: &[u8]) {
     let _ = tx.lock().await.write(s).await;
 }
 
-async fn setup_motor(m: &mut Tmc) -> Result<(), TmcError<soft_uart::Error>> {
+async fn setup_motor(m: &mut Motor) -> Result<(), TmcError<soft_uart::Error>> {
     m.init().await?;
     m.set_microstep(32).await?;
     m.set_current(30, 30).await?;
@@ -165,7 +162,7 @@ async fn ramp_to(step: Step, from: i32, to: i32, duration_ms: u64) -> bool {
 // Periodically re-applies the default-path register setup on each motor.
 // Each cycle exercises ~12 UART transactions per motor (with IFCNT verify),
 // so transient EMI from a stepping motor surfaces here as failures.
-async fn verify_task(mut tmc: [Tmc; NUM_MOTORS], tx: &TxMutex) {
+async fn verify_task(mut tmc: [Motor; NUM_MOTORS], tx: &TxMutex) {
     let mut succ = [0u32; NUM_MOTORS];
     let mut fail = [0u32; NUM_MOTORS];
     let mut iter: u32 = 0;

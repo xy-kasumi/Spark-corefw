@@ -1,22 +1,22 @@
-// Bit-banged single-wire half-duplex UART for STM32H7, multiplexed across N
-// GPIOs via a 30µs hardware-timer ISR. Mirrors the C drivers/motor/uart1wire.c.
+// Bit-banged single-wire half-duplex UART, multiplexed across N GPIOs via a
+// 30µs hardware-timer ISR.
 //
-// TIM7 (basic timer, not contended by embassy-time) ticks every 30µs. Each
-// bit takes 3 ticks (90µs) → ~11.1 kbps. Frame = 1 START low + 8 data LSB-
+// One bit = 3 ticks = 90µs → ~11.1 kbps. Frame = 1 START low + 8 data LSB-
 // first + 1 STOP high.
 //
 // The owning module is responsible for declaring `static SOFT_UART:
-// SoftUart<N>` and an `#[interrupt] fn TIM7()` that calls `SOFT_UART.tick()`.
+// SoftUart<T, N>` and an `#[interrupt] fn <Timer>()` that calls
+// `SOFT_UART.tick()`.
 
 #![allow(dead_code)]
 
 use core::cell::RefCell;
 
 use embassy_stm32::gpio::{Flex, Level, Pull, Speed};
-use embassy_stm32::interrupt::InterruptExt as _;
-use embassy_stm32::peripherals::TIM7;
+use embassy_stm32::interrupt::typelevel::Interrupt;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Timer as LlTimer;
+use embassy_stm32::timer::CoreInstance;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::mutex::Mutex as AsyncMutex;
@@ -39,18 +39,18 @@ enum State {
     ReceiveSynced, // edge seen; phase counter active
 }
 
-struct EngineInner<const N: usize> {
+struct EngineInner<T: CoreInstance, const N: usize> {
     state: State,
     phase: u8,        // 0..3, sub-bit position within the 90µs bit cell
     bit_pos: usize,   // global bit index into the frame (0..buffer_size*10)
     buffer: [u8; MAX_FRAME],
     buffer_size: usize,
     current_pin: usize,
-    timer: Option<LlTimer<'static, TIM7>>,
+    timer: Option<LlTimer<'static, T>>,
     pins: [Option<Flex<'static>>; N],
 }
 
-impl<const N: usize> EngineInner<N> {
+impl<T: CoreInstance, const N: usize> EngineInner<T, N> {
     const fn new() -> Self {
         Self {
             state: State::Idle,
@@ -90,13 +90,13 @@ fn store_rx_bit(buf: &mut [u8], pos: usize, level: Level) {
     }
 }
 
-pub struct SoftUart<const N: usize> {
-    inner: BlockingMutex<CriticalSectionRawMutex, RefCell<EngineInner<N>>>,
+pub struct SoftUart<T: CoreInstance, const N: usize> {
+    inner: BlockingMutex<CriticalSectionRawMutex, RefCell<EngineInner<T, N>>>,
     signal: Signal<CriticalSectionRawMutex, ()>,
     bus: AsyncMutex<CriticalSectionRawMutex, ()>,
 }
 
-impl<const N: usize> SoftUart<N> {
+impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
     pub const fn new() -> Self {
         Self {
             inner: BlockingMutex::new(RefCell::new(EngineInner::new())),
@@ -105,14 +105,14 @@ impl<const N: usize> SoftUart<N> {
         }
     }
 
-    // Configure TIM7 for 30µs periodic interrupt, install the N pins as
+    // Configure the timer for 30µs periodic interrupt, install the N pins as
     // open-drain + pull-up (idle high), enable the NVIC, and return one
     // handle per pin slot. Caller is responsible for installing the ISR.
     pub fn init(
         &'static self,
-        tim: TIM7,
+        tim: T,
         mut pins: [Flex<'static>; N],
-    ) -> [SoftUartHandle<N>; N] {
+    ) -> [SoftUartHandle<T, N>; N] {
         for pin in pins.iter_mut() {
             pin.set_as_input_output_pull(Speed::Low, Pull::Up);
             pin.set_high();
@@ -132,13 +132,13 @@ impl<const N: usize> SoftUart<N> {
         });
 
         unsafe {
-            embassy_stm32::interrupt::TIM7.enable();
+            T::UpdateInterrupt::enable();
         }
 
         core::array::from_fn(|i| SoftUartHandle { engine: self, pin_idx: i })
     }
 
-    // Drive one 30µs ISR tick. Must be called from the TIM7 interrupt handler.
+    // Drive one 30µs ISR tick. Must be called from the timer interrupt handler.
     pub fn tick(&self) {
         let mut done = false;
         self.inner.lock(|cell| {
@@ -277,19 +277,19 @@ impl<const N: usize> SoftUart<N> {
     }
 }
 
-pub struct SoftUartHandle<const N: usize> {
-    engine: &'static SoftUart<N>,
+pub struct SoftUartHandle<T: CoreInstance + 'static, const N: usize> {
+    engine: &'static SoftUart<T, N>,
     pin_idx: usize,
 }
 
-impl<const N: usize> Clone for SoftUartHandle<N> {
+impl<T: CoreInstance, const N: usize> Clone for SoftUartHandle<T, N> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<const N: usize> Copy for SoftUartHandle<N> {}
+impl<T: CoreInstance, const N: usize> Copy for SoftUartHandle<T, N> {}
 
-impl<const N: usize> SoftUartHandle<N> {
+impl<T: CoreInstance, const N: usize> SoftUartHandle<T, N> {
     pub async fn write(&self, data: &[u8]) -> Result<(), Error> {
         self.engine.transact_write(self.pin_idx, data).await
     }
