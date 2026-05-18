@@ -8,7 +8,7 @@ name = "spark-corefw-rs"
 path = "src/main.rs"
 
 [dependencies]
-embassy-stm32 = { version = "0.2", features = ["stm32h723ze", "time-driver-any"] }
+embassy-stm32 = { version = "0.2", features = ["stm32h723ze", "memory-x", "time-driver-any"] }
 embassy-executor = { version = "0.7", features = ["arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.4", features = ["tick-hz-1_000_000"] }
 embassy-futures = "0.1"
