@@ -71,3 +71,17 @@ See [photo for Octopus Pro](boards/btt/octopus_pro/board_pins.png)
 * To make VSCode IntelliSense work, open `~/zephyr-ws-spark` folder
 * I'm running claude at `~/zephyr-ws-spark/Spark-corefw` rather than the workspace.
 * If `west` doesn't work, make sure you ran `source ~/zephyrproject/.venv/bin/activate` in current shell session
+
+
+### Rust version
+
+Everything is under `rust/`.
+
+```shell
+cd rust/
+./build.sh
+```
+
+It uses OpenOCD instead of probe-rs
+* For Raspi Debug probe, probe-rs requires V2.x firmware
+* However, something in V2.x firmware prevents making it work in WSL2
