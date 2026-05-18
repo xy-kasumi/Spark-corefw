@@ -149,4 +149,45 @@ impl<T: TmcTransport> Tmc2209<T> {
             Err(Error::WriteVerifyFailed)
         }
     }
+
+    // Set microstep resolution. Must be a power of 2 in 1..=256.
+    pub async fn set_microstep(&mut self, microstep: u32) -> Result<(), Error<T::Error>> {
+        // Enable MRES from register (GCONF.mstep_reg_select = 1).
+        let mut gconf = self.read_reg(REG_GCONF).await?;
+        gconf |= 1 << 7;
+        self.write_reg(REG_GCONF, gconf).await?;
+
+        // MRES field: 0=256 µsteps, 1=128 µsteps, ..., 8=1 µstep.
+        let mres_bits = 8 - microstep.trailing_zeros();
+
+        let mut chopconf = self.read_reg(REG_CHOPCONF).await?;
+        chopconf &= 0xF0FF_FFFF; // clear MRES[27:24]
+        chopconf |= mres_bits << 24;
+        self.write_reg(REG_CHOPCONF, chopconf).await
+    }
+
+    // Set run + hold current as 0..=100 percent (mapped to IRUN/IHOLD 0..31).
+    // Uses datasheet-recommended IHOLDDELAY = 10.
+    pub async fn set_current(
+        &mut self,
+        run_percent: u32,
+        hold_percent: u32,
+    ) -> Result<(), Error<T::Error>> {
+        let irun = (run_percent * 31 + 50) / 100;
+        let ihold = (hold_percent * 31 + 50) / 100;
+        let ihold_delay: u32 = 10;
+        let reg = (ihold_delay << 16) | (irun << 8) | ihold;
+        self.write_reg(REG_IHOLD_IRUN, reg).await
+    }
+
+    pub async fn set_tcoolthrs(&mut self, value: u32) -> Result<(), Error<T::Error>> {
+        self.write_reg(REG_TCOOLTHRS, value & 0x000F_FFFF).await
+    }
+
+    pub async fn set_stallguard_threshold(
+        &mut self,
+        threshold: u8,
+    ) -> Result<(), Error<T::Error>> {
+        self.write_reg(REG_SGTHRS, threshold as u32).await
+    }
 }

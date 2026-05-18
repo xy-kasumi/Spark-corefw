@@ -11,21 +11,31 @@
 // |  m5 | PC13 | PF0  | PF1  | PE4  | PG13 |
 // |  m6 | PE2  | PE3  | PD4  | PE1  | PG14 |
 
-use embassy_stm32::gpio::Flex;
+use embassy_stm32::gpio::{Flex, Level, Output, Speed};
 use embassy_stm32::interrupt;
-use embassy_stm32::peripherals::{PC4, PC6, PC7, PD11, PE1, PE4, PF2, TIM7};
+use embassy_stm32::peripherals::{
+    PA0, PC1, PC13, PC4, PC6, PC7, PD11, PD4, PE1, PE2, PE3, PE4, PF0, PF1, PF10, PF11, PF12,
+    PF13, PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
+};
 
 use crate::soft_uart::{self, SoftUart, SoftUartHandle};
+use crate::step_gen::{StepGen, StepGenHandle};
 use crate::tmc2209::{Tmc2209, TmcTransport};
 
 pub const NUM_MOTORS: usize = 7;
 pub const MOTOR_NAMES: [&str; NUM_MOTORS] = ["m0", "m1", "m2", "m3", "m4", "m5", "m6"];
 
 static SOFT_UART: SoftUart<NUM_MOTORS> = SoftUart::new();
+static STEP_GEN: StepGen<NUM_MOTORS> = StepGen::new();
 
 #[interrupt]
 fn TIM7() {
     SOFT_UART.tick();
+}
+
+#[interrupt]
+fn TIM6_DAC() {
+    STEP_GEN.tick();
 }
 
 impl<const N: usize> TmcTransport for SoftUartHandle<N> {
@@ -42,27 +52,84 @@ impl<const N: usize> TmcTransport for SoftUartHandle<N> {
     }
 }
 
+pub struct Motors {
+    pub tmc: [Tmc2209<SoftUartHandle<NUM_MOTORS>>; NUM_MOTORS],
+    pub step: [StepGenHandle<NUM_MOTORS>; NUM_MOTORS],
+}
+
+// One (uart, step, dir, enable) tuple per motor.
 pub fn init_motors(
-    tim7: TIM7,
-    uart0: PC4,
-    uart1: PD11,
-    uart2: PC6,
-    uart3: PC7,
-    uart4: PF2,
-    uart5: PE4,
-    uart6: PE1,
-) -> [Tmc2209<SoftUartHandle<NUM_MOTORS>>; NUM_MOTORS] {
-    let handles = SOFT_UART.init(
-        tim7,
+    tim_uart: TIM7,
+    tim_step: TIM6,
+    m0: (PC4, PF13, PF12, PF14),
+    m1: (PD11, PG0, PG1, PF15),
+    m2: (PC6, PF11, PG3, PG5),
+    m3: (PC7, PG4, PC1, PA0),
+    m4: (PF2, PF9, PF10, PG2),
+    m5: (PE4, PC13, PF0, PF1),
+    m6: (PE1, PE2, PE3, PD4),
+) -> Motors {
+    let uart_handles = SOFT_UART.init(
+        tim_uart,
         [
-            Flex::new(uart0),
-            Flex::new(uart1),
-            Flex::new(uart2),
-            Flex::new(uart3),
-            Flex::new(uart4),
-            Flex::new(uart5),
-            Flex::new(uart6),
+            Flex::new(m0.0),
+            Flex::new(m1.0),
+            Flex::new(m2.0),
+            Flex::new(m3.0),
+            Flex::new(m4.0),
+            Flex::new(m5.0),
+            Flex::new(m6.0),
         ],
     );
-    core::array::from_fn(|i| Tmc2209::new(handles[i], MOTOR_NAMES[i]))
+
+    // STEP/DIR start low (no pulse, default direction); EN starts high
+    // (active-low: high = de-energized).
+    let step_handles = STEP_GEN.init(
+        tim_step,
+        [
+            (
+                Output::new(m0.1, Level::Low, Speed::Low),
+                Output::new(m0.2, Level::Low, Speed::Low),
+                Output::new(m0.3, Level::High, Speed::Low),
+            ),
+            (
+                Output::new(m1.1, Level::Low, Speed::Low),
+                Output::new(m1.2, Level::Low, Speed::Low),
+                Output::new(m1.3, Level::High, Speed::Low),
+            ),
+            (
+                Output::new(m2.1, Level::Low, Speed::Low),
+                Output::new(m2.2, Level::Low, Speed::Low),
+                Output::new(m2.3, Level::High, Speed::Low),
+            ),
+            (
+                Output::new(m3.1, Level::Low, Speed::Low),
+                Output::new(m3.2, Level::Low, Speed::Low),
+                Output::new(m3.3, Level::High, Speed::Low),
+            ),
+            (
+                Output::new(m4.1, Level::Low, Speed::Low),
+                Output::new(m4.2, Level::Low, Speed::Low),
+                Output::new(m4.3, Level::High, Speed::Low),
+            ),
+            (
+                Output::new(m5.1, Level::Low, Speed::Low),
+                Output::new(m5.2, Level::Low, Speed::Low),
+                Output::new(m5.3, Level::High, Speed::Low),
+            ),
+            (
+                Output::new(m6.1, Level::Low, Speed::Low),
+                Output::new(m6.2, Level::Low, Speed::Low),
+                Output::new(m6.3, Level::High, Speed::Low),
+            ),
+        ],
+    );
+
+    let tmc: [Tmc2209<SoftUartHandle<NUM_MOTORS>>; NUM_MOTORS] =
+        core::array::from_fn(|i| Tmc2209::new(uart_handles[i], MOTOR_NAMES[i]));
+
+    Motors {
+        tmc,
+        step: step_handles,
+    }
 }
