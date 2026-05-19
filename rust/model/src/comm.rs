@@ -28,7 +28,10 @@ pub struct Framer {
 
 impl Framer {
     pub const fn new() -> Self {
-        Self { buf: Vec::new(), state: State::Building }
+        Self {
+            buf: Vec::new(),
+            state: State::Building,
+        }
     }
 
     /// Feed one byte. Returns Some(Frame) on the LF that completes a

@@ -17,8 +17,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Level, Output, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::{
-    PA0, PC1, PC13, PC4, PC6, PC7, PD11, PD4, PE1, PE2, PE3, PE4, PF0, PF1, PF10, PF11, PF12,
-    PF13, PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
+    PA0, PC1, PC13, PC4, PC6, PC7, PD11, PD4, PE1, PE2, PE3, PE4, PF0, PF1, PF10, PF11, PF12, PF13,
+    PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
 };
 use embassy_stm32::timer::CoreInstance;
 use embassy_stm32::usart::{Config as UartConfig, Uart};
@@ -62,11 +62,7 @@ impl<T: CoreInstance, const N: usize> TmcTransport for SoftUartHandle<T, N> {
     async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
         SoftUartHandle::write(self, data).await
     }
-    async fn write_then_read(
-        &mut self,
-        tx: &[u8],
-        rx: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    async fn write_then_read(&mut self, tx: &[u8], rx: &mut [u8]) -> Result<(), Self::Error> {
         SoftUartHandle::write_then_read(self, tx, rx).await
     }
 }
@@ -181,5 +177,9 @@ fn init_motors(
     let tmc: [MotorConfig; NUM_MOTORS] =
         core::array::from_fn(|i| Tmc2209::new(uart_handles[i], MOTOR_NAMES[i]));
 
-    Motors { tmc, step: step_handles, en }
+    Motors {
+        tmc,
+        step: step_handles,
+        en,
+    }
 }

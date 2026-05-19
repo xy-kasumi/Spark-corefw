@@ -34,8 +34,25 @@ pub async fn signal(
                 .end();
             let _ = line_tx.try_send(line);
         }
+        b"?pos" => {
+            // Coordinate-system selection (G53/G54/...) is not implemented yet,
+            // so the active system is always machine.
+            let pos = {
+                let m = motion.lock().await;
+                m.current_position()
+            };
+            let line = Line::new(PsType::Pos)
+                .begin()
+                .str_val("sys", "machine")
+                .float("m.x", pos.x)
+                .float("m.y", pos.y)
+                .float("m.z", pos.z)
+                .float("m.c", pos.c * 360.0)
+                .end();
+            let _ = line_tx.try_send(line);
+        }
         _ => {
-            // ?pos / ?edm land in a later phase.
+            // ?edm lands in a later phase.
         }
     }
 }

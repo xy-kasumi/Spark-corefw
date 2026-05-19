@@ -43,7 +43,10 @@ pub struct Line {
 
 impl Line {
     pub fn new(ps: PsType) -> Self {
-        let mut me = Self { buf: Vec::new(), overflowed: false };
+        let mut me = Self {
+            buf: Vec::new(),
+            overflowed: false,
+        };
         me.append(ps.tag());
         me
     }
@@ -135,7 +138,9 @@ pub struct ErrorLine {
 
 impl ErrorLine {
     pub fn new() -> Self {
-        Self { line: Line::new(PsType::Error).begin() }
+        Self {
+            line: Line::new(PsType::Error).begin(),
+        }
     }
 
     /// Attach the offending input line. Truncated to 50 bytes.
@@ -180,7 +185,11 @@ mod tests {
 
     #[test]
     fn one_shot_queue() {
-        let l = Line::new(PsType::Queue).begin().int("cap", 100).int("num", 5).end();
+        let l = Line::new(PsType::Queue)
+            .begin()
+            .int("cap", 100)
+            .int("num", 5)
+            .end();
         assert_eq!(s(&l), "queue < cap:100 num:5 >");
     }
 
@@ -245,7 +254,10 @@ mod tests {
     #[test]
     fn error_source_truncated_to_50() {
         let long = [b'A'; 80];
-        let l = ErrorLine::new().source(&long).msg(format_args!("x")).finish();
+        let l = ErrorLine::new()
+            .source(&long)
+            .msg(format_args!("x"))
+            .finish();
         let body = s(&l);
         // Walk the literal we expect: 50 'A's between quotes.
         let expected = b"error < src:\"".len() + 50 + b"\" msg:\"x\" >".len();

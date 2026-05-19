@@ -41,8 +41,8 @@ enum State {
 
 struct EngineInner<T: CoreInstance, const N: usize> {
     state: State,
-    phase: u8,        // 0..3, sub-bit position within the 90µs bit cell
-    bit_pos: usize,   // global bit index into the frame (0..buffer_size*10)
+    phase: u8,      // 0..3, sub-bit position within the 90µs bit cell
+    bit_pos: usize, // global bit index into the frame (0..buffer_size*10)
     buffer: [u8; MAX_FRAME],
     buffer_size: usize,
     current_pin: usize,
@@ -108,11 +108,7 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
     // Configure the timer for 30µs periodic interrupt, install the N pins as
     // open-drain + pull-up (idle high), enable the NVIC, and return one
     // handle per pin slot. Caller is responsible for installing the ISR.
-    pub fn init(
-        &'static self,
-        tim: T,
-        mut pins: [Flex<'static>; N],
-    ) -> [SoftUartHandle<T, N>; N] {
+    pub fn init(&'static self, tim: T, mut pins: [Flex<'static>; N]) -> [SoftUartHandle<T, N>; N] {
         for pin in pins.iter_mut() {
             pin.set_as_input_output_pull(Speed::Low, Pull::Up);
             pin.set_high();
@@ -135,7 +131,10 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
             T::UpdateInterrupt::enable();
         }
 
-        core::array::from_fn(|i| SoftUartHandle { engine: self, pin_idx: i })
+        core::array::from_fn(|i| SoftUartHandle {
+            engine: self,
+            pin_idx: i,
+        })
     }
 
     // Drive one 30µs ISR tick. Must be called from the timer interrupt handler.
@@ -242,7 +241,8 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
         match with_timeout(Duration::from_millis(15), self.signal.wait()).await {
             Ok(()) => Ok(()),
             Err(_) => {
-                self.inner.lock(|cell| cell.borrow_mut().state = State::Idle);
+                self.inner
+                    .lock(|cell| cell.borrow_mut().state = State::Idle);
                 Err(Error::Timeout)
             }
         }
@@ -270,7 +270,8 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
                 Ok(())
             }
             Err(_) => {
-                self.inner.lock(|cell| cell.borrow_mut().state = State::Idle);
+                self.inner
+                    .lock(|cell| cell.borrow_mut().state = State::Idle);
                 Err(Error::Timeout)
             }
         }
@@ -293,11 +294,9 @@ impl<T: CoreInstance, const N: usize> SoftUartHandle<T, N> {
     pub async fn write(&self, data: &[u8]) -> Result<(), Error> {
         self.engine.transact_write(self.pin_idx, data).await
     }
-    pub async fn write_then_read(
-        &self,
-        tx: &[u8],
-        rx: &mut [u8],
-    ) -> Result<(), Error> {
-        self.engine.transact_write_then_read(self.pin_idx, tx, rx).await
+    pub async fn write_then_read(&self, tx: &[u8], rx: &mut [u8]) -> Result<(), Error> {
+        self.engine
+            .transact_write_then_read(self.pin_idx, tx, rx)
+            .await
     }
 }

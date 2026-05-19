@@ -27,7 +27,8 @@ impl Motors {
         self.x.set_target((pos.x * self.cal.steps_per_mm_x) as i32);
         self.y.set_target((pos.y * self.cal.steps_per_mm_y) as i32);
         self.z.set_target((pos.z * self.cal.steps_per_mm_z) as i32);
-        self.c.set_target((pos.c * self.cal.steps_per_turn_c) as i32);
+        self.c
+            .set_target((pos.c * self.cal.steps_per_turn_c) as i32);
     }
 
     pub fn current(&self) -> PosPhys {

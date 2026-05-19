@@ -24,7 +24,9 @@ impl LineTx {
     /// Build the line-TX layer and spawn its pumper. One init() per program.
     pub fn init(spawner: &Spawner, serial: &'static Serial) -> &'static Self {
         static CELL: StaticCell<LineTx> = StaticCell::new();
-        let me = CELL.init(LineTx { chan: Channel::new() });
+        let me = CELL.init(LineTx {
+            chan: Channel::new(),
+        });
         spawner.must_spawn(pump(me, serial));
         me
     }

@@ -11,11 +11,7 @@ use embassy_time::{Duration, Timer};
 pub trait TmcTransport {
     type Error;
     async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error>;
-    async fn write_then_read(
-        &mut self,
-        tx: &[u8],
-        rx: &mut [u8],
-    ) -> Result<(), Self::Error>;
+    async fn write_then_read(&mut self, tx: &[u8], rx: &mut [u8]) -> Result<(), Self::Error>;
 }
 
 // --- Register addresses (subset) --------------------------------------------
@@ -112,7 +108,11 @@ pub struct Tmc2209<T: TmcTransport> {
 
 impl<T: TmcTransport> Tmc2209<T> {
     pub fn new(transport: T, name: &'static str) -> Self {
-        Self { transport, last_ifcnt: 0, name }
+        Self {
+            transport,
+            last_ifcnt: 0,
+            name,
+        }
     }
 
     // Prime last_ifcnt from the chip so the first write_reg's verify has an
@@ -184,10 +184,7 @@ impl<T: TmcTransport> Tmc2209<T> {
         self.write_reg(REG_TCOOLTHRS, value & 0x000F_FFFF).await
     }
 
-    pub async fn set_stallguard_threshold(
-        &mut self,
-        threshold: u8,
-    ) -> Result<(), Error<T::Error>> {
+    pub async fn set_stallguard_threshold(&mut self, threshold: u8) -> Result<(), Error<T::Error>> {
         self.write_reg(REG_SGTHRS, threshold as u32).await
     }
 }

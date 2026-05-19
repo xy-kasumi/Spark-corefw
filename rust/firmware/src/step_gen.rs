@@ -97,7 +97,10 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
             T::UpdateInterrupt::enable();
         }
 
-        core::array::from_fn(|i| StepGenHandle { engine: self, idx: i })
+        core::array::from_fn(|i| StepGenHandle {
+            engine: self,
+            idx: i,
+        })
     }
 
     pub fn tick(&self) {
@@ -171,6 +174,8 @@ impl<T: CoreInstance, const N: usize> StepGenHandle<T, N> {
     }
 
     pub fn current(&self) -> i32 {
-        self.engine.inner.lock(|cell| cell.borrow().motors[self.idx].current)
+        self.engine
+            .inner
+            .lock(|cell| cell.borrow().motors[self.idx].current)
     }
 }

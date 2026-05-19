@@ -20,6 +20,7 @@ The firmware is built on Zephyr RTOS. Spark-corefw/ is our repository, and it's 
 - when using field initialization, rely on implicit 0-initialization for non-important (unused) fields
 - Always use {} even for single-line if, while, for etc.
 - Run ./format_all.sh when you're done editing code.
+- For Rust code under rust/, run `cargo fmt --all --manifest-path rust/Cargo.toml` when you're done editing.
 
 
 ## Build, Test
