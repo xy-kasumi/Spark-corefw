@@ -12,7 +12,7 @@ use embassy_sync::channel::Channel;
 use model::pstate::Line;
 use static_cell::StaticCell;
 
-use crate::serial::Serial;
+use crate::drivers::serial::Serial;
 
 pub const TX_LINE_CAP: usize = 8;
 

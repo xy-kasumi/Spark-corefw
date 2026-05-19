@@ -24,10 +24,10 @@ use embassy_stm32::timer::CoreInstance;
 use embassy_stm32::usart::{Config as UartConfig, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 
-use crate::serial::Serial;
-use crate::soft_uart::{self, SoftUart, SoftUartHandle};
-use crate::step_gen::{StepGen, StepGenHandle};
-use crate::tmc2209::{Tmc2209, TmcTransport};
+use crate::drivers::serial::Serial;
+use crate::drivers::soft_uart::{self, SoftUart, SoftUartHandle};
+use crate::drivers::step_gen::{StepGen, StepGenHandle};
+use crate::drivers::tmc2209::{Tmc2209, TmcTransport};
 
 pub const NUM_MOTORS: usize = 7;
 pub const MOTOR_NAMES: [&str; NUM_MOTORS] = ["m0", "m1", "m2", "m3", "m4", "m5", "m6"];

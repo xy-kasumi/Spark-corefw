@@ -5,13 +5,10 @@ mod board;
 mod cmd_loop;
 mod command;
 mod dispatch;
+mod drivers;
 mod line_tx;
 mod motion;
 mod motor;
-mod serial;
-mod soft_uart;
-mod step_gen;
-mod tmc2209;
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -24,10 +21,10 @@ use panic_halt as _;
 use static_cell::StaticCell;
 
 use crate::command::CmdQueue;
+use crate::drivers::serial::Serial;
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::motor::{MotorAxisConfig, Motors};
-use crate::serial::Serial;
 
 // Tick rate of the orchestrator loop. Anything that wants a slower cadence
 // counts ticks; nothing else schedules its own timer.
