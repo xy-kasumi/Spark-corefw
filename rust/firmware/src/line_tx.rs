@@ -9,6 +9,8 @@ use embassy_sync::channel::Channel;
 use model::pstate::Line;
 use static_cell::StaticCell;
 
+use crate::drivers::serial::Serial;
+
 pub const TX_LINE_CAP: usize = 100;
 
 pub struct LineTx {
@@ -38,8 +40,50 @@ impl LineTx {
         self.chan.send(line).await;
     }
 
-    /// Non-blocking dequeue. The tick-loop drainer is the only caller.
-    pub fn try_recv(&self) -> Option<Line> {
-        self.chan.try_receive().ok()
+    /// Push as many queued lines as `serial`'s TX ring will accept this tick.
+    /// `state` is the consumer's resume cursor (not queue state); `&mut`
+    /// keeps the single-drainer invariant a compile-time fact.
+    pub fn drain(&self, serial: &Serial, state: &mut DrainState) {
+        loop {
+            if state.line.is_none() {
+                match self.chan.try_receive().ok() {
+                    Some(l) => {
+                        state.line = Some(l);
+                        state.offset = 0;
+                    }
+                    None => return,
+                }
+            }
+            let bytes = state.line.as_ref().unwrap().as_bytes();
+            if state.offset < bytes.len() {
+                let n = serial.tx_push(&bytes[state.offset..]);
+                state.offset += n;
+                if state.offset < bytes.len() {
+                    return;
+                }
+            }
+            if serial.tx_push(b"\n") == 0 {
+                return;
+            }
+            state.line = None;
+        }
+    }
+}
+
+/// Per-loop state for [`LineTx::drain`]: the line currently being shipped and
+/// how many of its bytes have already been pushed to the serial TX ring. A
+/// trailing LF is still owed once the payload is fully pushed; only then do
+/// we pull the next line.
+pub struct DrainState {
+    line: Option<Line>,
+    offset: usize,
+}
+
+impl DrainState {
+    pub const fn new() -> Self {
+        Self {
+            line: None,
+            offset: 0,
+        }
     }
 }

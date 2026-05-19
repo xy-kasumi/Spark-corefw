@@ -2,31 +2,34 @@
 #![no_main]
 
 mod board;
-mod cmd_loop;
-mod command;
-mod dispatch;
+mod commands;
 mod drivers;
+mod line_parser;
 mod line_tx;
 mod motion;
 mod motor;
 mod settings;
+mod signals;
+
+use core::sync::atomic::Ordering;
 
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
-use model::comm;
-use model::pstate::{ErrorLine, Line};
+use model::pstate::ErrorLine;
 use model::settings::Settings as SettingsCache;
 use panic_halt as _;
-use static_cell::StaticCell;
 
-use crate::command::CmdQueue;
+use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
-use crate::line_tx::LineTx;
+use crate::line_parser::{Parsed, Parser};
+use crate::line_tx::{DrainState, LineTx};
 use crate::motion::Motion;
 use crate::motor::{MotorAxisConfig, Motors};
+use crate::settings::SharedTmc;
 
 /// Orchestrator loop tick rate. Slower-cadence work counts ticks; nothing else schedules its own timer.
 const TICK_HZ: u32 = 1000;
@@ -58,55 +61,55 @@ async fn main(spawner: Spawner) {
         },
     };
 
-    static MOTION_CELL: StaticCell<SharedMotion> = StaticCell::new();
-    let motion: &'static SharedMotion = MOTION_CELL.init(Mutex::new(Motion::new(motors)));
-
-    static TMC_CELL: StaticCell<settings::SharedTmc> = StaticCell::new();
-    let tmc: &'static settings::SharedTmc = TMC_CELL.init(Mutex::new(board.motors.tmc));
-
+    let motion: SharedMotion = Mutex::new(Motion::new(motors));
+    let tmc: SharedTmc = Mutex::new(board.motors.tmc);
     let line_tx = LineTx::init();
-
-    static CMD_QUEUE_CELL: StaticCell<CmdQueue> = StaticCell::new();
-    let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
-
-    spawner.must_spawn(cmd_loop::run(cmd_queue, motion, tmc, line_tx));
+    let cmd_queue: CmdQueue = Channel::new();
 
     // Push defaults to hardware; emits the `init` p-state with the result.
-    settings::apply_all(&init_settings, motion, tmc, line_tx).await;
+    settings::apply_all(&init_settings, &motion, &tmc, line_tx).await;
 
-    tick_loop(board.console, cmd_queue, motion, line_tx).await;
+    join(
+        tick_loop(board.console, &cmd_queue, &motion, line_tx),
+        cmd_loop(&cmd_queue, &motion, &tmc, line_tx),
+    )
+    .await;
 }
 
-async fn tick_loop(
-    serial: &'static Serial,
-    cmd_queue: &'static CmdQueue,
-    motion: &'static SharedMotion,
-    line_tx: &'static LineTx,
-) -> ! {
+/// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
+async fn tick_loop(serial: &Serial, cmd_queue: &CmdQueue, motion: &SharedMotion, line_tx: &LineTx) {
     let mut ticker = Ticker::every(Duration::from_millis(1));
-    let mut framer = comm::Framer::new();
-    let mut chunk = [0u8; 32];
-
-    // Current outbound line + bytes already pushed. After payload, we still owe a trailing LF;
-    // once that lands we pull the next line.
-    let mut tx_line: Option<Line> = None;
-    let mut tx_offset: usize = 0;
+    let mut parser = Parser::new();
+    let mut tx_state = DrainState::new();
 
     loop {
         ticker.next().await;
 
+        let mut chunk = [0u8; 32];
         for &b in serial.rx_get(&mut chunk) {
-            if let Some(frame) = framer.feed(b) {
-                match frame {
-                    comm::Frame::Signal(s) => {
-                        dispatch::signal(s, motion, cmd_queue, line_tx).await;
-                    }
-                    comm::Frame::Command(c) => parse_and_enqueue(c, cmd_queue, line_tx),
+            match parser.feed(b) {
+                Some(Parsed::Signal(s)) => {
+                    signals::exec(s, motion, cmd_queue, line_tx).await;
                 }
+                Some(Parsed::Command(c)) => {
+                    if let Err(_dropped) = cmd_queue.try_send(c) {
+                        let _ = line_tx
+                            .try_send(ErrorLine::new().msg(format_args!("queue full")).finish());
+                    }
+                }
+                Some(Parsed::CommandError(src, e)) => {
+                    let _ = line_tx.try_send(
+                        ErrorLine::new()
+                            .source(src)
+                            .msg(format_args!("{:?}", e))
+                            .finish(),
+                    );
+                }
+                None => {}
             }
         }
 
-        drain_line_tx(serial, line_tx, &mut tx_line, &mut tx_offset);
+        line_tx.drain(serial, &mut tx_state);
 
         {
             let mut m = motion.lock().await;
@@ -115,56 +118,33 @@ async fn tick_loop(
     }
 }
 
-fn drain_line_tx(
-    serial: &Serial,
-    line_tx: &LineTx,
-    tx_line: &mut Option<Line>,
-    tx_offset: &mut usize,
-) {
-    loop {
-        if tx_line.is_none() {
-            match line_tx.try_recv() {
-                Some(l) => {
-                    *tx_line = Some(l);
-                    *tx_offset = 0;
-                }
-                None => return,
-            }
-        }
-        let bytes = tx_line.as_ref().unwrap().as_bytes();
-        if *tx_offset < bytes.len() {
-            let n = serial.tx_push(&bytes[*tx_offset..]);
-            *tx_offset += n;
-            if *tx_offset < bytes.len() {
-                return;
-            }
-        }
-        if serial.tx_push(b"\n") == 0 {
-            return;
-        }
-        *tx_line = None;
-    }
-}
+/// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
+/// buffer so the executor can see the next command before committing — required
+/// for upcoming G1-chain continuity (currently unused).
+async fn cmd_loop(cmd_queue: &CmdQueue, motion: &SharedMotion, tmc: &SharedTmc, line_tx: &LineTx) {
+    let mut settings = SettingsCache::defaults();
 
-fn parse_and_enqueue(bytes: &[u8], cmd_queue: &CmdQueue, line_tx: &LineTx) {
-    match command::parse(bytes) {
-        Ok(cmd) => {
-            if let Err(_dropped) = cmd_queue.try_send(cmd) {
-                let _ = line_tx.try_send(
-                    ErrorLine::new()
-                        .source(bytes)
-                        .msg(format_args!("queue full"))
-                        .finish(),
-                );
+    let mut peek_buf: Option<Command> = None;
+    loop {
+        // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
+        // `await` as the only yield point means the signal reader can't observe a torn count.
+        let curr = match peek_buf.take() {
+            Some(c) => c,
+            None => {
+                let c = cmd_queue.receive().await;
+                OUTSTANDING.fetch_add(1, Ordering::Relaxed);
+                c
             }
-        }
-        Err(e) => {
-            let _ = line_tx.try_send(
-                ErrorLine::new()
-                    .source(bytes)
-                    .msg(format_args!("{:?}", e))
-                    .finish(),
-            );
-        }
+        };
+        let peek = match cmd_queue.try_receive() {
+            Ok(c) => {
+                OUTSTANDING.fetch_add(1, Ordering::Relaxed);
+                Some(c)
+            }
+            Err(_) => None,
+        };
+        commands::exec(curr, peek.as_ref(), motion, tmc, line_tx, &mut settings).await;
+        OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+        peek_buf = peek;
     }
 }

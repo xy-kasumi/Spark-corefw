@@ -1,11 +1,12 @@
-//! Command execution task. Pops parsed [`Command`] from the queue and runs it.
-//! Carries a one-slot peek buffer so the executor can see the next command before
-//! committing — required for upcoming G1-chain continuity (currently unused).
+//! Host command pipeline: queue plumbing, command executor, and the shared
+//! [`Command`] enum (re-exported from `model::command` so the parser stays
+//! host-testable).
 
 use core::fmt::Write;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::AtomicUsize;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use heapless::String;
 use model::coords::PosPhys;
@@ -14,54 +15,30 @@ use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::{self, Settings};
 
+pub use model::command::{parse, Command, ParseError};
+
 use crate::board::{MOTOR_NAMES, NUM_MOTORS};
-use crate::command::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::settings::{apply_one, SharedTmc};
 
+pub const CMD_QUEUE_CAP: usize = 64;
+
+pub type CmdQueue = Channel<NoopRawMutex, Command, CMD_QUEUE_CAP>;
+
+/// Commands popped from [`CmdQueue`] but not yet finished — covers the running
+/// command and the one in the executor's peek buffer.
+/// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field.
+pub static OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
+
 const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 
-#[embassy_executor::task]
-pub async fn run(
-    cmd_queue: &'static CmdQueue,
-    motion: &'static Mutex<NoopRawMutex, Motion>,
-    tmc: &'static SharedTmc,
-    line_tx: &'static LineTx,
-) {
-    let mut settings = Settings::defaults();
-
-    let mut peek_buf: Option<Command> = None;
-    loop {
-        // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
-        // `await` as the only yield point means the signal reader can't observe a torn count.
-        let curr = match peek_buf.take() {
-            Some(c) => c,
-            None => {
-                let c = cmd_queue.receive().await;
-                OUTSTANDING.fetch_add(1, Ordering::Relaxed);
-                c
-            }
-        };
-        let peek = match cmd_queue.try_receive() {
-            Ok(c) => {
-                OUTSTANDING.fetch_add(1, Ordering::Relaxed);
-                Some(c)
-            }
-            Err(_) => None,
-        };
-        exec(curr, peek.as_ref(), motion, tmc, line_tx, &mut settings).await;
-        OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
-        peek_buf = peek;
-    }
-}
-
-async fn exec(
+pub async fn exec(
     cmd: Command,
     _peek: Option<&Command>,
-    motion: &'static Mutex<NoopRawMutex, Motion>,
-    tmc: &'static SharedTmc,
+    motion: &Mutex<NoopRawMutex, Motion>,
+    tmc: &SharedTmc,
     line_tx: &LineTx,
     settings: &mut Settings,
 ) {
