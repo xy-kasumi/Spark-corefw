@@ -10,6 +10,8 @@
 // |  m4 | PF9  | PF10 | PG2  | PF2  | PG12 |
 // |  m5 | PC13 | PF0  | PF1  | PE4  | PG13 |
 // |  m6 | PE2  | PE3  | PD4  | PE1  | PG14 |
+//
+// Console UART: USART2 on PD5 (TX) / PD6 (RX), DMA1_CH0 / DMA1_CH1.
 
 use embassy_stm32::gpio::{Flex, Level, Output, Speed};
 use embassy_stm32::interrupt;
@@ -18,6 +20,8 @@ use embassy_stm32::peripherals::{
     PF13, PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
 };
 use embassy_stm32::timer::CoreInstance;
+use embassy_stm32::usart::{Config as UartConfig, Uart, UartRx, UartTx};
+use embassy_stm32::{bind_interrupts, mode, peripherals, usart};
 
 use crate::soft_uart::{self, SoftUart, SoftUartHandle};
 use crate::step_gen::{StepGen, StepGenHandle};
@@ -30,9 +34,15 @@ pub const MOTOR_NAMES: [&str; NUM_MOTORS] = ["m0", "m1", "m2", "m3", "m4", "m5",
 type SoftUartTim = TIM7;
 type StepGenTim = TIM6;
 
-pub type Uart = SoftUartHandle<SoftUartTim, NUM_MOTORS>;
+pub type TmcBus = SoftUartHandle<SoftUartTim, NUM_MOTORS>;
 pub type Step = StepGenHandle<StepGenTim, NUM_MOTORS>;
-pub type Motor = Tmc2209<Uart>;
+pub type Motor = Tmc2209<TmcBus>;
+pub type ConsoleTx = UartTx<'static, mode::Async>;
+pub type ConsoleRx = UartRx<'static, mode::Async>;
+
+bind_interrupts!(struct Irqs {
+    USART2 => usart::InterruptHandler<peripherals::USART2>;
+});
 
 static SOFT_UART: SoftUart<SoftUartTim, NUM_MOTORS> = SoftUart::new();
 static STEP_GEN: StepGen<StepGenTim, NUM_MOTORS> = StepGen::new();
@@ -69,8 +79,37 @@ pub struct Motors {
     pub en: [Output<'static>; NUM_MOTORS],
 }
 
+pub struct Board {
+    pub console_tx: ConsoleTx,
+    pub console_rx: ConsoleRx,
+    pub motors: Motors,
+}
+
+pub fn init(console_baud: u32) -> Board {
+    let p = embassy_stm32::init(Default::default());
+
+    let mut cfg = UartConfig::default();
+    cfg.baudrate = console_baud;
+    let uart = Uart::new(p.USART2, p.PD6, p.PD5, Irqs, p.DMA1_CH0, p.DMA1_CH1, cfg).unwrap();
+    let (console_tx, console_rx) = uart.split();
+
+    let motors = init_motors(
+        p.TIM7,
+        p.TIM6,
+        (p.PC4, p.PF13, p.PF12, p.PF14),
+        (p.PD11, p.PG0, p.PG1, p.PF15),
+        (p.PC6, p.PF11, p.PG3, p.PG5),
+        (p.PC7, p.PG4, p.PC1, p.PA0),
+        (p.PF2, p.PF9, p.PF10, p.PG2),
+        (p.PE4, p.PC13, p.PF0, p.PF1),
+        (p.PE1, p.PE2, p.PE3, p.PD4),
+    );
+
+    Board { console_tx, console_rx, motors }
+}
+
 // One (uart, step, dir, enable) tuple per motor.
-pub fn init_motors(
+fn init_motors(
     tim_uart: TIM7,
     tim_step: TIM6,
     m0: (PC4, PF13, PF12, PF14),

@@ -15,60 +15,34 @@ use core::fmt::Write as _;
 
 use embassy_executor::Spawner;
 use embassy_futures::join::join3;
-use embassy_stm32::usart::{Config as UartConfig, Uart};
-use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::String;
 use model::motion::Mode;
 use panic_halt as _;
 
-use crate::board::init_motors;
 use crate::log::TxMutex;
 use crate::motion::{Motion, Shared};
 use crate::motor::{Calibration, Motors};
 
-bind_interrupts!(struct Irqs {
-    USART2 => usart::InterruptHandler<peripherals::USART2>;
-});
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
-
-    let mut cfg = UartConfig::default();
-    cfg.baudrate = 115200;
-    let uart = Uart::new(
-        p.USART2, p.PD6, p.PD5, Irqs, p.DMA1_CH0, p.DMA1_CH1, cfg,
-    )
-    .unwrap();
-    let (tx, rx) = uart.split();
-    let tx: TxMutex = Mutex::new(tx);
-
-    let mut bm = init_motors(
-        p.TIM7,
-        p.TIM6,
-        (p.PC4,  p.PF13, p.PF12, p.PF14),
-        (p.PD11, p.PG0,  p.PG1,  p.PF15),
-        (p.PC6,  p.PF11, p.PG3,  p.PG5),
-        (p.PC7,  p.PG4,  p.PC1,  p.PA0),
-        (p.PF2,  p.PF9,  p.PF10, p.PG2),
-        (p.PE4,  p.PC13, p.PF0,  p.PF1),
-        (p.PE1,  p.PE2,  p.PE3,  p.PD4),
-    );
+    let mut board = board::init(115200);
+    let tx: TxMutex = Mutex::new(board.console_tx);
 
     // Enable motors 0..=2 (XYZ). Active-low EN. C-axis (m3) and m4..m6 stay off.
-    bm.en[0].set_low();
-    bm.en[1].set_low();
-    bm.en[2].set_low();
+    board.motors.en[0].set_low();
+    board.motors.en[1].set_low();
+    board.motors.en[2].set_low();
 
     // Phase 4: pull motor-to-axis mapping + calibration from settings.
-    // Step is Copy, so this doesn't move out of bm — bm.en pins stay alive in scope.
+    // Step is Copy, so indexing board.motors.step[N] doesn't move out of
+    // board.motors — the en pins stay alive in scope.
     let motors = Motors {
-        x: bm.step[0],
-        y: bm.step[1],
-        z: bm.step[2],
-        c: bm.step[3],
+        x: board.motors.step[0],
+        y: board.motors.step[1],
+        z: board.motors.step[2],
+        c: board.motors.step[3],
         cal: Calibration {
             steps_per_mm_x: 400.0,
             steps_per_mm_y: 400.0,
@@ -81,7 +55,7 @@ async fn main(_spawner: Spawner) {
     log::log(&tx, b"[spark-rs] booted\r\n").await;
 
     join3(
-        comm::run(rx, &motion, &tx),
+        comm::run(board.console_rx, &motion, &tx),
         tick_loop(&motion),
         heartbeat(&motion, &tx),
     )
