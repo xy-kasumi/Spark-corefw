@@ -16,6 +16,8 @@ pub enum Command {
     Set(SettingId, f32),
     /// `get` — dump all settings as one `stg` p-state.
     Get,
+    /// `stat` — dump per-module debug status as one `stat` p-state.
+    Stat,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,6 +30,7 @@ pub enum ParseError {
     SetUnknownKey,
     SetBadValue,
     GetExtraArgs,
+    StatExtraArgs,
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Command, ParseError> {
@@ -48,6 +51,7 @@ fn parse_text(bytes: &[u8]) -> Result<Command, ParseError> {
     match word {
         "set" => parse_set(rest),
         "get" => parse_get(rest),
+        "stat" => parse_stat(rest),
         _ => Err(ParseError::UnknownCommand),
     }
 }
@@ -77,6 +81,13 @@ fn parse_get(rest: &str) -> Result<Command, ParseError> {
         return Err(ParseError::GetExtraArgs);
     }
     Ok(Command::Get)
+}
+
+fn parse_stat(rest: &str) -> Result<Command, ParseError> {
+    if !rest.trim_start_matches(is_ws).is_empty() {
+        return Err(ParseError::StatExtraArgs);
+    }
+    Ok(Command::Stat)
 }
 
 fn is_ws(c: char) -> bool {
@@ -186,8 +197,18 @@ mod tests {
     }
 
     #[test]
+    fn stat_basic() {
+        assert_eq!(parse(b"stat"), Ok(Command::Stat));
+        assert_eq!(parse(b"stat  "), Ok(Command::Stat));
+    }
+
+    #[test]
+    fn stat_extra_args() {
+        assert_eq!(parse(b"stat foo"), Err(ParseError::StatExtraArgs));
+    }
+
+    #[test]
     fn unknown_command() {
         assert_eq!(parse(b"foo bar"), Err(ParseError::UnknownCommand));
-        assert_eq!(parse(b"stat"), Err(ParseError::UnknownCommand));
     }
 }

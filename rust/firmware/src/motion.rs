@@ -2,7 +2,7 @@
 //! and is ticked from the orchestrator on a 1 ms cadence.
 
 use model::coords::PosPhys;
-use model::motion::{MotionInputs, MotionState};
+use model::motion::{Mode, MotionInputs, MotionState};
 
 use crate::motor::Motors;
 
@@ -33,6 +33,21 @@ impl Motion {
 
     pub fn state(&mut self) -> &mut MotionState<PB_CAPACITY> {
         &mut self.state
+    }
+
+    pub fn mode(&self) -> Mode {
+        self.state.mode()
+    }
+
+    /// Raw microstep counters for the four wired axes (m0..m3 = x/y/z/c).
+    /// m4..m6 have no step-gen pipeline driving them, so they are not included.
+    pub fn motor_step_counts(&self) -> [i32; 4] {
+        [
+            self.motors.x.current(),
+            self.motors.y.current(),
+            self.motors.z.current(),
+            self.motors.c.current(),
+        ]
     }
 
     /// Advance the controller and apply the resulting target to motors.

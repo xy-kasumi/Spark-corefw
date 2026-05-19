@@ -3,16 +3,21 @@
 //! committing the current one (G1-chain continuity will use this in a later
 //! phase — wired through but unused for now).
 
+use core::fmt::Write;
 use core::sync::atomic::Ordering;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
+use heapless::String;
 use model::coords::PosPhys;
 use model::gcode::{Command as GCmd, MoveSpec};
+use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::{self, Settings};
 
+use crate::board::{MOTOR_NAMES, NUM_MOTORS};
 use crate::command::{CmdQueue, Command, OUTSTANDING};
+use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::settings::{apply_one, SharedTmc};
@@ -92,6 +97,9 @@ async fn exec(
         Command::Get => {
             dump_settings(line_tx, settings).await;
         }
+        Command::Stat => {
+            dump_stat(line_tx, motion, tmc).await;
+        }
     }
 }
 
@@ -104,6 +112,56 @@ async fn dump_settings(line_tx: &LineTx, settings: &Settings) {
         line_tx.send(line).await;
     }
     line_tx.send(Line::new(PsType::Settings).end()).await;
+}
+
+/// Emit one `stat` p-state: open with `stat <`, stream per-module status as
+/// individual kv lines (one wire line each), close with `stat >`. Pulling all
+/// 7 TMC drivers is slow (each register read awaits a UART roundtrip + 10 ms
+/// settle), so this command can take several hundred ms — matches C parity.
+async fn dump_stat(line_tx: &LineTx, motion: &Mutex<NoopRawMutex, Motion>, tmc: &SharedTmc) {
+    line_tx.send(Line::new(PsType::Stat).begin()).await;
+
+    let (mode, steps) = {
+        let m = motion.lock().await;
+        (m.mode(), m.motor_step_counts())
+    };
+    let mode_name = match mode {
+        Mode::Idle => "idle",
+        Mode::Rapid => "rapid",
+    };
+    line_tx
+        .send(Line::new(PsType::Stat).str_val("motion.mode", mode_name))
+        .await;
+    for (i, &steps_i) in steps.iter().enumerate() {
+        let mut key: String<32> = String::new();
+        let _ = write!(&mut key, "motor.{}.current_steps", MOTOR_NAMES[i]);
+        line_tx
+            .send(Line::new(PsType::Stat).int(&key, steps_i))
+            .await;
+    }
+
+    const REGS: &[(&str, u8)] = &[
+        ("GCONF", REG_GCONF),
+        ("IOIN", REG_IOIN),
+        ("SG_RESULT", REG_SG_RESULT),
+        ("CHOPCONF", REG_CHOPCONF),
+    ];
+    {
+        let mut t = tmc.lock().await;
+        for i in 0..NUM_MOTORS {
+            for (name, addr) in REGS {
+                let mut key: String<32> = String::new();
+                let _ = write!(&mut key, "motor.{}.driver.{}", MOTOR_NAMES[i], name);
+                let line = match t[i].read_reg(*addr).await {
+                    Ok(v) => Line::new(PsType::Stat).hex32(&key, v),
+                    Err(_) => Line::new(PsType::Stat).str_val(&key, "error"),
+                };
+                line_tx.send(line).await;
+            }
+        }
+    }
+
+    line_tx.send(Line::new(PsType::Stat).end()).await;
 }
 
 fn apply_spec(current: PosPhys, s: &MoveSpec) -> PosPhys {
