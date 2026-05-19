@@ -6,28 +6,28 @@ use model::gcode::{self, Command, ParseError};
 
 use crate::dispatch;
 use crate::motion::Motion;
-use crate::serial;
+use crate::serial::Serial;
 
 pub const LINE_CAP: usize = 128;
 pub type LineBuf = Vec<u8, LINE_CAP>;
 
 /// Feed one received byte. On line termination, parse + dispatch + emit reply.
 /// `!` cancels motion immediately and emits an ack.
-pub fn handle_byte(b: u8, line: &mut LineBuf, motion: &mut Motion) {
+pub fn handle_byte(b: u8, line: &mut LineBuf, motion: &mut Motion, serial: &Serial) {
     match b {
         b'!' => {
             motion.cancel();
             line.clear();
-            serial::tx_push(b"cancelled\r\n");
+            serial.tx_push(b"cancelled\r\n");
         }
         b'\n' | b'\r' => {
             if !line.is_empty() {
                 match handle_line(line, motion) {
-                    Ok(()) => serial::tx_push(b"ok\r\n"),
+                    Ok(()) => serial.tx_push(b"ok\r\n"),
                     Err(e) => {
-                        serial::tx_push(b"err ");
-                        serial::tx_push(err_name(e));
-                        serial::tx_push(b"\r\n");
+                        serial.tx_push(b"err ");
+                        serial.tx_push(err_name(e));
+                        serial.tx_push(b"\r\n");
                     }
                 }
                 line.clear();

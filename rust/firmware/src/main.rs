@@ -22,6 +22,7 @@ use panic_halt as _;
 use crate::comm::LineBuf;
 use crate::motion::Motion;
 use crate::motor::{Calibration, Motors};
+use crate::serial::Serial;
 
 // Tick rate of the single orchestrator loop. Anything that wants a slower
 // cadence counts ticks; nothing else schedules its own timer.
@@ -29,13 +30,9 @@ const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 const HEARTBEAT_EVERY: u32 = 5 * TICK_HZ;
 
-// Hardware-side DMA ring for RX. Sized for ~5 ticks of bandwidth at 115200
-// baud to absorb tick jitter; pump_rx forwards into the software RX_PIPE.
-const RX_DMA_CAP: usize = 64;
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let mut board = board::init(115200);
+    let mut board = board::init(&spawner, 115200);
 
     // Enable motors 0..=2 (XYZ). Active-low EN. C-axis (m3) and m4..m6 stay off.
     board.motors.en[0].set_low();
@@ -59,18 +56,11 @@ async fn main(spawner: Spawner) {
     };
     let motion = Motion::new(motors);
 
-    let rx_buf: &'static mut [u8; RX_DMA_CAP] =
-        cortex_m::singleton!(: [u8; RX_DMA_CAP] = [0; RX_DMA_CAP]).unwrap();
-    let rx_ring = board.console_rx.into_ring_buffered(rx_buf);
-
-    spawner.spawn(serial::pump_tx(board.console_tx)).unwrap();
-    spawner.spawn(serial::pump_rx(rx_ring)).unwrap();
-    serial::tx_push(b"[spark-rs] booted\r\n");
-
-    orchestrate(motion).await;
+    board.console.tx_push(b"[spark-rs] booted\r\n");
+    orchestrate(motion, board.console).await;
 }
 
-async fn orchestrate(mut motion: Motion) -> ! {
+async fn orchestrate(mut motion: Motion, serial: &Serial) -> ! {
     let mut ticker = Ticker::every(Duration::from_millis(1));
     let mut count: u32 = 0;
     let mut line = LineBuf::new();
@@ -80,19 +70,19 @@ async fn orchestrate(mut motion: Motion) -> ! {
         ticker.next().await;
         count = count.wrapping_add(1);
 
-        for &b in serial::rx_get(&mut chunk) {
-            comm::handle_byte(b, &mut line, &mut motion);
+        for &b in serial.rx_get(&mut chunk) {
+            comm::handle_byte(b, &mut line, &mut motion, serial);
         }
 
         motion.tick(TICK_DT_S);
 
         if count % HEARTBEAT_EVERY == 0 {
-            emit_heartbeat(&motion);
+            emit_heartbeat(&motion, serial);
         }
     }
 }
 
-fn emit_heartbeat(motion: &Motion) {
+fn emit_heartbeat(motion: &Motion, serial: &Serial) {
     let pos = motion.current_position();
     let mode_str = match motion.mode() {
         Mode::Idle => "idle",
@@ -104,5 +94,5 @@ fn emit_heartbeat(motion: &Motion) {
         "hb {} x={:.3} y={:.3} z={:.3} c={:.4}\r\n",
         mode_str, pos.x, pos.y, pos.z, pos.c,
     );
-    serial::tx_push(line.as_bytes());
+    serial.tx_push(line.as_bytes());
 }

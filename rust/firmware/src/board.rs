@@ -13,6 +13,7 @@
 //
 // Console UART: USART2 on PD5 (TX) / PD6 (RX), DMA1_CH0 / DMA1_CH1.
 
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Level, Output, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::{
@@ -20,9 +21,10 @@ use embassy_stm32::peripherals::{
     PF13, PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
 };
 use embassy_stm32::timer::CoreInstance;
-use embassy_stm32::usart::{Config as UartConfig, Uart, UartRx, UartTx};
-use embassy_stm32::{bind_interrupts, mode, peripherals, usart};
+use embassy_stm32::usart::{Config as UartConfig, Uart};
+use embassy_stm32::{bind_interrupts, peripherals, usart};
 
+use crate::serial::Serial;
 use crate::soft_uart::{self, SoftUart, SoftUartHandle};
 use crate::step_gen::{StepGen, StepGenHandle};
 use crate::tmc2209::{Tmc2209, TmcTransport};
@@ -37,8 +39,6 @@ type StepGenTim = TIM6;
 pub type TmcBus = SoftUartHandle<SoftUartTim, NUM_MOTORS>;
 pub type Step = StepGenHandle<StepGenTim, NUM_MOTORS>;
 pub type Motor = Tmc2209<TmcBus>;
-pub type ConsoleTx = UartTx<'static, mode::Async>;
-pub type ConsoleRx = UartRx<'static, mode::Async>;
 
 bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;
@@ -80,18 +80,17 @@ pub struct Motors {
 }
 
 pub struct Board {
-    pub console_tx: ConsoleTx,
-    pub console_rx: ConsoleRx,
+    pub console: &'static Serial,
     pub motors: Motors,
 }
 
-pub fn init(console_baud: u32) -> Board {
+pub fn init(spawner: &Spawner, console_baud: u32) -> Board {
     let p = embassy_stm32::init(Default::default());
 
     let mut cfg = UartConfig::default();
     cfg.baudrate = console_baud;
     let uart = Uart::new(p.USART2, p.PD6, p.PD5, Irqs, p.DMA1_CH0, p.DMA1_CH1, cfg).unwrap();
-    let (console_tx, console_rx) = uart.split();
+    let console = Serial::init(spawner, uart);
 
     let motors = init_motors(
         p.TIM7,
@@ -105,7 +104,7 @@ pub fn init(console_baud: u32) -> Board {
         (p.PE1, p.PE2, p.PE3, p.PD4),
     );
 
-    Board { console_tx, console_rx, motors }
+    Board { console, motors }
 }
 
 // One (uart, step, dir, enable) tuple per motor.
