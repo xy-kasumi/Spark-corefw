@@ -1,71 +1,41 @@
-//! Application layer: handle classified frames, parse payloads, drive motion,
-//! emit wire replies. Comm hands us classified bytes; we know what they mean.
+//! Signal handling: ! / ? immediate-action signals from the host. Runs inline
+//! from `tick_loop`'s rx-parse phase, so it must finish quickly.
 
-use model::coords::PosPhys;
-use model::gcode::{self, Command, MoveSpec, ParseError};
+use core::sync::atomic::Ordering;
 
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
+use model::pstate::{Line, PsType};
+
+use crate::command::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
+use crate::line_tx::LineTx;
 use crate::motion::Motion;
-use crate::serial::Serial;
 
-/// Fixed rapid speed (mm/s). G0 in C uses a hardcoded fast feed; no F input.
-const RAPID_SPEED_MM_PER_S: f32 = 100.0;
-
-pub fn signal(bytes: &[u8], motion: &mut Motion, serial: &Serial) {
+pub async fn signal(
+    bytes: &[u8],
+    motion: &'static Mutex<NoopRawMutex, Motion>,
+    cmd_queue: &'static CmdQueue,
+    line_tx: &'static LineTx,
+) {
     match bytes {
         b"!" => {
-            motion.cancel();
-            serial.tx_push(b"cancelled\r\n");
+            {
+                let mut m = motion.lock().await;
+                m.cancel();
+            }
+            while cmd_queue.try_receive().is_ok() {}
+        }
+        b"?queue" => {
+            let num = cmd_queue.len() + OUTSTANDING.load(Ordering::Relaxed);
+            let line = Line::new(PsType::Queue)
+                .begin()
+                .int("cap", CMD_QUEUE_CAP as i32)
+                .int("num", num as i32)
+                .end();
+            let _ = line_tx.try_send(line);
         }
         _ => {
-            // ?queue / ?pos / etc. — Phase 4.
-            serial.tx_push(b"err unknown-signal\r\n");
+            // ?pos / ?edm land in a later phase.
         }
-    }
-}
-
-pub fn command(bytes: &[u8], motion: &mut Motion, serial: &Serial) {
-    match gcode::parse(bytes) {
-        Ok(cmd) => {
-            exec(cmd, motion);
-            serial.tx_push(b"ok\r\n");
-        }
-        Err(e) => {
-            serial.tx_push(b"err ");
-            serial.tx_push(err_name(e));
-            serial.tx_push(b"\r\n");
-        }
-    }
-}
-
-fn exec(cmd: Command, motion: &mut Motion) {
-    match cmd {
-        Command::Rapid(spec) => exec_rapid(spec, motion),
-        Command::Linear(_) => unimplemented!("Phase 4: G1 needs pulser feedback loop"),
-    }
-}
-
-fn exec_rapid(spec: MoveSpec, motion: &mut Motion) {
-    let current = motion.current_position();
-    let target = apply_spec(current, &spec);
-    motion.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
-}
-
-fn apply_spec(current: PosPhys, s: &MoveSpec) -> PosPhys {
-    PosPhys {
-        x: s.x.unwrap_or(current.x),
-        y: s.y.unwrap_or(current.y),
-        z: s.z.unwrap_or(current.z),
-        c: s.c.unwrap_or(current.c),
-    }
-}
-
-fn err_name(e: ParseError) -> &'static [u8] {
-    match e {
-        ParseError::Empty => b"empty",
-        ParseError::UnknownCommand => b"unknown",
-        ParseError::BadAxis => b"bad-axis",
-        ParseError::BadNumber => b"bad-number",
-        ParseError::ExpectedSeparator => b"missing-sep",
-        ParseError::TrailingGarbage => b"trailing",
     }
 }

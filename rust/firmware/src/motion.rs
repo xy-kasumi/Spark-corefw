@@ -2,7 +2,7 @@
 //! and is ticked from the orchestrator on a 1 ms cadence.
 
 use model::coords::PosPhys;
-use model::motion::{Mode, MotionInputs, MotionState};
+use model::motion::{MotionInputs, MotionState};
 
 use crate::motor::Motors;
 
@@ -33,10 +33,6 @@ impl Motion {
 
     pub fn state(&mut self) -> &mut MotionState<PB_CAPACITY> {
         &mut self.state
-    }
-
-    pub fn mode(&self) -> Mode {
-        self.state.mode()
     }
 
     /// Advance the controller and apply the resulting target to motors.

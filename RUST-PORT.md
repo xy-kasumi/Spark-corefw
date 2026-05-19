@@ -59,3 +59,6 @@ Goal criteria ("feature parity")
   * 1ms central tick loop
     * everything requiring faster than 1ms is encapsulated as a hardware driver with its own hardware timers or DMAs, exposing only "slow" (1ms) API
   * no other Timer::after calls
+
+# Tips
+* Use `tio --map OCRNL,ONLCRNL,INLCRNL --local-echo /dev/ttyACM0` to manuall connect
