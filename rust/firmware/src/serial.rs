@@ -30,8 +30,8 @@ pub struct Serial {
 }
 
 impl Serial {
-    /// Build the console subsystem and spawn its pumper tasks. Panics if
-    /// called more than once.
+    /// Build the console subsystem and spawn its pumper tasks.
+    /// Only one init() call in the program allowed.
     pub fn init(spawner: &Spawner, uart: Uart<'static, mode::Async>) -> &'static Self {
         let (tx, rx) = uart.split();
         let rx_buf: &'static mut [u8; RX_DMA_CAP] =
@@ -48,21 +48,20 @@ impl Serial {
         me
     }
 
-    /// Push bytes into the TX ring. Best-effort.
-    ///
-    /// FIXME: TX overflow handling is unspecified at the protocol level. When the
-    /// ring is full, `try_write` writes whatever fits and drops the rest — output
-    /// gets mangled mid-line, which is the visible "something's wrong" signal.
-    /// A protocol-conformant host should never trigger this; when we firm up
-    /// protocol-side rules for TX overflow, distinguish full vs partial and
-    /// surface a drop count.
+    /// Push bytes into the TX ring.
+    /// If underlying buffer is full, bytes will be (partially) thrown away.
     pub fn tx_push(&self, bytes: &[u8]) {
-        let _ = self.tx_pipe.try_write(bytes);
+        let mut remaining = bytes;
+        while !remaining.is_empty() {
+            match self.tx_pipe.try_write(remaining) {
+                Ok(n) => remaining = &remaining[n..],
+                Err(_) => break,
+            }
+        }
     }
 
-    /// Drain whatever bytes the RX ring currently holds. Returns the filled
+    /// Drain bytes the RX ring currently holds. Returns the filled
     /// prefix of the caller-provided buffer (`&[]` if nothing is available).
-    /// Non-blocking.
     pub fn rx_get<'a>(&self, buf: &'a mut [u8]) -> &'a [u8] {
         match self.rx_pipe.try_read(buf) {
             Ok(n) => &buf[..n],
@@ -86,8 +85,15 @@ async fn pump_rx(serial: &'static Serial, mut rx: RingBufferedUartRx<'static>) {
     loop {
         // RX errors (overrun, framing) restart background DMA on next read().
         if let Ok(n) = rx.read(&mut buf).await {
-            // Drop overflow silently — same FIXME story as tx_push.
-            let _ = serial.rx_pipe.try_write(&buf[..n]);
+            // Loop past try_write's wrap-point partial returns; on true
+            // overflow, drop the tail — same FIXME story as tx_push.
+            let mut remaining = &buf[..n];
+            while !remaining.is_empty() {
+                match serial.rx_pipe.try_write(remaining) {
+                    Ok(k) => remaining = &remaining[k..],
+                    Err(_) => break,
+                }
+            }
         }
     }
 }
