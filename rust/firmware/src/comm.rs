@@ -1,54 +1,47 @@
-//! Comm task: read UART bytes, frame into lines, parse + dispatch, reply ok/err.
+//! Sync line framer + parse + dispatch + reply, fed one byte per call from
+//! the orchestrator's per-tick RX drain.
 
-use embassy_stm32::{mode, usart::UartRx};
 use heapless::Vec;
 use model::gcode::{self, Command, ParseError};
 
 use crate::dispatch;
-use crate::log::{self, TxMutex};
-use crate::motion::Shared;
+use crate::motion::Motion;
+use crate::serial;
 
-const LINE_CAP: usize = 128;
+pub const LINE_CAP: usize = 128;
+pub type LineBuf = Vec<u8, LINE_CAP>;
 
-pub async fn run(mut rx: UartRx<'static, mode::Async>, motion: &Shared, tx: &TxMutex) -> ! {
-    let mut line: Vec<u8, LINE_CAP> = Vec::new();
-    let mut buf = [0u8; 32];
-    loop {
-        let n = match rx.read_until_idle(&mut buf).await {
-            Ok(n) => n,
-            Err(_) => {
-                log::log(tx, b"err rx\r\n").await;
-                continue;
-            }
-        };
-        for &b in &buf[..n] {
-            match b {
-                b'!' => {
-                    motion.lock().await.cancel();
-                    line.clear();
-                    log::log(tx, b"cancelled\r\n").await;
-                }
-                b'\n' | b'\r' => {
-                    if !line.is_empty() {
-                        match handle_line(&line, motion).await {
-                            Ok(()) => log::log(tx, b"ok\r\n").await,
-                            Err(e) => log::log3(tx, b"err ", err_name(e), b"\r\n").await,
-                        }
-                        line.clear();
+/// Feed one received byte. On line termination, parse + dispatch + emit reply.
+/// `!` cancels motion immediately and emits an ack.
+pub fn handle_byte(b: u8, line: &mut LineBuf, motion: &mut Motion) {
+    match b {
+        b'!' => {
+            motion.cancel();
+            line.clear();
+            serial::tx_push(b"cancelled\r\n");
+        }
+        b'\n' | b'\r' => {
+            if !line.is_empty() {
+                match handle_line(line, motion) {
+                    Ok(()) => serial::tx_push(b"ok\r\n"),
+                    Err(e) => {
+                        serial::tx_push(b"err ");
+                        serial::tx_push(err_name(e));
+                        serial::tx_push(b"\r\n");
                     }
                 }
-                _ => {
-                    let _ = line.push(b); // Phase 4: surface overflow as protocol error
-                }
+                line.clear();
             }
+        }
+        _ => {
+            let _ = line.push(b); // Phase 4: surface overflow as protocol error
         }
     }
 }
 
-async fn handle_line(line: &[u8], motion: &Shared) -> Result<(), ParseError> {
+fn handle_line(line: &[u8], motion: &mut Motion) -> Result<(), ParseError> {
     let cmd: Command = gcode::parse(line)?;
-    let mut m = motion.lock().await;
-    dispatch::exec(cmd, &mut m);
+    dispatch::exec(cmd, motion);
     Ok(())
 }
 

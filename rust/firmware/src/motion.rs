@@ -1,10 +1,8 @@
 //! Motion controller: owns the model-side MotionState plus the motor outputs,
-//! and is ticked on a 1 ms cadence by the firmware.
+//! and is ticked from the orchestrator on a 1 ms cadence.
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
 use model::coords::PosPhys;
-use model::motion::{MotionInputs, MotionState, Mode};
+use model::motion::{Mode, MotionInputs, MotionState};
 
 use crate::motor::Motors;
 
@@ -14,8 +12,6 @@ use crate::motor::Motors;
 /// (51 * 16 B ≈ 800 B). Phase 4 should bump to ~2001 (10 mm retract) once
 /// `Motion` is moved into a `StaticCell`-backed static.
 pub const PB_CAPACITY: usize = 51;
-
-pub type Shared = Mutex<NoopRawMutex, Motion>;
 
 pub struct Motion {
     state: MotionState<PB_CAPACITY>,

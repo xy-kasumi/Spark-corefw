@@ -53,3 +53,9 @@ Goal criteria ("feature parity")
   * Once API is fixed, migration should be "just do" kind of work
   * Should be able to run real dashboard & spooler end-to-end (see `~/repos/Spark` for host-side stack)
 4. Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
+
+# Design
+* time / data-flow design
+  * 1ms central tick loop
+    * everything requiring faster than 1ms is encapsulated as a hardware driver with its own hardware timers or DMAs, exposing only "slow" (1ms) API
+  * no other Timer::after calls
