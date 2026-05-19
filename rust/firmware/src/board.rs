@@ -37,8 +37,8 @@ type SoftUartTim = TIM7;
 type StepGenTim = TIM6;
 
 pub type TmcBus = SoftUartHandle<SoftUartTim, NUM_MOTORS>;
-pub type Step = StepGenHandle<StepGenTim, NUM_MOTORS>;
-pub type Motor = Tmc2209<TmcBus>;
+pub type MotorStepping = StepGenHandle<StepGenTim, NUM_MOTORS>;
+pub type MotorConfig = Tmc2209<TmcBus>;
 
 bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;
@@ -72,8 +72,8 @@ impl<T: CoreInstance, const N: usize> TmcTransport for SoftUartHandle<T, N> {
 }
 
 pub struct Motors {
-    pub tmc: [Motor; NUM_MOTORS],
-    pub step: [Step; NUM_MOTORS],
+    pub tmc: [MotorConfig; NUM_MOTORS],
+    pub step: [MotorStepping; NUM_MOTORS],
     // Active-low: set_low to energize, set_high to disable. The caller owns
     // the energize/idle policy.
     pub en: [Output<'static>; NUM_MOTORS],
@@ -178,7 +178,7 @@ fn init_motors(
         Output::new(m6.3, Level::High, Speed::Low),
     ];
 
-    let tmc: [Motor; NUM_MOTORS] =
+    let tmc: [MotorConfig; NUM_MOTORS] =
         core::array::from_fn(|i| Tmc2209::new(uart_handles[i], MOTOR_NAMES[i]));
 
     Motors { tmc, step: step_handles, en }

@@ -2,12 +2,12 @@
 
 use model::coords::PosPhys;
 
-use crate::board::Step;
+use crate::board::MotorStepping;
 
 /// Steps-per-mm calibration for each linear axis; steps-per-turn for C.
 /// Populated from settings in Phase 4.
 #[derive(Clone, Copy, Debug)]
-pub struct Calibration {
+pub struct MotorAxisConfig {
     pub steps_per_mm_x: f32,
     pub steps_per_mm_y: f32,
     pub steps_per_mm_z: f32,
@@ -15,11 +15,11 @@ pub struct Calibration {
 }
 
 pub struct Motors {
-    pub x: Step,
-    pub y: Step,
-    pub z: Step,
-    pub c: Step,
-    pub cal: Calibration,
+    pub x: MotorStepping,
+    pub y: MotorStepping,
+    pub z: MotorStepping,
+    pub c: MotorStepping,
+    pub cal: MotorAxisConfig,
 }
 
 impl Motors {

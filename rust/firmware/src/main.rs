@@ -20,7 +20,7 @@ use model::motion::Mode;
 use panic_halt as _;
 
 use crate::motion::Motion;
-use crate::motor::{Calibration, Motors};
+use crate::motor::{MotorAxisConfig, Motors};
 use crate::serial::Serial;
 
 // Tick rate of the single orchestrator loop. Anything that wants a slower
@@ -46,7 +46,7 @@ async fn main(spawner: Spawner) {
         y: board.motors.step[1],
         z: board.motors.step[2],
         c: board.motors.step[3],
-        cal: Calibration {
+        cal: MotorAxisConfig {
             steps_per_mm_x: 400.0,
             steps_per_mm_y: 400.0,
             steps_per_mm_z: 400.0,
