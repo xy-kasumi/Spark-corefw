@@ -17,7 +17,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use model::comm;
-use model::pstate::ErrorLine;
+use model::pstate::{ErrorLine, Line};
 use model::settings::Settings as SettingsCache;
 use panic_halt as _;
 use static_cell::StaticCell;
@@ -66,7 +66,7 @@ async fn main(spawner: Spawner) {
     static TMC_CELL: StaticCell<settings::SharedTmc> = StaticCell::new();
     let tmc: &'static settings::SharedTmc = TMC_CELL.init(Mutex::new(board.motors.tmc));
 
-    let line_tx = LineTx::init(&spawner, board.console);
+    let line_tx = LineTx::init();
 
     static CMD_QUEUE_CELL: StaticCell<CmdQueue> = StaticCell::new();
     let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
@@ -89,6 +89,13 @@ async fn tick_loop(
     let mut framer = comm::Framer::new();
     let mut chunk = [0u8; 32];
 
+    // Outbound state: the line currently being shoveled into the serial ring,
+    // and how many of its bytes have made it across so far. Once `offset`
+    // reaches the payload length we still owe the trailing LF; when that
+    // lands the slot is cleared and the next line is pulled.
+    let mut tx_line: Option<Line> = None;
+    let mut tx_offset: usize = 0;
+
     loop {
         ticker.next().await;
 
@@ -103,10 +110,43 @@ async fn tick_loop(
             }
         }
 
+        drain_line_tx(serial, line_tx, &mut tx_line, &mut tx_offset);
+
         {
             let mut m = motion.lock().await;
             m.tick(TICK_DT_S);
         }
+    }
+}
+
+fn drain_line_tx(
+    serial: &Serial,
+    line_tx: &LineTx,
+    tx_line: &mut Option<Line>,
+    tx_offset: &mut usize,
+) {
+    loop {
+        if tx_line.is_none() {
+            match line_tx.try_recv() {
+                Some(l) => {
+                    *tx_line = Some(l);
+                    *tx_offset = 0;
+                }
+                None => return,
+            }
+        }
+        let bytes = tx_line.as_ref().unwrap().as_bytes();
+        if *tx_offset < bytes.len() {
+            let n = serial.tx_push(&bytes[*tx_offset..]);
+            *tx_offset += n;
+            if *tx_offset < bytes.len() {
+                return;
+            }
+        }
+        if serial.tx_push(b"\n") == 0 {
+            return;
+        }
+        *tx_line = None;
     }
 }
 

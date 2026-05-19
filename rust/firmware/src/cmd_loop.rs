@@ -9,7 +9,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use model::coords::PosPhys;
 use model::gcode::{Command as GCmd, MoveSpec};
-use model::pstate::{ErrorLine, Line, PsType, LINE_CAP};
+use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::{self, Settings};
 
 use crate::command::{CmdQueue, Command, OUTSTANDING};
@@ -95,22 +95,15 @@ async fn exec(
     }
 }
 
-/// Stream every (path, value) as one logical `stg` p-state, split across
-/// however many lines fit under `LINE_CAP`. First chunk carries `<`, last
-/// carries `>`; middle chunks carry just the tag and entries.
+/// Emit one logical `stg` p-state: a bare `stg <` opener, one kv per line,
+/// then a bare `stg >` closer.
 async fn dump_settings(line_tx: &LineTx, settings: &Settings) {
-    let mut line = Line::new(PsType::Settings).begin();
+    line_tx.send(Line::new(PsType::Settings).begin()).await;
     for id in settings::iter_all() {
-        let path = id.path();
-        // Worst-case room: " key:value >". 20 bytes is generous for an f32.
-        let need = 1 + path.len() + 1 + 20 + 2;
-        if line.as_bytes().len() + need > LINE_CAP {
-            line_tx.send(line).await;
-            line = Line::new(PsType::Settings);
-        }
-        line = line.float(path.as_str(), id.read(settings));
+        let line = Line::new(PsType::Settings).float(id.path().as_str(), id.read(settings));
+        line_tx.send(line).await;
     }
-    line_tx.send(line.end()).await;
+    line_tx.send(Line::new(PsType::Settings).end()).await;
 }
 
 fn apply_spec(current: PosPhys, s: &MoveSpec) -> PosPhys {

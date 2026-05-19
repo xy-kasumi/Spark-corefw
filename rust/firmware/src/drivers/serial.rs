@@ -48,16 +48,18 @@ impl Serial {
         me
     }
 
-    /// Push bytes into the TX ring.
-    /// If underlying buffer is full, bytes will be (partially) thrown away.
-    pub fn tx_push(&self, bytes: &[u8]) {
-        let mut remaining = bytes;
-        while !remaining.is_empty() {
-            match self.tx_pipe.try_write(remaining) {
-                Ok(n) => remaining = &remaining[n..],
+    /// Push bytes into the TX ring. Returns the number of bytes actually
+    /// written; a short return means the ring filled up and the caller is
+    /// responsible for retrying the unwritten tail.
+    pub fn tx_push(&self, bytes: &[u8]) -> usize {
+        let mut written = 0;
+        while written < bytes.len() {
+            match self.tx_pipe.try_write(&bytes[written..]) {
+                Ok(n) => written += n,
                 Err(_) => break,
             }
         }
+        written
     }
 
     /// Drain bytes the RX ring currently holds. Returns the filled
