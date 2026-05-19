@@ -2,7 +2,6 @@
 #![no_main]
 
 mod board;
-mod comm;
 mod dispatch;
 mod motion;
 mod motor;
@@ -16,10 +15,10 @@ use core::fmt::Write as _;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker};
 use heapless::String;
+use model::comm;
 use model::motion::Mode;
 use panic_halt as _;
 
-use crate::comm::LineBuf;
 use crate::motion::Motion;
 use crate::motor::{Calibration, Motors};
 use crate::serial::Serial;
@@ -63,7 +62,7 @@ async fn main(spawner: Spawner) {
 async fn orchestrate(mut motion: Motion, serial: &Serial) -> ! {
     let mut ticker = Ticker::every(Duration::from_millis(1));
     let mut count: u32 = 0;
-    let mut line = LineBuf::new();
+    let mut framer = comm::Framer::new();
     let mut chunk = [0u8; 32];
 
     loop {
@@ -71,7 +70,12 @@ async fn orchestrate(mut motion: Motion, serial: &Serial) -> ! {
         count = count.wrapping_add(1);
 
         for &b in serial.rx_get(&mut chunk) {
-            comm::handle_byte(b, &mut line, &mut motion, serial);
+            if let Some(frame) = framer.feed(b) {
+                match frame {
+                    comm::Frame::Signal(s) => dispatch::signal(s, &mut motion, serial),
+                    comm::Frame::Command(c) => dispatch::command(c, &mut motion, serial),
+                }
+            }
         }
 
         motion.tick(TICK_DT_S);

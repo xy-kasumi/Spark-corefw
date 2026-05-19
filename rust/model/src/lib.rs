@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod comm;
 pub mod coords;
 pub mod gcode;
 pub mod motion;
