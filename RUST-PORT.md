@@ -53,6 +53,7 @@ Goal criteria ("feature parity")
   * Once API is fixed, migration should be "just do" kind of work
   * Should be able to run real dashboard & spooler end-to-end (see `~/repos/Spark` for host-side stack)
 4. Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
+5. Refactor / re-archictecture.
 
 # Design
 * time / data-flow design

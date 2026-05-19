@@ -22,7 +22,7 @@ use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::settings::{apply_one, SharedTmc};
 
-const RAPID_SPEED_MM_PER_S: f32 = 100.0;
+const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 
 #[embassy_executor::task]
 pub async fn run(

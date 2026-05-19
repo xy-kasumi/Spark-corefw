@@ -6,12 +6,9 @@ use model::motion::{Mode, MotionInputs, MotionState};
 
 use crate::motor::Motors;
 
-/// History capacity for the EDM path buffer.
-///
-/// Phase 3 keeps this small so `Motion` fits on the default task stack
-/// (51 * 16 B ≈ 800 B). Phase 4 should bump to ~2001 (10 mm retract) once
-/// `Motion` is moved into a `StaticCell`-backed static.
-pub const PB_CAPACITY: usize = 51;
+/// History capacity for the EDM path buffer. Matches C's `EDM_HISTORY_SIZE`:
+/// 10 mm max retract at 0.005 mm resolution.
+pub const PB_CAPACITY: usize = 2001;
 
 pub struct Motion {
     state: MotionState<PB_CAPACITY>,
