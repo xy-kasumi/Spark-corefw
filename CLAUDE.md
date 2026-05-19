@@ -1,4 +1,4 @@
-## Overview
+# Overview
 Spark is OSH project for RepRap-style new-generation EDM (electric discharge machining) machine.
 This is part of the project.
 Firmware for controlling motors, sensors etc, by consuming commands & G-code from the host.
@@ -6,10 +6,22 @@ Firmware for controlling motors, sensors etc, by consuming commands & G-code fro
 User-visible mental models & specs are located at /spec/*.md. You should check consistency with them when making
 decisions that can affect external behavior or design extensibility.
 
+# Generic Things
+We're undergoing C -> Rust porting. See @RUST-PORT.md.
+Unless explicitly specified, requests about the code means incomplete rust/ version.
+
+## Safety Guidelines
+- Do not use hardware pins if you're unsure about hardware
+
+# Rust Code
+## Code Style
+- For Rust code under rust/, run `cargo fmt --all --manifest-path rust/Cargo.toml` when you're done editing.
+
+# C Code
 The firmware is built on Zephyr RTOS. Spark-corefw/ is our repository, and it's located under a Zephyr workspace directory ("Zephyr workspace application").
 
 ## Code Style
-- For C code under, we use Chromium formatting. Format files when you end editing.
+- For C code, we use Chromium formatting. Format files when you end editing.
   - We don't use doxygen, but we adopt some convention.
   - Use /** */ for definition used from other files. Use @param, @return (but omit them if the content is obvious). Don't use @brief or @file.
   - For normal comments, use //.
@@ -20,8 +32,6 @@ The firmware is built on Zephyr RTOS. Spark-corefw/ is our repository, and it's 
 - when using field initialization, rely on implicit 0-initialization for non-important (unused) fields
 - Always use {} even for single-line if, while, for etc.
 - Run ./format_all.sh when you're done editing code.
-- For Rust code under rust/, run `cargo fmt --all --manifest-path rust/Cargo.toml` when you're done editing.
-
 
 ## Build, Test
 - you can `build.sh` or `test.sh`
@@ -30,9 +40,6 @@ The firmware is built on Zephyr RTOS. Spark-corefw/ is our repository, and it's 
 
 ## Code Tips
 - We use own comm.h throughout. Don't use LOG* or printk().
-
-## Safety Guidelines
-- Do not use hardware pins if you're unsure about hardware
 
 ## Function Call Rules
 - When a function calls another function with "(blocking)" comment, the caller must declare itself as "(blocking)" too. ISR cannot call "(blocking)".

@@ -48,7 +48,7 @@ Goal criteria ("feature parity")
   * Basics first
 2. DONE: Attack TMC UART & stepper driver. Impl minimum comm to check if it's working on real device.
   * Biggest hardware unknown, and probably least testable & least clean part of the code
-3. Big-port: design all the APIs, while impls are mostly not-implemented.
+3. DONE: Big-port: design all the APIs, while impls are mostly not-implemented.
   * Lots of work on API design, test setup back-and-forth
   * Once API is fixed, migration should be "just do" kind of work
   * Should be able to run real dashboard & spooler end-to-end (see `~/repos/Spark` for host-side stack)
