@@ -9,6 +9,7 @@ mod drivers;
 mod line_tx;
 mod motion;
 mod motor;
+mod settings;
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -16,7 +17,8 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use model::comm;
-use model::pstate::{ErrorLine, Line, PsType};
+use model::pstate::ErrorLine;
+use model::settings::Settings as SettingsCache;
 use panic_halt as _;
 use static_cell::StaticCell;
 
@@ -42,30 +44,37 @@ async fn main(spawner: Spawner) {
     board.motors.en[1].set_low();
     board.motors.en[2].set_low();
 
+    // Seed Motion's axis calibration from settings so apply_all is the only
+    // place that owns these numbers. apply_all runs below and confirms.
+    let init_settings = SettingsCache::defaults();
     let motors = Motors {
         x: board.motors.step[0],
         y: board.motors.step[1],
         z: board.motors.step[2],
         c: board.motors.step[3],
         cal: MotorAxisConfig {
-            steps_per_mm_x: 400.0,
-            steps_per_mm_y: 400.0,
-            steps_per_mm_z: 400.0,
-            steps_per_turn_c: 6400.0,
+            steps_per_mm_x: init_settings.motors[0].unitsteps,
+            steps_per_mm_y: init_settings.motors[1].unitsteps,
+            steps_per_mm_z: init_settings.motors[2].unitsteps,
+            steps_per_turn_c: init_settings.motors[3].unitsteps,
         },
     };
 
     static MOTION_CELL: StaticCell<SharedMotion> = StaticCell::new();
     let motion: &'static SharedMotion = MOTION_CELL.init(Mutex::new(Motion::new(motors)));
 
+    static TMC_CELL: StaticCell<settings::SharedTmc> = StaticCell::new();
+    let tmc: &'static settings::SharedTmc = TMC_CELL.init(Mutex::new(board.motors.tmc));
+
     let line_tx = LineTx::init(&spawner, board.console);
 
     static CMD_QUEUE_CELL: StaticCell<CmdQueue> = StaticCell::new();
     let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
 
-    spawner.must_spawn(cmd_loop::run(cmd_queue, motion, line_tx));
+    spawner.must_spawn(cmd_loop::run(cmd_queue, motion, tmc, line_tx));
 
-    let _ = line_tx.try_send(Line::new(PsType::Init).begin().bool("ok", true).end());
+    // Push defaults to hardware and emit the `init` p-state with the result.
+    settings::apply_all(&init_settings, motion, tmc, line_tx).await;
 
     tick_loop(board.console, cmd_queue, motion, line_tx).await;
 }

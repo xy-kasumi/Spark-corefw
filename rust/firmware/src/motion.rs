@@ -42,6 +42,19 @@ impl Motion {
         }
     }
 
+    /// Wire `m.<i>.unitsteps` into per-axis step calibration. Motor index
+    /// map: 0→x, 1→y, 2→z, 3→c. m4..m6 have no motion target (wirefeed not
+    /// ported), so they are ignored here.
+    pub fn set_motor_unitsteps(&mut self, motor_idx: u8, value: f32) {
+        match motor_idx {
+            0 => self.motors.cal.steps_per_mm_x = value,
+            1 => self.motors.cal.steps_per_mm_y = value,
+            2 => self.motors.cal.steps_per_mm_z = value,
+            3 => self.motors.cal.steps_per_turn_c = value,
+            _ => {}
+        }
+    }
+
     /// Abort current motion and snap motor targets to their currently reached positions.
     pub fn cancel(&mut self) {
         let here = self.motors.current();
