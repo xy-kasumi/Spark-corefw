@@ -1,14 +1,6 @@
-//! Console serial: capability-style handle wrapping the TX/RX byte rings.
+//! UART-based serial bytestring RX/TX.
 //!
-//! `Serial::init` is called once during boot; it spawns the two pumper tasks
-//! that shuttle bytes between the static Pipes and the UART DMA, and hands
-//! back a `&'static Serial` capability. Logic code calls `tx_push` / `rx_get`
-//! on the handle — no ambient functions, no public statics, no way to drive
-//! the console without holding the capability.
-//!
-//! Pipe sizes are picked relative to the 1 ms tick budget at 115200 baud
-//! (~12 B/tick): TX = ~22 ticks (covers a max-line reply + heartbeat + jitter),
-//! RX = ~5 ticks (covers tick jitter).
+//! Pipe sizes are picked relative to the 1 ms tick x 115200 baud (~12 B) x "just-in-case" jitter buffer (x5).
 
 use embassy_executor::Spawner;
 use embassy_stm32::mode;
@@ -17,11 +9,9 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pipe::Pipe;
 use static_cell::StaticCell;
 
-pub const TX_CAP: usize = 256;
+pub const TX_CAP: usize = 64;
 pub const RX_CAP: usize = 64;
 
-// Hardware-side DMA ring for RX. Sized for ~5 ticks of bandwidth at 115200
-// baud to absorb tick jitter; pump_rx forwards into the software RX_PIPE.
 const RX_DMA_CAP: usize = 64;
 
 pub struct Serial {
@@ -30,8 +20,7 @@ pub struct Serial {
 }
 
 impl Serial {
-    /// Build the console subsystem and spawn its pumper tasks.
-    /// Only one init() call in the program allowed.
+    /// Setup serial by spawning tasks. Only one init() call in the program allowed.
     pub fn init(spawner: &Spawner, uart: Uart<'static, mode::Async>) -> &'static Self {
         let (tx, rx) = uart.split();
         let rx_buf: &'static mut [u8; RX_DMA_CAP] =
@@ -48,9 +37,8 @@ impl Serial {
         me
     }
 
-    /// Push bytes into the TX ring. Returns the number of bytes actually
-    /// written; a short return means the ring filled up and the caller is
-    /// responsible for retrying the unwritten tail.
+    /// Push bytes into the TX buffer.
+    /// Returns the number of bytes actually written (0 if buffer is full).
     pub fn tx_push(&self, bytes: &[u8]) -> usize {
         let mut written = 0;
         while written < bytes.len() {
@@ -62,8 +50,8 @@ impl Serial {
         written
     }
 
-    /// Drain bytes the RX ring currently holds. Returns the filled
-    /// prefix of the caller-provided buffer (`&[]` if nothing is available).
+    /// Drain bytes from the RX buffer.
+    /// Returns the filled prefix of the caller-provided buffer (`&[]` if nothing is available).
     pub fn rx_get<'a>(&self, buf: &'a mut [u8]) -> &'a [u8] {
         match self.rx_pipe.try_read(buf) {
             Ok(n) => &buf[..n],
@@ -87,8 +75,7 @@ async fn pump_rx(serial: &'static Serial, mut rx: RingBufferedUartRx<'static>) {
     loop {
         // RX errors (overrun, framing) restart background DMA on next read().
         if let Ok(n) = rx.read(&mut buf).await {
-            // Loop past try_write's wrap-point partial returns; on true
-            // overflow, drop the tail — same FIXME story as tx_push.
+            // Need to call twice when write is past the ring's wrap point.
             let mut remaining = &buf[..n];
             while !remaining.is_empty() {
                 match serial.rx_pipe.try_write(remaining) {

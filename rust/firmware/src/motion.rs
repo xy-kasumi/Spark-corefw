@@ -6,8 +6,7 @@ use model::motion::{Mode, MotionInputs, MotionState};
 
 use crate::motor::Motors;
 
-/// History capacity for the EDM path buffer. Matches C's `EDM_HISTORY_SIZE`:
-/// 10 mm max retract at 0.005 mm resolution.
+/// EDM path-buffer history capacity: 10 mm max retract at 0.005 mm resolution.
 pub const PB_CAPACITY: usize = 2001;
 
 pub struct Motion {
@@ -37,7 +36,6 @@ impl Motion {
     }
 
     /// Raw microstep counters for the four wired axes (m0..m3 = x/y/z/c).
-    /// m4..m6 have no step-gen pipeline driving them, so they are not included.
     pub fn motor_step_counts(&self) -> [i32; 4] {
         [
             self.motors.x.current(),
@@ -54,9 +52,8 @@ impl Motion {
         }
     }
 
-    /// Wire `m.<i>.unitsteps` into per-axis step calibration. Motor index
-    /// map: 0→x, 1→y, 2→z, 3→c. m4..m6 have no motion target (wirefeed not
-    /// ported), so they are ignored here.
+    /// Update per-axis step calibration from `m.<i>.unitsteps`.
+    /// Index map: 0→x, 1→y, 2→z, 3→c. m4..m6 are ignored (no motion target).
     pub fn set_motor_unitsteps(&mut self, motor_idx: u8, value: f32) {
         match motor_idx {
             0 => self.motors.cal.steps_per_mm_x = value,

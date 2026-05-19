@@ -4,8 +4,7 @@ use model::coords::PosPhys;
 
 use crate::board::MotorStepping;
 
-/// Steps-per-mm calibration for each linear axis; steps-per-turn for C.
-/// Populated from settings in Phase 4.
+/// Steps-per-mm for linear axes; steps-per-turn for C.
 #[derive(Clone, Copy, Debug)]
 pub struct MotorAxisConfig {
     pub steps_per_mm_x: f32,

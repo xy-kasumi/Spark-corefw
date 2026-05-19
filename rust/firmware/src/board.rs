@@ -1,17 +1,17 @@
-// Board: BTT Octopus Pro v1.1 with TMC2209 stepper drivers.
-// motor7 (PA14 DIR) is omitted because PA14 doubles as SWCLK.
-//
-// |  m# | step | dir  | en   | uart | diag |
-// | --- | ---- | ---- | ---- | ---- | ---- |
-// |  m0 | PF13 | PF12 | PF14 | PC4  | PG6  |
-// |  m1 | PG0  | PG1  | PF15 | PD11 | PG9  |
-// |  m2 | PF11 | PG3  | PG5  | PC6  | PG10 |
-// |  m3 | PG4  | PC1  | PA0  | PC7  | PG11 |
-// |  m4 | PF9  | PF10 | PG2  | PF2  | PG12 |
-// |  m5 | PC13 | PF0  | PF1  | PE4  | PG13 |
-// |  m6 | PE2  | PE3  | PD4  | PE1  | PG14 |
-//
-// Console UART: USART2 on PD5 (TX) / PD6 (RX), DMA1_CH0 / DMA1_CH1.
+//! Board: BTT Octopus Pro v1.1 with TMC2209 stepper drivers.
+//! motor7 (PA14 DIR) is omitted because PA14 doubles as SWCLK.
+//!
+//! |  m# | step | dir  | en   | uart | diag |
+//! | --- | ---- | ---- | ---- | ---- | ---- |
+//! |  m0 | PF13 | PF12 | PF14 | PC4  | PG6  |
+//! |  m1 | PG0  | PG1  | PF15 | PD11 | PG9  |
+//! |  m2 | PF11 | PG3  | PG5  | PC6  | PG10 |
+//! |  m3 | PG4  | PC1  | PA0  | PC7  | PG11 |
+//! |  m4 | PF9  | PF10 | PG2  | PF2  | PG12 |
+//! |  m5 | PC13 | PF0  | PF1  | PE4  | PG13 |
+//! |  m6 | PE2  | PE3  | PD4  | PE1  | PG14 |
+//!
+//! Console UART: USART2 on PD5 (TX) / PD6 (RX), DMA1_CH0 / DMA1_CH1.
 
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Level, Output, Speed};
@@ -32,7 +32,6 @@ use crate::drivers::tmc2209::{Tmc2209, TmcTransport};
 pub const NUM_MOTORS: usize = 7;
 pub const MOTOR_NAMES: [&str; NUM_MOTORS] = ["m0", "m1", "m2", "m3", "m4", "m5", "m6"];
 
-// Timer choice: board picks. The library modules are timer-agnostic.
 type SoftUartTim = TIM7;
 type StepGenTim = TIM6;
 
@@ -70,8 +69,7 @@ impl<T: CoreInstance, const N: usize> TmcTransport for SoftUartHandle<T, N> {
 pub struct Motors {
     pub tmc: [MotorConfig; NUM_MOTORS],
     pub step: [MotorStepping; NUM_MOTORS],
-    // Active-low: set_low to energize, set_high to disable. The caller owns
-    // the energize/idle policy.
+    /// Active-low: set_low to energize, set_high to disable.
     pub en: [Output<'static>; NUM_MOTORS],
 }
 
@@ -103,7 +101,7 @@ pub fn init(spawner: &Spawner, console_baud: u32) -> Board {
     Board { console, motors }
 }
 
-// One (uart, step, dir, enable) tuple per motor.
+/// Pin tuple per motor: (uart, step, dir, enable).
 fn init_motors(
     tim_uart: TIM7,
     tim_step: TIM6,
@@ -128,7 +126,6 @@ fn init_motors(
         ],
     );
 
-    // STEP/DIR start low (no pulse, default direction).
     let step_handles = STEP_GEN.init(
         tim_step,
         [
@@ -163,7 +160,7 @@ fn init_motors(
         ],
     );
 
-    // EN pins start high (active-low: high = de-energized).
+    // EN starts high = de-energized (active-low).
     let en = [
         Output::new(m0.3, Level::High, Speed::Low),
         Output::new(m1.3, Level::High, Speed::Low),

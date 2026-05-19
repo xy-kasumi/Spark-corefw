@@ -1,13 +1,9 @@
-// Bit-banged single-wire half-duplex UART, multiplexed across N GPIOs via a
-// 30µs hardware-timer ISR.
-//
-// One bit = 3 ticks = 90µs → ~11.1 kbps. Frame = 1 START low + 8 data LSB-
-// first + 1 STOP high.
-//
-// The owning module is responsible for declaring `static SOFT_UART:
-// SoftUart<T, N>` and an `#[interrupt] fn <Timer>()` that calls
-// `SOFT_UART.tick()`.
-
+//! Bit-banged single-wire half-duplex 10000 baud UART, multiplexed across N GPIOs
+//! using hardware-timer ISR.
+//!
+//! Uses 3-phase (30µs x 3) for bit synchronization.
+//!
+//! Frame = 1 START low + 8 data (LSB-first) + 1 STOP high.
 #![allow(dead_code)]
 
 use core::cell::RefCell;
@@ -105,9 +101,8 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
         }
     }
 
-    // Configure the timer for 30µs periodic interrupt, install the N pins as
-    // open-drain + pull-up (idle high), enable the NVIC, and return one
-    // handle per pin slot. Caller is responsible for installing the ISR.
+    /// Create SoftUart using given timer.
+    /// Configures timer to 30us, but caller is responsible for calling tick() from the timer's ISR.
     pub fn init(&'static self, tim: T, mut pins: [Flex<'static>; N]) -> [SoftUartHandle<T, N>; N] {
         for pin in pins.iter_mut() {
             pin.set_as_input_output_pull(Speed::Low, Pull::Up);
@@ -137,7 +132,6 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
         })
     }
 
-    // Drive one 30µs ISR tick. Must be called from the timer interrupt handler.
     pub fn tick(&self) {
         let mut done = false;
         self.inner.lock(|cell| {

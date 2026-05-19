@@ -1,5 +1,5 @@
-//! Signal handling: ! / ? immediate-action signals from the host. Runs inline
-//! from `tick_loop`'s rx-parse phase, so it must finish quickly.
+//! Signal handling: ! / ? immediate-action signals from the host.
+//! Runs inline in `tick_loop`'s rx-parse phase, so handlers must finish quickly.
 
 use core::sync::atomic::Ordering;
 
@@ -35,8 +35,7 @@ pub async fn signal(
             let _ = line_tx.try_send(line);
         }
         b"?pos" => {
-            // Coordinate-system selection (G53/G54/...) is not implemented yet,
-            // so the active system is always machine.
+            // FIXME: coordinate-system selection (G53/G54/...) unimplemented; always machine.
             let pos = {
                 let m = motion.lock().await;
                 m.current_position()
@@ -52,7 +51,7 @@ pub async fn signal(
             let _ = line_tx.try_send(line);
         }
         _ => {
-            // ?edm lands in a later phase.
+            // FIXME: ?edm not implemented.
         }
     }
 }

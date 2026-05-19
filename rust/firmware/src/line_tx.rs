@@ -1,10 +1,8 @@
-//! Line-atomic TX queue. Producers build a [`Line`] (≤128 B) and hand it off
-//! as a single message; the orchestrator tick loop drains the queue into the
-//! serial TX ring, never splitting a line across drain ticks, so no two
-//! producers can interleave mid-line on the wire.
+//! Line-atomic TX queue. Producers hand off a whole [`Line`] (≤128 B) as one
+//! message; the tick loop drains each line into the serial TX ring without
+//! splitting across drains, so producers never interleave mid-line on the wire.
 //!
-//! Channel depth is sized in *lines*, not bytes — the failure mode under
-//! backpressure is "how many lines can pile up before drops start."
+//! Capacity is in *lines*, not bytes — backpressure drops whole lines.
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
@@ -26,17 +24,16 @@ impl LineTx {
         })
     }
 
-    /// Non-blocking enqueue. Returns the line back on full so the caller can
-    /// observe drops. Use from anywhere that must not stall (signal handlers,
-    /// tick loop body).
+    /// Non-blocking enqueue. On full, returns the line back so the caller can observe drops.
+    /// Use from anywhere that must not stall (signal handlers, tick loop body).
     pub fn try_send(&self, line: Line) -> Result<(), Line> {
         self.chan.try_send(line).map_err(|e| match e {
             embassy_sync::channel::TrySendError::Full(l) => l,
         })
     }
 
-    /// Awaiting enqueue. Suspends the calling task on backpressure. Use from
-    /// command-execution code where pacing the producer to UART speed is fine.
+    /// Awaiting enqueue. Suspends on backpressure — use where pacing the producer
+    /// to UART speed is fine (e.g. command execution).
     pub async fn send(&self, line: Line) {
         self.chan.send(line).await;
     }

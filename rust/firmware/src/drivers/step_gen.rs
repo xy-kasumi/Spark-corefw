@@ -1,12 +1,10 @@
-// Step pulse generator. A 30µs hardware-timer ISR drives a per-motor 3-state
-// machine (Idle → PulseHigh → PulseLow → Idle).
-//
-// One step = 3 ticks = 90µs → max ≈11.1k steps/sec. The ISR handles step
-// pulses, DIR, and position counting only; energize/de-energize policy is
-// the caller's responsibility (EN pin is owned outside this module).
-//
-// The owning module declares `static STEP_GEN: StepGen<N>` and an
-// `#[interrupt] fn TIM6_DAC()` that calls `STEP_GEN.tick()`.
+//! Step pulse generator, multiplexed across N motors (STEP + DIR pin pairs)
+//! using hardware-timer ISR.
+//!
+//! Per-motor 3-state machine (Idle → PulseHigh → PulseLow → Idle), 30µs per phase.
+//! One step = 90µs → ~11.1k steps/sec max.
+//!
+//! Only STEP, DIR, and position counting are driven here. EN policy is the caller's.
 
 use core::cell::RefCell;
 
@@ -29,7 +27,7 @@ struct MotorState {
     target: i32,
     current: i32,
     step_state: StepState,
-    // Last value written to dir_pin; cached so we only write on actual change.
+    // Cached last write to dir_pin; lets us skip GPIO writes on unchanged direction.
     direction: bool,
     step_pin: Option<Output<'static>>,
     dir_pin: Option<Output<'static>>,
@@ -71,9 +69,9 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
         }
     }
 
-    // Install timer + per-motor (step, dir) pin pairs. Caller is responsible
-    // for installing the ISR that calls `tick()`, and for driving each
-    // motor's EN pin to energize before set_target is called.
+    /// Create StepGen using given timer & per-motor (step, dir) pins.
+    /// Configures timer to 30us, but caller is responsible for calling tick() from the timer's ISR.
+    /// EN pin policy (energize before set_target) is owned by the caller.
     pub fn init(
         &'static self,
         tim: T,

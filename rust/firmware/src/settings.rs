@@ -1,11 +1,9 @@
-//! Apply layer: routes a `SettingId` + value into the right subsystem's
-//! configure method. The one place that knows which firmware-side struct
-//! each wire path maps onto; subsystems themselves stay settings-agnostic.
+//! Apply layer: routes a `SettingId` + value into the right subsystem's configure method.
+//! The one place that knows which firmware-side struct each wire path maps onto;
+//! subsystems themselves stay settings-agnostic.
 //!
-//! Variants whose subsystem isn't ported yet (idlems, axis homing, cs.pos,
-//! ts.servo) accept the apply as a no-op — the in-memory `Settings` cache
-//! still records the user's intent so `get` reflects it. When those
-//! subsystems land, add the match arm here; nothing else needs to change.
+//! Variants without a target subsystem are no-ops; the `Settings` cache still records
+//! the user's intent so `get` reflects it.
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -24,8 +22,8 @@ pub enum ApplyError {
     Tmc,
 }
 
-/// Apply one (id, value) to the firmware. Caller commits to its `Settings`
-/// cache only on Ok — matches C's settings_set semantics.
+/// Apply one (id, value) to the firmware. Caller should commit to its `Settings`
+/// cache only on Ok.
 pub async fn apply_one(
     id: SettingId,
     value: f32,
@@ -49,9 +47,7 @@ pub async fn apply_one(
                 .map_err(|_| ApplyError::Tmc)?;
         }
         SettingId::MotorThresh(i) => {
-            // Negative thresh = disable stall detection in C. Today we have
-            // no analog to motor_set_stall_detection; ignore negative values,
-            // write SGTHRS for non-negative.
+            // FIXME: negative threshold means disable stall detection; currently no-op.
             if value >= 0.0 {
                 let mut t = tmc.lock().await;
                 t[i as usize]
@@ -61,8 +57,7 @@ pub async fn apply_one(
             }
         }
         SettingId::MotorUnitsteps(i) => {
-            // m0..=m3 feed Motion's per-axis calibration. m4..=m6 have no
-            // motion target yet (wirefeed not ported).
+            // m0..=m3 feed Motion's per-axis calibration. m4..=m6 are ignored (no motion target).
             let mut m = motion.lock().await;
             m.set_motor_unitsteps(i, value);
         }

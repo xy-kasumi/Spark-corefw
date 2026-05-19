@@ -1,7 +1,6 @@
-// TMC2209 protocol: datagram encoding, CRC, register read/write with retry.
-// Operates over any transport that provides byte-level write and
-// write-then-read of half-duplex datagrams.
-
+//! TMC2209 wire protocol: CRC, datagram framing, register read/write with verify.
+//!
+//! Generic over any half-duplex byte transport (write, write-then-read).
 #![allow(dead_code)]
 
 use embassy_time::{Duration, Timer};
@@ -36,7 +35,7 @@ const REG_ADDR_MASK: u8 = 0x7F;
 
 const SETTLE_MS: u64 = 10;
 
-// TMC UART CRC: poly 0x07, MSB-out, processes data bits LSB-first per byte.
+/// TMC UART CRC: poly 0x07, MSB-out, processes data bits LSB-first per byte.
 pub fn crc(data: &[u8]) -> u8 {
     let mut crc: u8 = 0;
     for &byte in data {
@@ -115,8 +114,7 @@ impl<T: TmcTransport> Tmc2209<T> {
         }
     }
 
-    // Prime last_ifcnt from the chip so the first write_reg's verify has an
-    // accurate baseline.
+    /// Read & cache IFCNT so the next write_reg's verify has a baseline.
     pub async fn init(&mut self) -> Result<(), Error<T::Error>> {
         let v = self.read_reg(REG_IFCNT).await?;
         self.last_ifcnt = v as u8;
@@ -141,7 +139,7 @@ impl<T: TmcTransport> Tmc2209<T> {
         Timer::after(Duration::from_millis(SETTLE_MS)).await;
         let new_ifcnt = self.read_reg(REG_IFCNT).await? as u8;
         let expected = self.last_ifcnt.wrapping_add(1);
-        // Resync local counter to reality whether or not the verify matched.
+        // Resync to reality even on mismatch — next call shouldn't compound the error.
         self.last_ifcnt = new_ifcnt;
         if new_ifcnt == expected {
             Ok(())
@@ -150,14 +148,14 @@ impl<T: TmcTransport> Tmc2209<T> {
         }
     }
 
-    // Set microstep resolution. Must be a power of 2 in 1..=256.
+    /// `microstep` must be a power of 2 in 1..=256.
     pub async fn set_microstep(&mut self, microstep: u32) -> Result<(), Error<T::Error>> {
-        // Enable MRES from register (GCONF.mstep_reg_select = 1).
+        // GCONF.mstep_reg_select = 1: take MRES from CHOPCONF rather than MS1/MS2 pins.
         let mut gconf = self.read_reg(REG_GCONF).await?;
         gconf |= 1 << 7;
         self.write_reg(REG_GCONF, gconf).await?;
 
-        // MRES field: 0=256 µsteps, 1=128 µsteps, ..., 8=1 µstep.
+        // MRES field encoding: 0=256, 1=128, ..., 8=1 µstep.
         let mres_bits = 8 - microstep.trailing_zeros();
 
         let mut chopconf = self.read_reg(REG_CHOPCONF).await?;
@@ -166,8 +164,8 @@ impl<T: TmcTransport> Tmc2209<T> {
         self.write_reg(REG_CHOPCONF, chopconf).await
     }
 
-    // Set run + hold current as 0..=100 percent (mapped to IRUN/IHOLD 0..31).
-    // Uses datasheet-recommended IHOLDDELAY = 10.
+    /// Set run + hold current as 0..=100 percent (mapped to IRUN/IHOLD 0..31).
+    /// IHOLDDELAY is fixed at the datasheet-recommended 10.
     pub async fn set_current(
         &mut self,
         run_percent: u32,

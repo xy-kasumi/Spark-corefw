@@ -28,8 +28,7 @@ use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::motor::{MotorAxisConfig, Motors};
 
-// Tick rate of the orchestrator loop. Anything that wants a slower cadence
-// counts ticks; nothing else schedules its own timer.
+/// Orchestrator loop tick rate. Slower-cadence work counts ticks; nothing else schedules its own timer.
 const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
@@ -39,13 +38,12 @@ type SharedMotion = Mutex<NoopRawMutex, Motion>;
 async fn main(spawner: Spawner) {
     let mut board = board::init(&spawner, 115200);
 
-    // Enable motors 0..=2 (XYZ). Active-low EN. C-axis (m3) and m4..m6 stay off.
+    // Energize XYZ; C (m3) and m4..m6 stay off.
     board.motors.en[0].set_low();
     board.motors.en[1].set_low();
     board.motors.en[2].set_low();
 
-    // Seed Motion's axis calibration from settings so apply_all is the only
-    // place that owns these numbers. apply_all runs below and confirms.
+    // Seed Motion's calibration from defaults so apply_all is the sole writer of these numbers.
     let init_settings = SettingsCache::defaults();
     let motors = Motors {
         x: board.motors.step[0],
@@ -73,7 +71,7 @@ async fn main(spawner: Spawner) {
 
     spawner.must_spawn(cmd_loop::run(cmd_queue, motion, tmc, line_tx));
 
-    // Push defaults to hardware and emit the `init` p-state with the result.
+    // Push defaults to hardware; emits the `init` p-state with the result.
     settings::apply_all(&init_settings, motion, tmc, line_tx).await;
 
     tick_loop(board.console, cmd_queue, motion, line_tx).await;
@@ -89,10 +87,8 @@ async fn tick_loop(
     let mut framer = comm::Framer::new();
     let mut chunk = [0u8; 32];
 
-    // Outbound state: the line currently being shoveled into the serial ring,
-    // and how many of its bytes have made it across so far. Once `offset`
-    // reaches the payload length we still owe the trailing LF; when that
-    // lands the slot is cleared and the next line is pulled.
+    // Current outbound line + bytes already pushed. After payload, we still owe a trailing LF;
+    // once that lands we pull the next line.
     let mut tx_line: Option<Line> = None;
     let mut tx_offset: usize = 0;
 

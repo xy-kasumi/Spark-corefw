@@ -1,7 +1,6 @@
-//! Command execution task. Pops parsed [`Command`] from the queue and runs it,
-//! with a one-slot peek buffer so the executor can see the next command before
-//! committing the current one (G1-chain continuity will use this in a later
-//! phase — wired through but unused for now).
+//! Command execution task. Pops parsed [`Command`] from the queue and runs it.
+//! Carries a one-slot peek buffer so the executor can see the next command before
+//! committing — required for upcoming G1-chain continuity (currently unused).
 
 use core::fmt::Write;
 use core::sync::atomic::Ordering;
@@ -31,15 +30,12 @@ pub async fn run(
     tmc: &'static SharedTmc,
     line_tx: &'static LineTx,
 ) {
-    // Settings live with the only writer for now. When apply lands (and
-    // subsystems start reading), this moves to a shared static.
     let mut settings = Settings::defaults();
 
     let mut peek_buf: Option<Command> = None;
     loop {
-        // Track OUTSTANDING for ?queue accounting. Single-thread executor:
-        // each `await` is the only yield point, so the +/- pairs don't race
-        // against the signal reader as long as we bump *after* a successful pop.
+        // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
+        // `await` as the only yield point means the signal reader can't observe a torn count.
         let curr = match peek_buf.take() {
             Some(c) => c,
             None => {
@@ -82,8 +78,7 @@ async fn exec(
             let _ = line_tx.try_send(line);
         }
         Command::Set(id, v) => {
-            // Try-apply-then-commit: only update the cache if the hardware
-            // actually accepted the change. Mirrors C's settings_set.
+            // Try-apply-then-commit: cache only updates if hardware accepted the change.
             if apply_one(id, v, motion, tmc).await.is_err() {
                 let _ = line_tx.try_send(
                     ErrorLine::new()
@@ -103,8 +98,7 @@ async fn exec(
     }
 }
 
-/// Emit one logical `stg` p-state: a bare `stg <` opener, one kv per line,
-/// then a bare `stg >` closer.
+/// Emit one logical `stg` p-state framed by `stg <` / `stg >`, one kv line per setting.
 async fn dump_settings(line_tx: &LineTx, settings: &Settings) {
     line_tx.send(Line::new(PsType::Settings).begin()).await;
     for id in settings::iter_all() {
@@ -114,10 +108,10 @@ async fn dump_settings(line_tx: &LineTx, settings: &Settings) {
     line_tx.send(Line::new(PsType::Settings).end()).await;
 }
 
-/// Emit one `stat` p-state: open with `stat <`, stream per-module status as
-/// individual kv lines (one wire line each), close with `stat >`. Pulling all
-/// 7 TMC drivers is slow (each register read awaits a UART roundtrip + 10 ms
-/// settle), so this command can take several hundred ms — matches C parity.
+/// Emit one `stat` p-state framed by `stat <` / `stat >`, one kv line per per-module field.
+///
+/// Slow: each TMC register read awaits a UART roundtrip + 10 ms settle, so polling all 7
+/// drivers across 4 registers takes several hundred ms.
 async fn dump_stat(line_tx: &LineTx, motion: &Mutex<NoopRawMutex, Motion>, tmc: &SharedTmc) {
     line_tx.send(Line::new(PsType::Stat).begin()).await;
 
