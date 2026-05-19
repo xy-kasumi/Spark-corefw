@@ -1,6 +1,6 @@
-//! Host command pipeline: queue plumbing, command executor, and the shared
-//! [`Command`] enum (re-exported from `model::command` so the parser stays
-//! host-testable).
+//! Host command pipeline: queue plumbing and command executor. The `Command`
+//! enum + parser live in `model::command`; this module re-exports `Command`
+//! for the executor's callers.
 
 use core::fmt::Write;
 use core::sync::atomic::AtomicUsize;
@@ -15,7 +15,7 @@ use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::{self, Settings};
 
-pub use model::command::{parse, Command, ParseError};
+pub use model::command::Command;
 
 use crate::board::{MOTOR_NAMES, NUM_MOTORS};
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};

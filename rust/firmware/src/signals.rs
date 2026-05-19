@@ -1,26 +1,17 @@
-//! Host signal lines (`!`, `?xxx`): typed enum, parser, and executor.
-//! Executor runs inline in the tick-loop RX phase, so handlers must finish quickly.
+//! Host signal executor. The `Signal` enum + byte-level parser live in
+//! `model::signal`; this module is the firmware-side handler that runs inline
+//! in the tick-loop RX phase, so it must finish quickly.
 
 use core::sync::atomic::Ordering;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use model::pstate::{Line, PsType};
+use model::signal::Signal;
 
 use crate::commands::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
-
-pub enum Signal {
-    /// `!` — cancel motion and drop queued commands.
-    Cancel,
-    /// `?queue` — emit queue capacity + outstanding count.
-    QueryQueue,
-    /// `?pos` — emit current machine position.
-    QueryPos,
-    /// Recognized signal byte but unknown verb; silently ignored.
-    Unknown,
-}
 
 pub async fn exec(
     sig: Signal,

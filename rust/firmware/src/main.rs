@@ -4,7 +4,6 @@
 mod board;
 mod commands;
 mod drivers;
-mod line_parser;
 mod line_tx;
 mod motion;
 mod motor;
@@ -19,13 +18,13 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
+use model::comm::{Parsed, Parser};
 use model::pstate::ErrorLine;
 use model::settings::Settings as SettingsCache;
 use panic_halt as _;
 
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
-use crate::line_parser::{Parsed, Parser};
 use crate::line_tx::{DrainState, LineTx};
 use crate::motion::Motion;
 use crate::motor::{MotorAxisConfig, Motors};

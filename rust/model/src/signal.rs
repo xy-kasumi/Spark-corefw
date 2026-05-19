@@ -1,0 +1,42 @@
+//! Host signal lines (`!`, `?xxx`): the typed enum and byte-level parser.
+//! Execution lives firmware-side since handlers touch hardware state.
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Signal {
+    /// `!` — cancel motion and drop queued commands.
+    Cancel,
+    /// `?queue` — emit queue capacity + outstanding count.
+    QueryQueue,
+    /// `?pos` — emit current machine position.
+    QueryPos,
+    /// Recognized signal byte but unknown verb; silently ignored.
+    Unknown,
+}
+
+/// Classify a framed signal line. `bytes` includes the leading `!` or `?`.
+pub fn parse(bytes: &[u8]) -> Signal {
+    match bytes {
+        b"!" => Signal::Cancel,
+        b"?queue" => Signal::QueryQueue,
+        b"?pos" => Signal::QueryPos,
+        _ => Signal::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_signals() {
+        assert_eq!(parse(b"!"), Signal::Cancel);
+        assert_eq!(parse(b"?queue"), Signal::QueryQueue);
+        assert_eq!(parse(b"?pos"), Signal::QueryPos);
+    }
+
+    #[test]
+    fn unknown_signal() {
+        assert_eq!(parse(b"?edm"), Signal::Unknown);
+        assert_eq!(parse(b"!!"), Signal::Unknown);
+    }
+}

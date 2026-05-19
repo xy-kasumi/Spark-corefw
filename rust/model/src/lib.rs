@@ -8,3 +8,4 @@ pub mod motion;
 pub mod path_buffer;
 pub mod pstate;
 pub mod settings;
+pub mod signal;
