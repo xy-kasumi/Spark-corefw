@@ -35,9 +35,9 @@ Hardware abstraction level
   * Lots of work on API design, test setup back-and-forth
   * Once API is fixed, migration should be "just do" kind of work
   * Should be able to run real dashboard & spooler end-to-end (see `~/repos/Spark` for host-side stack)
-4. DOING: Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
-5. Feature parity; end-to-end real job finishes.
-6. Drop dead features from C for fair comparison.
+4. DONE: Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
+5. DONE:Drop dead features from C for fair comparison.
+6. DOING: Feature parity; verify by end-to-end real job finishing.
 7. Refactor / re-archictecture.
 
 # Design

@@ -31,6 +31,7 @@ use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::Settings as SettingsCache;
 use static_cell::StaticCell;
 
+use crate::board::Pulser;
 use crate::canceler::CANCELER;
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
@@ -39,6 +40,7 @@ use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
 use crate::pump::Pump;
 use crate::settings::SharedTmc;
+use crate::signals::MachineStats;
 use crate::toolsupply::ToolSupply;
 use crate::wirefeed::Wirefeed;
 
@@ -156,6 +158,8 @@ async fn tick_loop(
     let mut ticker = Ticker::every(Duration::from_millis(1));
     let mut parser = Parser::new();
     let mut tx_state = DrainState::new();
+    // Tick-published query snapshot; seeded so the first query after init is valid.
+    let mut stats = capture_stats(motion, coord, pulser).await;
 
     loop {
         ticker.next().await;
@@ -178,7 +182,7 @@ async fn tick_loop(
                     while cmd_queue.try_receive().is_ok() {}
                 }
                 Some(Parsed::QuerySignal(q)) => {
-                    signals::exec_query(q, motion, coord, pulser, cmd_queue, line_tx).await;
+                    signals::exec_query(q, &stats, cmd_queue, line_tx);
                 }
                 // While the cancel window is open, blackhole incoming commands so a
                 // single `!` drains the queue instead of racing host bytes still in
@@ -222,6 +226,8 @@ async fn tick_loop(
         }
 
         wirefeed.lock().await.tick();
+
+        stats = capture_stats(motion, coord, pulser).await;
     }
 }
 
@@ -300,5 +306,37 @@ async fn cmd_loop(
             last_has_cont = cont_next;
             peek_buf = peek;
         }
+    }
+}
+
+/// Snapshot the query-visible state. Locks motion/coord/pulser sequentially
+/// (never nested), reading cached getters only, so it carries no lock-order
+/// constraint with the executor's motion->coord/pulser order.
+async fn capture_stats(
+    motion: &Mutex<NoopRawMutex, Motion>,
+    coord: &Mutex<NoopRawMutex, CoordState>,
+    pulser: &Mutex<NoopRawMutex, Pulser>,
+) -> MachineStats {
+    let (pos, edm) = {
+        let m = motion.lock().await;
+        (m.current_position(), m.edm_state())
+    };
+    let (active, offset) = {
+        let c = coord.lock().await;
+        (c.active(), c.offset_of(c.active()))
+    };
+    let (eff_duty, open_rate, short_rate, temp) = {
+        let p = pulser.lock().await;
+        (p.eff_duty(), p.open_rate(), p.short_rate(), p.temp())
+    };
+    MachineStats {
+        pos,
+        edm,
+        active,
+        offset,
+        eff_duty,
+        open_rate,
+        short_rate,
+        temp,
     }
 }

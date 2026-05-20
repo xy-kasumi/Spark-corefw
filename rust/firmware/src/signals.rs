@@ -1,31 +1,31 @@
-//! Query-signal executor. The `QuerySignal` enum + byte-level parser live in
-//! `model::signal`; this module is the firmware-side handler that runs inline
-//! in the tick-loop RX phase, so it must finish quickly. The `!` cancel is
-//! handled in `main.rs`, not here.
+//! Query-signal executor. It just converts snapshot to text. Must finish within << tick duration (1ms).
 
 use core::fmt::Write;
 use core::sync::atomic::Ordering;
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
 use heapless::String;
-use model::coordstate::CoordState;
+use model::coords::{ActiveCoordSys, PosPhys};
 use model::pstate::{Line, PsType};
 use model::signal::QuerySignal;
 
-use crate::board::Pulser;
 use crate::commands::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
 use crate::line_tx::LineTx;
-use crate::motion::Motion;
+use crate::motion::EdmState;
 
-pub async fn exec_query(
-    sig: QuerySignal,
-    motion: &Mutex<NoopRawMutex, Motion>,
-    coord: &Mutex<NoopRawMutex, CoordState>,
-    pulser: &Mutex<NoopRawMutex, Pulser>,
-    cmd_queue: &CmdQueue,
-    line_tx: &LineTx,
-) {
+/// Snapshot of machine (enough to answer [`QuerySignal`])
+#[derive(Clone, Copy)]
+pub struct MachineStats {
+    pub pos: PosPhys,
+    pub edm: EdmState,
+    pub active: ActiveCoordSys,
+    pub offset: PosPhys,
+    pub eff_duty: f32,
+    pub open_rate: u8,
+    pub short_rate: u8,
+    pub temp: u8,
+}
+
+pub fn exec_query(sig: QuerySignal, stats: &MachineStats, cmd_queue: &CmdQueue, line_tx: &LineTx) {
     match sig {
         QuerySignal::Queue => {
             let num = cmd_queue.len() + OUTSTANDING.load(Ordering::Relaxed);
@@ -37,15 +37,9 @@ pub async fn exec_query(
             let _ = line_tx.try_send(line);
         }
         QuerySignal::Pos => {
-            // Lock order motion -> coord (matches commands.rs).
-            let pos = {
-                let m = motion.lock().await;
-                m.current_position()
-            };
-            let (active, off) = {
-                let c = coord.lock().await;
-                (c.active(), c.offset_of(c.active()))
-            };
+            let pos = stats.pos;
+            let active = stats.active;
+            let off = stats.offset;
 
             // Line 1: machine coordinates, always with the `m.` prefix.
             let line1 = Line::new(PsType::Pos)
@@ -73,18 +67,12 @@ pub async fn exec_query(
             }
         }
         QuerySignal::Edm => {
-            // Sequential (non-nested) locks: motion first, then pulser. The C
-            // handler reads the tick's snapshot; we read both modules live.
-            let edm = motion.lock().await.edm_state();
-            let (eff_duty, r_open, r_short, temp) = {
-                let p = pulser.lock().await;
-                (
-                    p.eff_duty(),
-                    p.open_rate() as f32 / 255.0,
-                    p.short_rate() as f32 / 255.0,
-                    p.temp(),
-                )
-            };
+            // Motion and pulser fields come from the same tick snapshot (as in C).
+            let edm = stats.edm;
+            let eff_duty = stats.eff_duty;
+            let r_open = stats.open_rate as f32 / 255.0;
+            let r_short = stats.short_rate as f32 / 255.0;
+            let temp = stats.temp;
             let _ = line_tx.try_send(Line::new(PsType::Edm).begin());
             if edm.has_edm_data {
                 let _ = line_tx.try_send(
