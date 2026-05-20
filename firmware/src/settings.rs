@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Apply layer: routes a `SettingId` + value into the right subsystem's configure method.
 //! The one place that knows which firmware-side struct each wire path maps onto;
 //! subsystems themselves stay settings-agnostic.

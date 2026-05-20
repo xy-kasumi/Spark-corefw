@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Modal coordinate-system state: which system G-code coordinates are relative
 //! to (G53-G56), the live per-system offsets, and the last commanded target
 //! used as the base for partial moves.

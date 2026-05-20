@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! EDM pulser: stateful API over the I2C device driver, mirroring the C
 //! `pulser.h` surface. Unlike the C version it owns no poll loop — the
 //! orchestrator calls [`Pulser::tick`] on its 1 ms cadence.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! UART-based serial bytestring RX/TX.
 //!
 //! Pipe sizes are picked relative to the 1 ms tick x 115200 baud (~12 B) x "just-in-case" jitter buffer (x5).

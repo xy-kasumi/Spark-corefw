@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 use crate::coords::PosPhys;
 
 /// Positional resolution of EDM control in mm. Path positions are notch-aligned.

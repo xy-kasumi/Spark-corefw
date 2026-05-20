@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Motion controller: owns the model-side MotionState plus the motor outputs,
 //! and is ticked from the orchestrator on a 1 ms cadence.
 

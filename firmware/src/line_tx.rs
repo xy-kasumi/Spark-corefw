@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Line-atomic TX queue. Producers hand off a whole [`Line`] (≤128 B) as one
 //! message; the tick loop drains each line into the serial TX ring without
 //! splitting across drains, so producers never interleave mid-line on the wire.

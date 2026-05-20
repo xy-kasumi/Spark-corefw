@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Serial-terminal niceties for human users, deliberately quarantined from the
 //! protocol path so the "nice text shell" never distorts the normal-path APIs.
 //!

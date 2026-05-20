@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Host-side command parsing. Bytes arrive from `comm::Framer`; this module
 //! turns them into the typed `Command` the executor queues. Sits in `model`
 //! so it can be host-fuzzed without firmware deps.

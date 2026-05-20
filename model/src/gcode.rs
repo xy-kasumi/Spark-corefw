@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! G-code parser. Phase 3 sketch: G0 and G1 implemented; further commands stubbed for Phase 4.
 //!
 //! Whitespace and case rules mirror the C reference parser:

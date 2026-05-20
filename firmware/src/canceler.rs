@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Cancel state shared by the orchestrator's RX phase and the command executor.
 //!
 //! A cancel (`!`) does two things: it bumps a generation counter and arms a

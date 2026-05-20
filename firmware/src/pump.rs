@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Coolant/dielectric pump: a single active-high GPIO with settle delays.
 
 use embassy_stm32::gpio::Output;

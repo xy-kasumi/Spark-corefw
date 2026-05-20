@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! EDM pulser board I2C device: thin register-level I/O over an injected bus.
 //!
 //! Generic over any async I2C bus (see [`PulserBus`]); register semantics and

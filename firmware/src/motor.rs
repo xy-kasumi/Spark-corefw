@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Per-axis motor abstraction. Converts mm/turn targets to microsteps and feeds step_gen.
 
 use model::coords::PosPhys;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Line framing + typed parsing per protocol.md transport layer.
 //!
 //! [`Framer`] strips CR, terminates on LF, and silently discards overflowing

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Motion state machine: passive controller pumped on each tick by the firmware.
 //!
 //! Implements G0 (rapid), G1 (EDM control), and G38.3 (probe). Homing reuses the

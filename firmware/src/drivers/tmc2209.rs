@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! TMC2209 wire protocol: CRC, datagram framing, register read/write with verify.
 //!
 //! Generic over any half-duplex byte transport (write, write-then-read).

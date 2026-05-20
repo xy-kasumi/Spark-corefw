@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 //! Host command pipeline: queue plumbing and command executor. The `Command`
 //! enum + parser live in `model::command`; this module re-exports `Command`
 //! for the executor's callers.
