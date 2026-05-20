@@ -4,15 +4,18 @@
 # the panic happened. Does NOT reset the target (so state is preserved); resumes
 # it on exit.
 #
-# Usage: ./diag.sh
+# Usage: ./panic_diag.sh
 set -uo pipefail
 cd "$(dirname "$0")"
 
-OPENOCD="${OPENOCD:-$HOME/zephyr-sdk-0.17.1/sysroots/x86_64-pokysdk-linux/usr/bin/openocd}"
-OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-$HOME/zephyr-sdk-0.17.1/sysroots/x86_64-pokysdk-linux/usr/share/openocd/scripts}"
-NM="${NM:-$HOME/zephyr-sdk-0.17.1/arm-zephyr-eabi/bin/arm-zephyr-eabi-nm}"
+# Host tools, not the Zephyr SDK: openocd from PATH (apt install openocd, or an
+# xpack build), and any nm to read the PANIC_REPORT symbol. Set OPENOCD_SCRIPTS
+# only for a relocated scripts dir.
+OPENOCD="${OPENOCD:-openocd}"
+NM="${NM:-nm}"
 ELF="${ELF:-target/thumbv7em-none-eabihf/release/firmware}"
-OOCD=(-s "$OPENOCD_SCRIPTS" -f interface/cmsis-dap.cfg -f target/stm32h7x.cfg)
+OOCD=(-f interface/cmsis-dap.cfg -f target/stm32h7x.cfg)
+[ -n "${OPENOCD_SCRIPTS:-}" ] && OOCD=(-s "$OPENOCD_SCRIPTS" "${OOCD[@]}")
 MAGIC=0x50414e31
 
 ADDR=$("$NM" "$ELF" | awk '/ PANIC_REPORT$/{print "0x"$1}')

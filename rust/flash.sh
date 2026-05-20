@@ -2,13 +2,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-OPENOCD="${OPENOCD:-$HOME/zephyr-sdk-0.17.1/sysroots/x86_64-pokysdk-linux/usr/bin/openocd}"
-OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-$HOME/zephyr-sdk-0.17.1/sysroots/x86_64-pokysdk-linux/usr/share/openocd/scripts}"
+# Probe host: a system openocd on PATH by default (apt install openocd, or an
+# xpack build). Set OPENOCD_SCRIPTS only for a relocated scripts dir; a normal
+# install resolves its bundled cmsis-dap/stm32h7x configs on its own.
+OPENOCD="${OPENOCD:-openocd}"
 ELF="target/thumbv7em-none-eabihf/release/firmware"
+
+oocd=(-f interface/cmsis-dap.cfg -f target/stm32h7x.cfg)
+[ -n "${OPENOCD_SCRIPTS:-}" ] && oocd=(-s "$OPENOCD_SCRIPTS" "${oocd[@]}")
 
 (cd firmware && cargo build --release)
 
-"$OPENOCD" -s "$OPENOCD_SCRIPTS" \
-  -f interface/cmsis-dap.cfg \
-  -f target/stm32h7x.cfg \
-  -c "program $ELF verify reset exit"
+"$OPENOCD" "${oocd[@]}" -c "program $ELF verify reset exit"
