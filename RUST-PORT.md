@@ -25,23 +25,6 @@ Hardware abstraction level
 * porting to ESP32 or Raspi Pico should be possible w/o re-architecturing or rewriting G-code parser, but can require some update
 * will never need to support 8-bit uCs or PC-like hardware with OSes
 
-Goal criteria ("feature parity")
-* I define "feature parity" as:
-  * based on live code path on commit `a110d3`
-    * Want-to-haves does not need impl.
-  * No addition of not currently implemented features (EEPROM serialize, USB, whatever)
-  * Do not assume any specs or hardware as frozen. They must be equally / more amenable to change than C code.
-  * They should be behaviorally same when seem from the device user (comm host)
-    * No need to maintain byte-level same behavior (but doing so would be easier for port task)
-    * FW-host comm can accept added latency of ~50ms if ever needed.
-    * For device control, degradation is not allowed
-      * Most critical one would be pulse step generator (relying on hardware timer + ISR)
-      * Other fastest loop is 1ms; should be easy target
-* corollary
-  * TMC driver code must be ported too, at some point
-  * No need to keep same clock tree setup as long as we can achieve same performance
-    * I actually prefer less custom configuration and sticking to whatever library default
-
 # Steps
 
 1. DONE: Decide on crates division, establish UART (different from the spec'd protocol) with host on real device.
@@ -52,14 +35,13 @@ Goal criteria ("feature parity")
   * Lots of work on API design, test setup back-and-forth
   * Once API is fixed, migration should be "just do" kind of work
   * Should be able to run real dashboard & spooler end-to-end (see `~/repos/Spark` for host-side stack)
-4. Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
-5. Refactor / re-archictecture.
+4. DOING: Port everything else, while tidying up API and writing tests. Ocassional real-device QA.
+5. Feature parity; end-to-end real job finishes.
+6. Drop dead features from C for fair comparison.
+7. Refactor / re-archictecture.
 
 # Design
 * time / data-flow design
   * 1ms central tick loop
     * everything requiring faster than 1ms is encapsulated as a hardware driver with its own hardware timers or DMAs, exposing only "slow" (1ms) API
   * no other Timer::after calls
-
-# Tips
-* Use `tio --map OCRNL,ONLCRNL,INLCRNL --local-echo /dev/ttyACM0` to manuall connect
