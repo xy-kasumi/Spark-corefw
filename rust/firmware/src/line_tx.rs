@@ -40,6 +40,12 @@ impl LineTx {
         self.chan.send(line).await;
     }
 
+    /// True when no line is queued or mid-drain, so raw bytes (terminal echo)
+    /// can be pushed to the wire without landing inside a protocol line.
+    pub fn is_idle(&self, state: &DrainState) -> bool {
+        state.line.is_none() && self.chan.is_empty()
+    }
+
     /// Push as many queued lines as `serial`'s TX ring will accept this tick.
     /// `state` is the consumer's resume cursor (not queue state); `&mut`
     /// keeps the single-drainer invariant a compile-time fact.

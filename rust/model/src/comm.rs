@@ -50,6 +50,15 @@ impl Framer {
         }
         match b {
             b'\r' => None,
+            // Backspace / DEL edit the in-progress line, the same human-from-a-
+            // serial-terminal input normalization as CR-stripping above. Only
+            // meaningful while building; in other states there is no live line.
+            0x08 | 0x7F => {
+                if matches!(self.state, State::Building) {
+                    self.buf.pop();
+                }
+                None
+            }
             b'\n' => match self.state {
                 State::Poisoned => {
                     self.buf.clear();
@@ -72,6 +81,16 @@ impl Framer {
                 }
                 None
             }
+        }
+    }
+
+    /// Bytes buffered in the line currently being assembled. Reports 0 unless
+    /// actively building (a held or poisoned line is not live). Used only by
+    /// interactive echo to gate backspace erase; the protocol path ignores it.
+    pub fn line_len(&self) -> usize {
+        match self.state {
+            State::Building => self.buf.len(),
+            _ => 0,
         }
     }
 }
@@ -99,6 +118,11 @@ impl Parser {
         Self {
             framer: Framer::new(),
         }
+    }
+
+    /// Length of the in-progress line; see [`Framer::line_len`].
+    pub fn line_len(&self) -> usize {
+        self.framer.line_len()
     }
 
     /// Feed one byte. Returns `Some` on the LF that completes a non-empty line.

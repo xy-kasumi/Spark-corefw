@@ -4,6 +4,7 @@
 mod board;
 mod commands;
 mod drivers;
+mod interactive;
 mod line_tx;
 mod motion;
 mod motor;
@@ -113,6 +114,7 @@ async fn tick_loop(
 
         let mut chunk = [0u8; 32];
         for &b in serial.rx_get(&mut chunk) {
+            interactive::echo(b, parser.line_len(), line_tx.is_idle(&tx_state), serial);
             match parser.feed(b) {
                 Some(Parsed::Signal(s)) => {
                     signals::exec(s, motion, coord, cmd_queue, line_tx).await;
