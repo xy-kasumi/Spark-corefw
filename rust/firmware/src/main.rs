@@ -21,7 +21,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use model::comm::{Parsed, Parser};
-use model::pstate::ErrorLine;
+use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::Settings as SettingsCache;
 use static_cell::StaticCell;
 
@@ -77,9 +77,12 @@ async fn main(spawner: Spawner) {
     let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
     let line_tx = LineTx::init();
 
-    // Push defaults to hardware; emits the `init` p-state with the result.
-    settings::apply_all(&init_settings, motion, tmc, line_tx).await;
-    pulser.lock().await.init().await;
+    // init phase
+    let _ = line_tx.try_send(Line::new(PsType::Init).begin());
+    let pulser_ok = pulser.lock().await.init(line_tx).await;
+    let settings_ok = settings::apply_all(&init_settings, motion, tmc, line_tx).await;
+    let _ = line_tx.try_send(Line::new(PsType::Init).bool("ok", pulser_ok && settings_ok));
+    let _ = line_tx.try_send(Line::new(PsType::Init).end());
 
     join(
         tick_loop(board.console, cmd_queue, motion, pulser, line_tx),

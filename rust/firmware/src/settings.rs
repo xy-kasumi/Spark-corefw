@@ -73,10 +73,10 @@ pub async fn apply_one(
     Ok(())
 }
 
-/// Apply every setting in `s`. Emits a single `init` p-state line:
-/// `init < settings.ok:true >` on success, or
-/// `init < settings.ok:false settings.msg:"<failing-path>" >` on first
-/// failure (subsequent settings are not applied).
+/// Apply every setting in `s`, emitting `settings.ok` (and `settings.msg` with
+/// the failing path on first failure, after which no further settings are
+/// applied) into the caller's open `init` p-state group. The caller owns the
+/// group's `begin`/`end`.
 pub async fn apply_all(
     s: &Settings,
     motion: &Mutex<NoopRawMutex, Motion>,
@@ -86,20 +86,12 @@ pub async fn apply_all(
     for id in settings::iter_all() {
         if apply_one(id, id.read(s), motion, tmc).await.is_err() {
             let path = id.path();
-            let line = Line::new(PsType::Init)
-                .begin()
-                .bool("settings.ok", false)
-                .str_val("settings.msg", path.as_str())
-                .end();
-            let _ = line_tx.try_send(line);
+            let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", false));
+            let _ =
+                line_tx.try_send(Line::new(PsType::Init).str_val("settings.msg", path.as_str()));
             return false;
         }
     }
-    let _ = line_tx.try_send(
-        Line::new(PsType::Init)
-            .begin()
-            .bool("settings.ok", true)
-            .end(),
-    );
+    let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", true));
     true
 }

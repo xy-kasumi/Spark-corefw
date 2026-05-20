@@ -4,11 +4,13 @@
 #![allow(dead_code)]
 
 use embassy_time::{Duration, Timer};
+use model::pstate::{Line, PsType};
 
 use crate::drivers::pulser::{
     PulserBus, PulserDevice, REG_CKP_PS, REG_MAX_DUTY, REG_POLARITY, REG_PULSE_CURRENT,
     REG_PULSE_DUR, REG_TEMPERATURE,
 };
+use crate::line_tx::LineTx;
 
 /// EWMA coefficient for eff_duty: ~1 s time constant at 1 ms polling.
 const EFF_DUTY_ALPHA: f32 = 0.001;
@@ -66,8 +68,10 @@ impl<B: PulserBus> Pulser<B> {
         }
     }
 
-    /// Verify communication by reading the temperature register.
-    pub async fn init(&mut self) -> bool {
+    /// Verify communication by reading the temperature register, emitting the
+    /// `pulser.ok` line (and `pulser.msg` on failure) into the caller's open
+    /// `init` p-state group. The caller owns the group's `begin`/`end`.
+    pub async fn init(&mut self, line_tx: &LineTx) -> bool {
         match self.dev.read_register(REG_TEMPERATURE).await {
             Ok(temp) => {
                 self.last_temp = temp;
@@ -76,6 +80,13 @@ impl<B: PulserBus> Pulser<B> {
             Err(_) => {
                 self.init_ok = false;
             }
+        }
+        if self.init_ok {
+            let _ = line_tx.try_send(Line::new(PsType::Init).bool("pulser.ok", true));
+        } else {
+            let _ = line_tx.try_send(Line::new(PsType::Init).bool("pulser.ok", false));
+            let _ =
+                line_tx.try_send(Line::new(PsType::Init).str_val("pulser.msg", "I2C read failed"));
         }
         self.init_ok
     }
@@ -129,6 +140,7 @@ impl<B: PulserBus> Pulser<B> {
 
         if !self.energized {
             self.first_after_energize = true;
+            self.poll_count += 1;
             return;
         }
 
