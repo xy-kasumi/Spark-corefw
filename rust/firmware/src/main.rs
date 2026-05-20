@@ -2,6 +2,7 @@
 #![no_main]
 
 mod board;
+mod canceler;
 mod commands;
 mod drivers;
 mod interactive;
@@ -30,6 +31,7 @@ use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::Settings as SettingsCache;
 use static_cell::StaticCell;
 
+use crate::canceler::CANCELER;
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
 use crate::line_tx::{DrainState, LineTx};
@@ -37,7 +39,6 @@ use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
 use crate::pump::Pump;
 use crate::settings::SharedTmc;
-use crate::signals::CANCEL_GEN;
 use crate::toolsupply::ToolSupply;
 use crate::wirefeed::Wirefeed;
 
@@ -158,6 +159,7 @@ async fn tick_loop(
 
     loop {
         ticker.next().await;
+        CANCELER.tick();
 
         let mut chunk = [0u8; 32];
         for &b in serial.rx_get(&mut chunk) {
@@ -166,13 +168,16 @@ async fn tick_loop(
                 Some(Parsed::Signal(s)) => {
                     signals::exec(s, motion, coord, pulser, wirefeed, cmd_queue, line_tx).await;
                 }
-                Some(Parsed::Command(c)) => {
+                // While the cancel window is open, blackhole incoming commands so a
+                // single `!` drains the queue instead of racing host bytes still in
+                // flight. Signals stay live so `?` queries and a follow-up `!` work.
+                Some(Parsed::Command(c)) if !CANCELER.active() => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
                         let _ = line_tx
                             .try_send(ErrorLine::new().msg(format_args!("queue full")).finish());
                     }
                 }
-                Some(Parsed::CommandError(src, e)) => {
+                Some(Parsed::CommandError(src, e)) if !CANCELER.active() => {
                     let _ = line_tx.try_send(
                         ErrorLine::new()
                             .source(src)
@@ -180,7 +185,7 @@ async fn tick_loop(
                             .finish(),
                     );
                 }
-                None => {}
+                _ => {}
             }
         }
 
@@ -252,9 +257,9 @@ async fn cmd_loop(
         // command are G1. cont_prev carries the previous iteration's cont_next.
         let cont_next = commands::is_g1(&curr) && peek.as_ref().map_or(false, commands::is_g1);
         // The lookahead is already pulled out of the channel, so a cancel's queue
-        // drain (signals::exec) can't reach it. Snapshot CANCEL_GEN and drop the
+        // drain (signals::exec) can't reach it. Watch the canceler and drop the
         // held lookahead ourselves if a cancel landed during this command.
-        let gen = CANCEL_GEN.load(Ordering::Relaxed);
+        let watch = CANCELER.watch();
         commands::exec(
             curr,
             last_has_cont,
@@ -273,7 +278,7 @@ async fn cmd_loop(
         )
         .await;
         OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
-        if CANCEL_GEN.load(Ordering::Relaxed) != gen {
+        if watch.cancelled() {
             if peek.is_some() {
                 OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
             }

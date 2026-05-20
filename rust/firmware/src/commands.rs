@@ -3,7 +3,7 @@
 //! for the executor's callers.
 
 use core::fmt::Write;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::AtomicUsize;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
@@ -19,12 +19,12 @@ use model::settings::{self, Axis, Settings};
 pub use model::command::Command;
 
 use crate::board::{MotorStepping, Pulser, MOTOR_NAMES, NUM_MOTORS};
+use crate::canceler::CANCELER;
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::pump::Pump;
 use crate::settings::{apply_one, SharedTmc};
-use crate::signals::CANCEL_GEN;
 use crate::toolsupply::ToolSupply;
 use crate::wirefeed::Wirefeed;
 
@@ -240,7 +240,7 @@ async fn exec_home(
         }
 
         let cfg = settings.axes[axis.idx()];
-        let gen = CANCEL_GEN.load(Ordering::Relaxed);
+        let watch = CANCELER.watch();
         {
             let mut m = motion.lock().await;
             let mut target = m.current_position();
@@ -254,7 +254,7 @@ async fn exec_home(
         while motion.lock().await.mode() != Mode::Idle {
             Timer::after(Duration::from_millis(1)).await;
         }
-        if CANCEL_GEN.load(Ordering::Relaxed) != gen {
+        if watch.cancelled() {
             break; // cancelled mid-home: do not re-anchor to a bogus origin
         }
         motion.lock().await.finish_home(axis, cfg.origin);
