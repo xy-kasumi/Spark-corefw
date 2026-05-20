@@ -19,6 +19,28 @@ impl PosPhys {
         c: 0.0,
     };
 
+    /// Add an XYZ work-offset (work-coords -> machine-coords). C-axis is never
+    /// offset, so it passes through unchanged.
+    pub fn with_offset_added(self, off: PosPhys) -> Self {
+        Self {
+            x: self.x + off.x,
+            y: self.y + off.y,
+            z: self.z + off.z,
+            c: self.c,
+        }
+    }
+
+    /// Remove an XYZ work-offset (machine-coords -> work-coords). Inverse of
+    /// [`with_offset_added`](Self::with_offset_added); C-axis unchanged.
+    pub fn with_offset_removed(self, off: PosPhys) -> Self {
+        Self {
+            x: self.x - off.x,
+            y: self.y - off.y,
+            z: self.z - off.z,
+            c: self.c,
+        }
+    }
+
     /// Distance in mm. C-axis contribution assumes 2 mm effective radius.
     pub fn distance_to(&self, other: &Self) -> f32 {
         let dx = other.x - self.x;
@@ -38,6 +60,72 @@ impl PosPhys {
         let c_delta = shortest_turn_delta(self.c, other.c);
         let c = wrap_turns(self.c + c_delta * t);
         Self { x, y, z, c }
+    }
+}
+
+/// The three offset-bearing work coordinate systems (G54/G55/G56). The machine
+/// system (G53) has no offset and is represented separately by
+/// [`ActiveCoordSys::Machine`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoordSys {
+    W,
+    G,
+    Ts,
+}
+
+impl CoordSys {
+    /// Index into a per-system offset/config array.
+    pub fn idx(self) -> usize {
+        match self {
+            CoordSys::W => 0,
+            CoordSys::G => 1,
+            CoordSys::Ts => 2,
+        }
+    }
+}
+
+/// The active (modal) coordinate system selected by G53-G56. `Offset` wraps
+/// [`CoordSys`] so that "machine has no offset" is structurally enforced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActiveCoordSys {
+    Machine,
+    Offset(CoordSys),
+}
+
+impl ActiveCoordSys {
+    /// Map a G-code code (53-56) to its coordinate system. Other codes yield None.
+    pub fn from_gcode(code: i32) -> Option<Self> {
+        match code {
+            53 => Some(ActiveCoordSys::Machine),
+            54 => Some(ActiveCoordSys::Offset(CoordSys::G)),
+            55 => Some(ActiveCoordSys::Offset(CoordSys::W)),
+            56 => Some(ActiveCoordSys::Offset(CoordSys::Ts)),
+            _ => None,
+        }
+    }
+
+    /// Full name for the `?pos` `sys` field.
+    pub fn sys_name(self) -> &'static str {
+        match self {
+            ActiveCoordSys::Machine => "machine",
+            ActiveCoordSys::Offset(CoordSys::G) => "grinder",
+            ActiveCoordSys::Offset(CoordSys::W) => "work",
+            ActiveCoordSys::Offset(CoordSys::Ts) => "toolsupply",
+        }
+    }
+
+    /// Key prefix for `?pos` axis fields. Note toolsupply is `t`, not `ts`.
+    pub fn pos_prefix(self) -> &'static str {
+        match self {
+            ActiveCoordSys::Machine => "m",
+            ActiveCoordSys::Offset(CoordSys::G) => "g",
+            ActiveCoordSys::Offset(CoordSys::W) => "w",
+            ActiveCoordSys::Offset(CoordSys::Ts) => "t",
+        }
+    }
+
+    pub fn is_machine(self) -> bool {
+        matches!(self, ActiveCoordSys::Machine)
     }
 }
 

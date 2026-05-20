@@ -6,12 +6,16 @@
 
 use core::str;
 
+use crate::coords::ActiveCoordSys;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
     /// G0: rapid positioning.
     Rapid(MoveSpec),
     /// G1: feed (linear) move.
     Linear(MoveSpec),
+    /// G53-G56: select the active (modal) coordinate system.
+    SelectCoordSys(ActiveCoordSys),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -43,8 +47,18 @@ pub fn parse(line: &[u8]) -> Result<Command, ParseError> {
     match code {
         0 => parse_move(&mut p).map(Command::Rapid),
         1 => parse_move(&mut p).map(Command::Linear),
+        53..=56 => parse_select(&mut p, code),
         _ => Err(ParseError::UnknownCommand),
     }
+}
+
+/// Parse a coordinate-system select (G53-G56). Takes no parameters.
+fn parse_select(p: &mut Cursor, code: i32) -> Result<Command, ParseError> {
+    if !p.eof_or_only_ws() {
+        return Err(ParseError::TrailingGarbage);
+    }
+    let cs = ActiveCoordSys::from_gcode(code).ok_or(ParseError::UnknownCommand)?;
+    Ok(Command::SelectCoordSys(cs))
 }
 
 fn parse_move(p: &mut Cursor) -> Result<MoveSpec, ParseError> {

@@ -7,6 +7,7 @@
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
+use model::coordstate::CoordState;
 use model::pstate::{Line, PsType};
 use model::settings::{self, SettingId, Settings};
 
@@ -29,6 +30,7 @@ pub async fn apply_one(
     value: f32,
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
+    coord: &Mutex<NoopRawMutex, CoordState>,
 ) -> Result<(), ApplyError> {
     match id {
         SettingId::MotorMicrostep(i) => {
@@ -61,12 +63,14 @@ pub async fn apply_one(
             let mut m = motion.lock().await;
             m.set_motor_unitsteps(i, value);
         }
+        SettingId::CsPos(cs, axis) => {
+            coord.lock().await.set_offset(cs, axis, value);
+        }
         SettingId::MotorIdlems(_)
         | SettingId::AxisHomeOrigin(_)
         | SettingId::AxisHomePhase(_)
         | SettingId::AxisHomeSide(_)
         | SettingId::AxisHomeTravel(_)
-        | SettingId::CsPos(_, _)
         | SettingId::TsServoCloseMs
         | SettingId::TsServoOpenMs => {}
     }
@@ -81,10 +85,11 @@ pub async fn apply_all(
     s: &Settings,
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
+    coord: &Mutex<NoopRawMutex, CoordState>,
     line_tx: &LineTx,
 ) -> bool {
     for id in settings::iter_all() {
-        if apply_one(id, id.read(s), motion, tmc).await.is_err() {
+        if apply_one(id, id.read(s), motion, tmc, coord).await.is_err() {
             let path = id.path();
             let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", false));
             let _ =

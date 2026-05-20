@@ -52,22 +52,9 @@ impl Axis {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CoordSys {
-    W,
-    G,
-    Ts,
-}
+pub use crate::coords::CoordSys;
 
 impl CoordSys {
-    fn idx(self) -> usize {
-        match self {
-            CoordSys::W => 0,
-            CoordSys::G => 1,
-            CoordSys::Ts => 2,
-        }
-    }
-
     fn name(self) -> &'static str {
         match self {
             CoordSys::W => "w",

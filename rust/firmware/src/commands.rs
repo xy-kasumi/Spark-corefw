@@ -9,8 +9,8 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use heapless::String;
-use model::coords::PosPhys;
-use model::gcode::{Command as GCmd, MoveSpec};
+use model::coordstate::CoordState;
+use model::gcode::Command as GCmd;
 use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::{self, Settings};
@@ -40,13 +40,16 @@ pub async fn exec(
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
     pulser: &Mutex<NoopRawMutex, Pulser>,
+    coord: &Mutex<NoopRawMutex, CoordState>,
     line_tx: &LineTx,
     settings: &mut Settings,
 ) {
     match cmd {
         Command::Gcode(GCmd::Rapid(spec)) => {
+            // Lock order motion -> coord (matches signals.rs) to avoid deadlock.
             let mut m = motion.lock().await;
-            let target = apply_spec(m.current_position(), &spec);
+            let here = m.current_position();
+            let target = coord.lock().await.resolve_move(&spec, here);
             m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
         }
         Command::Gcode(GCmd::Linear(_)) => {
@@ -55,9 +58,12 @@ pub async fn exec(
                 .finish();
             let _ = line_tx.try_send(line);
         }
+        Command::Gcode(GCmd::SelectCoordSys(a)) => {
+            coord.lock().await.select(a);
+        }
         Command::Set(id, v) => {
             // Try-apply-then-commit: cache only updates if hardware accepted the change.
-            if apply_one(id, v, motion, tmc).await.is_err() {
+            if apply_one(id, v, motion, tmc, coord).await.is_err() {
                 let _ = line_tx.try_send(
                     ErrorLine::new()
                         .msg(format_args!("setting failed"))
@@ -188,13 +194,4 @@ async fn send_stat_f32(line_tx: &LineTx, key: &str, value: Option<f32>) {
         None => Line::new(PsType::Stat).str_val(key, "error"),
     };
     line_tx.send(line).await;
-}
-
-fn apply_spec(current: PosPhys, s: &MoveSpec) -> PosPhys {
-    PosPhys {
-        x: s.x.unwrap_or(current.x),
-        y: s.y.unwrap_or(current.y),
-        z: s.z.unwrap_or(current.z),
-        c: s.c.unwrap_or(current.c),
-    }
 }

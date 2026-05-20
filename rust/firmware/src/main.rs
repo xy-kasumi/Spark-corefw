@@ -21,6 +21,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use model::comm::{Parsed, Parser};
+use model::coordstate::CoordState;
 use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::Settings as SettingsCache;
 use static_cell::StaticCell;
@@ -38,6 +39,7 @@ const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
 type SharedMotion = Mutex<NoopRawMutex, Motion>;
 type SharedPulser = Mutex<NoopRawMutex, board::Pulser>;
+type SharedCoord = Mutex<NoopRawMutex, CoordState>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -75,18 +77,20 @@ async fn main(spawner: Spawner) {
     let pulser: &'static SharedPulser = PULSER_CELL.init(Mutex::new(board.pulser));
     static CMD_QUEUE_CELL: StaticCell<CmdQueue> = StaticCell::new();
     let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
+    static COORD_CELL: StaticCell<SharedCoord> = StaticCell::new();
+    let coord: &'static SharedCoord = COORD_CELL.init(Mutex::new(CoordState::new()));
     let line_tx = LineTx::init();
 
     // init phase
     let _ = line_tx.try_send(Line::new(PsType::Init).begin());
     let pulser_ok = pulser.lock().await.init(line_tx).await;
-    let settings_ok = settings::apply_all(&init_settings, motion, tmc, line_tx).await;
+    let settings_ok = settings::apply_all(&init_settings, motion, tmc, coord, line_tx).await;
     let _ = line_tx.try_send(Line::new(PsType::Init).bool("ok", pulser_ok && settings_ok));
     let _ = line_tx.try_send(Line::new(PsType::Init).end());
 
     join(
-        tick_loop(board.console, cmd_queue, motion, pulser, line_tx),
-        cmd_loop(cmd_queue, motion, tmc, pulser, line_tx),
+        tick_loop(board.console, cmd_queue, motion, coord, pulser, line_tx),
+        cmd_loop(cmd_queue, motion, tmc, coord, pulser, line_tx),
     )
     .await;
 }
@@ -96,6 +100,7 @@ async fn tick_loop(
     serial: &Serial,
     cmd_queue: &CmdQueue,
     motion: &SharedMotion,
+    coord: &SharedCoord,
     pulser: &SharedPulser,
     line_tx: &LineTx,
 ) {
@@ -110,7 +115,7 @@ async fn tick_loop(
         for &b in serial.rx_get(&mut chunk) {
             match parser.feed(b) {
                 Some(Parsed::Signal(s)) => {
-                    signals::exec(s, motion, cmd_queue, line_tx).await;
+                    signals::exec(s, motion, coord, cmd_queue, line_tx).await;
                 }
                 Some(Parsed::Command(c)) => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
@@ -151,6 +156,7 @@ async fn cmd_loop(
     cmd_queue: &CmdQueue,
     motion: &SharedMotion,
     tmc: &SharedTmc,
+    coord: &SharedCoord,
     pulser: &SharedPulser,
     line_tx: &LineTx,
 ) {
@@ -181,6 +187,7 @@ async fn cmd_loop(
             motion,
             tmc,
             pulser,
+            coord,
             line_tx,
             &mut settings,
         )
