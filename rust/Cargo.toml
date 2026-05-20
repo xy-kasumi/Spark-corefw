@@ -1,9 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["model", "firmware"]
-
-[profile.release]
-debug = 2
-opt-level = "s"
-lto = "thin"
-codegen-units = 1
+members = ["model"]

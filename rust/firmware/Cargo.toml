@@ -3,9 +3,15 @@ name = "firmware"
 version = "0.0.1"
 edition = "2021"
 
+[workspace]
+resolver = "2"
+
 [[bin]]
 name = "firmware"
 path = "src/main.rs"
+# firmware cannot run on PC host
+test = false
+bench = false
 
 [dependencies]
 model = { path = "../model" }
@@ -18,3 +24,9 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 heapless = "0.8"
 static_cell = "2"
+
+[profile.release]
+debug = 2
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
