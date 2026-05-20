@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 # xpack build). Set OPENOCD_SCRIPTS only for a relocated scripts dir; a normal
 # install resolves its bundled cmsis-dap/stm32h7x configs on its own.
 OPENOCD="${OPENOCD:-openocd}"
-ELF="target/thumbv7em-none-eabihf/release/firmware"
+ELF="firmware/target/thumbv7em-none-eabihf/release/firmware"
 
 oocd=(-f interface/cmsis-dap.cfg -f target/stm32h7x.cfg)
 [ -n "${OPENOCD_SCRIPTS:-}" ] && oocd=(-s "$OPENOCD_SCRIPTS" "${oocd[@]}")

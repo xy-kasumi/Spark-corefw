@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 # only for a relocated scripts dir.
 OPENOCD="${OPENOCD:-openocd}"
 NM="${NM:-nm}"
-ELF="${ELF:-target/thumbv7em-none-eabihf/release/firmware}"
+ELF="${ELF:-firmware/target/thumbv7em-none-eabihf/release/firmware}"
 OOCD=(-f interface/cmsis-dap.cfg -f target/stm32h7x.cfg)
 [ -n "${OPENOCD_SCRIPTS:-}" ] && OOCD=(-s "$OPENOCD_SCRIPTS" "${OOCD[@]}")
 MAGIC=0x50414e31
