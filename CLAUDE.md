@@ -14,6 +14,9 @@ Unless explicitly specified, requests about the code means incomplete rust/ vers
 - Do not use hardware pins if you're unsure about hardware
 
 # Rust Code
+Exists under `rust/`.
+You can run `build.sh`, `test.sh` (after `cd rust`).
+
 ## Code Style
 - For Rust code under rust/, run `cargo fmt --all --manifest-path rust/Cargo.toml` when you're done editing.
 
