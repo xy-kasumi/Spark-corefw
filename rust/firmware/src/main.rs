@@ -33,6 +33,7 @@ use crate::line_tx::{DrainState, LineTx};
 use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
 use crate::settings::SharedTmc;
+use crate::signals::CANCEL_GEN;
 
 /// Orchestrator loop tick rate. Slower-cadence work counts ticks; nothing else schedules its own timer.
 const TICK_HZ: u32 = 1000;
@@ -197,6 +198,10 @@ async fn cmd_loop(
         // Chain consecutive G1s: cont_next is set when both this and the peeked
         // command are G1. cont_prev carries the previous iteration's cont_next.
         let cont_next = commands::is_g1(&curr) && peek.as_ref().map_or(false, commands::is_g1);
+        // The lookahead is already pulled out of the channel, so a cancel's queue
+        // drain (signals::exec) can't reach it. Snapshot CANCEL_GEN and drop the
+        // held lookahead ourselves if a cancel landed during this command.
+        let gen = CANCEL_GEN.load(Ordering::Relaxed);
         commands::exec(
             curr,
             last_has_cont,
@@ -210,7 +215,15 @@ async fn cmd_loop(
         )
         .await;
         OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
-        last_has_cont = cont_next;
-        peek_buf = peek;
+        if CANCEL_GEN.load(Ordering::Relaxed) != gen {
+            if peek.is_some() {
+                OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+            }
+            last_has_cont = false;
+            peek_buf = None;
+        } else {
+            last_has_cont = cont_next;
+            peek_buf = peek;
+        }
     }
 }
