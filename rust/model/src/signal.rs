@@ -1,27 +1,29 @@
-//! Host signal lines (`!`, `?xxx`): the typed enum and byte-level parser.
-//! Execution lives firmware-side since handlers touch hardware state.
+//! Host signal lines (`!`, `?xxx`): enums and parser.
 
+/// Query-like signal (?...)
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Signal {
-    /// `!` — cancel motion and drop queued commands.
-    Cancel,
-    /// `?queue` — emit queue capacity + outstanding count.
-    QueryQueue,
-    /// `?pos` — emit current machine position.
-    QueryPos,
-    /// `?edm` — emit EDM/move telemetry.
-    QueryEdm,
-    /// Recognized signal byte but unknown verb; silently ignored.
+pub enum QuerySignal {
+    Queue,
+    Pos,
+    Edm,
+    /// Recognized `?` byte but unknown content.
     Unknown,
 }
 
-/// Classify a framed signal line. `bytes` includes the leading `!` or `?`.
+/// One signal (! or ?...)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Signal {
+    Cancel,
+    Query(QuerySignal),
+}
+
+/// note: `bytes` must include "!" or "?", but not whitespaces.
 pub fn parse(bytes: &[u8]) -> Signal {
     match bytes {
         b"!" => Signal::Cancel,
-        b"?queue" => Signal::QueryQueue,
-        b"?pos" => Signal::QueryPos,
-        b"?edm" => Signal::QueryEdm,
-        _ => Signal::Unknown,
+        b"?queue" => Signal::Query(QuerySignal::Queue),
+        b"?pos" => Signal::Query(QuerySignal::Pos),
+        b"?edm" => Signal::Query(QuerySignal::Edm),
+        _ => Signal::Query(QuerySignal::Unknown),
     }
 }

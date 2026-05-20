@@ -9,7 +9,7 @@
 use heapless::Vec;
 
 use crate::command::{self, Command, ParseError};
-use crate::signal::{self, Signal};
+use crate::signal::{self, QuerySignal, Signal};
 
 /// Spec caps payload at 100 VCHAR; round up to a power of two.
 pub const LINE_CAP: usize = 128;
@@ -103,9 +103,9 @@ fn classify(line: &[u8]) -> Frame<'_> {
 }
 
 pub enum Parsed<'a> {
-    Signal(Signal),
+    CancelSignal,
+    QuerySignal(QuerySignal),
     Command(Command),
-    /// Command line failed to parse; carries source bytes + error for diagnostics.
     CommandError(&'a [u8], ParseError),
 }
 
@@ -129,7 +129,10 @@ impl Parser {
     pub fn feed(&mut self, b: u8) -> Option<Parsed<'_>> {
         let frame = self.framer.feed(b)?;
         Some(match frame {
-            Frame::Signal(s) => Parsed::Signal(signal::parse(s)),
+            Frame::Signal(s) => match signal::parse(s) {
+                Signal::Cancel => Parsed::CancelSignal,
+                Signal::Query(q) => Parsed::QuerySignal(q),
+            },
             Frame::Command(c) => match command::parse(c) {
                 Ok(cmd) => Parsed::Command(cmd),
                 Err(e) => Parsed::CommandError(c, e),

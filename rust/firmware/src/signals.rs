@@ -1,6 +1,7 @@
-//! Host signal executor. The `Signal` enum + byte-level parser live in
+//! Query-signal executor. The `QuerySignal` enum + byte-level parser live in
 //! `model::signal`; this module is the firmware-side handler that runs inline
-//! in the tick-loop RX phase, so it must finish quickly.
+//! in the tick-loop RX phase, so it must finish quickly. The `!` cancel is
+//! handled in `main.rs`, not here.
 
 use core::fmt::Write;
 use core::sync::atomic::Ordering;
@@ -10,38 +11,23 @@ use embassy_sync::mutex::Mutex;
 use heapless::String;
 use model::coordstate::CoordState;
 use model::pstate::{Line, PsType};
-use model::signal::Signal;
+use model::signal::QuerySignal;
 
 use crate::board::Pulser;
-use crate::canceler::CANCELER;
 use crate::commands::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
-use crate::wirefeed::Wirefeed;
 
-pub async fn exec(
-    sig: Signal,
+pub async fn exec_query(
+    sig: QuerySignal,
     motion: &Mutex<NoopRawMutex, Motion>,
     coord: &Mutex<NoopRawMutex, CoordState>,
     pulser: &Mutex<NoopRawMutex, Pulser>,
-    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
     cmd_queue: &CmdQueue,
     line_tx: &LineTx,
 ) {
     match sig {
-        Signal::Cancel => {
-            CANCELER.cancel();
-            // Lock order motion -> coord (matches commands.rs).
-            {
-                let mut m = motion.lock().await;
-                m.cancel();
-            }
-            coord.lock().await.cancel();
-            pulser.lock().await.deenergize().await;
-            wirefeed.lock().await.stop();
-            while cmd_queue.try_receive().is_ok() {}
-        }
-        Signal::QueryQueue => {
+        QuerySignal::Queue => {
             let num = cmd_queue.len() + OUTSTANDING.load(Ordering::Relaxed);
             let line = Line::new(PsType::Queue)
                 .begin()
@@ -50,7 +36,7 @@ pub async fn exec(
                 .end();
             let _ = line_tx.try_send(line);
         }
-        Signal::QueryPos => {
+        QuerySignal::Pos => {
             // Lock order motion -> coord (matches commands.rs).
             let pos = {
                 let m = motion.lock().await;
@@ -86,7 +72,7 @@ pub async fn exec(
                 );
             }
         }
-        Signal::QueryEdm => {
+        QuerySignal::Edm => {
             // Sequential (non-nested) locks: motion first, then pulser. The C
             // handler reads the tick's snapshot; we read both modules live.
             let edm = motion.lock().await.edm_state();
@@ -120,7 +106,7 @@ pub async fn exec(
             }
             let _ = line_tx.try_send(Line::new(PsType::Edm).end());
         }
-        Signal::Unknown => {
+        QuerySignal::Unknown => {
             // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.
         }
     }

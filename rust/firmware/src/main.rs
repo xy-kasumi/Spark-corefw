@@ -165,8 +165,20 @@ async fn tick_loop(
         for &b in serial.rx_get(&mut chunk) {
             interactive::echo(b, parser.line_len(), line_tx.is_idle(&tx_state), serial);
             match parser.feed(b) {
-                Some(Parsed::Signal(s)) => {
-                    signals::exec(s, motion, coord, pulser, wirefeed, cmd_queue, line_tx).await;
+                Some(Parsed::CancelSignal) => {
+                    CANCELER.cancel();
+                    // Lock order motion -> coord (matches commands.rs).
+                    {
+                        let mut m = motion.lock().await;
+                        m.cancel();
+                    }
+                    coord.lock().await.cancel();
+                    pulser.lock().await.deenergize().await;
+                    wirefeed.lock().await.stop();
+                    while cmd_queue.try_receive().is_ok() {}
+                }
+                Some(Parsed::QuerySignal(q)) => {
+                    signals::exec_query(q, motion, coord, pulser, cmd_queue, line_tx).await;
                 }
                 // While the cancel window is open, blackhole incoming commands so a
                 // single `!` drains the queue instead of racing host bytes still in
