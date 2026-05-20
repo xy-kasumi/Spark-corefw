@@ -14,15 +14,17 @@
 //! Console UART: USART2 on PD5 (TX) / PD6 (RX), DMA1_CH0 / DMA1_CH1.
 
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Flex, Level, Output, Speed};
+use embassy_stm32::gpio::{Flex, Level, Output, OutputType, Speed};
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::interrupt;
 use embassy_stm32::mode::Async;
 use embassy_stm32::peripherals::{
     PA0, PC1, PC13, PC4, PC6, PC7, PD11, PD4, PE1, PE2, PE3, PE4, PF0, PF1, PF10, PF11, PF12, PF13,
-    PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
+    PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM1, TIM6, TIM7,
 };
 use embassy_stm32::time::Hertz;
+use embassy_stm32::timer::low_level::CountingMode;
+use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::timer::CoreInstance;
 use embassy_stm32::usart::{Config as UartConfig, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
@@ -93,10 +95,16 @@ pub struct Motors {
     pub en: [Output<'static>; NUM_MOTORS],
 }
 
+/// Tool supply servo PWM (TIM1 channel 1 on PE9).
+pub type ToolSupplyPwm = SimplePwm<'static, TIM1>;
+
 pub struct Board {
     pub console: &'static Serial,
     pub motors: Motors,
     pub pulser: Pulser,
+    /// Pump gate (PA3, active-high).
+    pub pump: Output<'static>,
+    pub toolsupply_pwm: ToolSupplyPwm,
 }
 
 pub fn init(spawner: &Spawner, console_baud: u32) -> Board {
@@ -132,10 +140,26 @@ pub fn init(spawner: &Spawner, console_baud: u32) -> Board {
     );
     let pulser = Pulser::new(PulserDevice::new(i2c));
 
+    // Pump gate on PA3 (active-high), starts off.
+    let pump = Output::new(p.PA3, Level::Low, Speed::Low);
+
+    // Tool supply servo: TIM1 channel 1 on PE9, 50 Hz carrier.
+    let toolsupply_pwm = SimplePwm::new(
+        p.TIM1,
+        Some(PwmPin::new_ch1(p.PE9, OutputType::PushPull)),
+        None,
+        None,
+        None,
+        Hertz(50),
+        CountingMode::EdgeAlignedUp,
+    );
+
     Board {
         console,
         motors,
         pulser,
+        pump,
+        toolsupply_pwm,
     }
 }
 

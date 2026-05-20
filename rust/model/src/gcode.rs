@@ -20,6 +20,20 @@ pub enum Command {
     Probe(MoveSpec),
     /// G53-G56: select the active (modal) coordinate system.
     SelectCoordSys(ActiveCoordSys),
+    /// M8/M9: enable (true) or disable (false) the pump.
+    Pump(bool),
+    /// M10: start wire feeding at the given feedrate in mm/min.
+    WirefeedStart(f32),
+    /// M11: stop wire feeding.
+    WirefeedStop,
+    /// M60/M61: move the tool supply servo to the given state.
+    ToolSupply(ToolSupplyState),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolSupplyState {
+    Open,
+    Closed,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -49,24 +63,68 @@ pub enum ParseError {
     BadNumber,
     ExpectedSeparator,
     TrailingGarbage,
+    MissingParam,
 }
 
 pub fn parse(line: &[u8]) -> Result<Command, ParseError> {
     let mut p = Cursor::new(line);
     p.skip_ws();
     let (letter, code) = p.read_letter_int().ok_or(ParseError::Empty)?;
-    if letter != b'G' {
-        return Err(ParseError::UnknownCommand);
-    }
     let sub = p.read_subcode()?;
-    match (code, sub) {
-        (0, None) => parse_move(&mut p).map(Command::Rapid),
-        (1, None) => parse_move(&mut p).map(Command::Linear),
-        (28, None) => parse_home(&mut p).map(Command::Home),
-        (38, Some(3)) => parse_move(&mut p).map(Command::Probe),
-        (53..=56, None) => parse_select(&mut p, code),
+    match letter {
+        b'G' => parse_gcode(&mut p, code, sub),
+        b'M' => parse_mcode(&mut p, code, sub),
         _ => Err(ParseError::UnknownCommand),
     }
+}
+
+fn parse_gcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, ParseError> {
+    match (code, sub) {
+        (0, None) => parse_move(p).map(Command::Rapid),
+        (1, None) => parse_move(p).map(Command::Linear),
+        (28, None) => parse_home(p).map(Command::Home),
+        (38, Some(3)) => parse_move(p).map(Command::Probe),
+        (53..=56, None) => parse_select(p, code),
+        _ => Err(ParseError::UnknownCommand),
+    }
+}
+
+fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, ParseError> {
+    match (code, sub) {
+        (8, None) => no_params(p).map(|_| Command::Pump(true)),
+        (9, None) => no_params(p).map(|_| Command::Pump(false)),
+        (10, None) => parse_required_r(p).map(Command::WirefeedStart),
+        (11, None) => no_params(p).map(|_| Command::WirefeedStop),
+        (60, None) => no_params(p).map(|_| Command::ToolSupply(ToolSupplyState::Open)),
+        (61, None) => no_params(p).map(|_| Command::ToolSupply(ToolSupplyState::Closed)),
+        _ => Err(ParseError::UnknownCommand),
+    }
+}
+
+/// Reject any trailing parameter for M-codes that take none.
+fn no_params(p: &mut Cursor) -> Result<(), ParseError> {
+    if p.eof_or_only_ws() {
+        Ok(())
+    } else {
+        Err(ParseError::TrailingGarbage)
+    }
+}
+
+/// Parse the single required `R<float>` parameter (M10 feedrate, mm/min).
+fn parse_required_r(p: &mut Cursor) -> Result<f32, ParseError> {
+    if p.eof_or_only_ws() {
+        return Err(ParseError::MissingParam);
+    }
+    if !p.require_ws() {
+        return Err(ParseError::ExpectedSeparator);
+    }
+    let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
+    if letter != b'R' {
+        return Err(ParseError::BadAxis);
+    }
+    let value = p.read_float().ok_or(ParseError::BadNumber)?;
+    no_params(p)?;
+    Ok(value)
 }
 
 /// Parse a `G28` axis list: bare uppercase axis letters separated by whitespace,

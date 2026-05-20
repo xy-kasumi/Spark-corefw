@@ -8,12 +8,15 @@
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use model::coordstate::CoordState;
+use model::gcode::ToolSupplyState;
 use model::pstate::{Line, PsType};
 use model::settings::{self, SettingId, Settings};
 
 use crate::board::{MotorConfig, NUM_MOTORS};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
+use crate::toolsupply::ToolSupply;
+use crate::wirefeed::Wirefeed;
 
 pub type SharedTmc = Mutex<NoopRawMutex, [MotorConfig; NUM_MOTORS]>;
 
@@ -31,6 +34,8 @@ pub async fn apply_one(
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
     coord: &Mutex<NoopRawMutex, CoordState>,
+    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
+    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
 ) -> Result<(), ApplyError> {
     match id {
         SettingId::MotorMicrostep(i) => {
@@ -58,21 +63,36 @@ pub async fn apply_one(
                     .map_err(|_| ApplyError::Tmc)?;
             }
         }
+        SettingId::MotorUnitsteps(6) => {
+            wirefeed.lock().await.set_unitsteps(value);
+        }
         SettingId::MotorUnitsteps(i) => {
-            // m0..=m3 feed Motion's per-axis calibration. m4..=m6 are ignored (no motion target).
+            // m0..=m3 feed Motion's per-axis calibration. m4/m5 have no motion target.
             let mut m = motion.lock().await;
             m.set_motor_unitsteps(i, value);
         }
         SettingId::CsPos(cs, axis) => {
             coord.lock().await.set_offset(cs, axis, value);
         }
+        SettingId::TsServoOpenMs => {
+            toolsupply
+                .lock()
+                .await
+                .configure(ToolSupplyState::Open, value)
+                .await;
+        }
+        SettingId::TsServoCloseMs => {
+            toolsupply
+                .lock()
+                .await
+                .configure(ToolSupplyState::Closed, value)
+                .await;
+        }
         SettingId::MotorIdlems(_)
         | SettingId::AxisHomeOrigin(_)
         | SettingId::AxisHomePhase(_)
         | SettingId::AxisHomeSide(_)
-        | SettingId::AxisHomeTravel(_)
-        | SettingId::TsServoCloseMs
-        | SettingId::TsServoOpenMs => {}
+        | SettingId::AxisHomeTravel(_) => {}
     }
     Ok(())
 }
@@ -86,10 +106,15 @@ pub async fn apply_all(
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
     coord: &Mutex<NoopRawMutex, CoordState>,
+    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
+    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
     line_tx: &LineTx,
 ) -> bool {
     for id in settings::iter_all() {
-        if apply_one(id, id.read(s), motion, tmc, coord).await.is_err() {
+        if apply_one(id, id.read(s), motion, tmc, coord, wirefeed, toolsupply)
+            .await
+            .is_err()
+        {
             let path = id.path();
             let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", false));
             let _ =

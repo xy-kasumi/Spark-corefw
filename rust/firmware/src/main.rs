@@ -10,8 +10,11 @@ mod motion;
 mod motor;
 mod panic_diag;
 mod pulser;
+mod pump;
 mod settings;
 mod signals;
+mod toolsupply;
+mod wirefeed;
 
 use core::sync::atomic::Ordering;
 
@@ -32,8 +35,11 @@ use crate::drivers::serial::Serial;
 use crate::line_tx::{DrainState, LineTx};
 use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
+use crate::pump::Pump;
 use crate::settings::SharedTmc;
 use crate::signals::CANCEL_GEN;
+use crate::toolsupply::ToolSupply;
+use crate::wirefeed::Wirefeed;
 
 /// Orchestrator loop tick rate. Slower-cadence work counts ticks; nothing else schedules its own timer.
 const TICK_HZ: u32 = 1000;
@@ -42,6 +48,9 @@ const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 type SharedMotion = Mutex<NoopRawMutex, Motion>;
 type SharedPulser = Mutex<NoopRawMutex, board::Pulser>;
 type SharedCoord = Mutex<NoopRawMutex, CoordState>;
+type SharedPump = Mutex<NoopRawMutex, Pump>;
+type SharedWirefeed = Mutex<NoopRawMutex, Wirefeed>;
+type SharedToolSupply = Mutex<NoopRawMutex, ToolSupply>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -82,18 +91,51 @@ async fn main(spawner: Spawner) {
     let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
     static COORD_CELL: StaticCell<SharedCoord> = StaticCell::new();
     let coord: &'static SharedCoord = COORD_CELL.init(Mutex::new(CoordState::new()));
+    static PUMP_CELL: StaticCell<SharedPump> = StaticCell::new();
+    let pump: &'static SharedPump = PUMP_CELL.init(Mutex::new(Pump::new(board.pump)));
+    static WIREFEED_CELL: StaticCell<SharedWirefeed> = StaticCell::new();
+    let wirefeed: &'static SharedWirefeed = WIREFEED_CELL.init(Mutex::new(Wirefeed::new(
+        board.motors.step[6],
+        init_settings.motors[6].unitsteps,
+    )));
+    static TOOLSUPPLY_CELL: StaticCell<SharedToolSupply> = StaticCell::new();
+    let toolsupply: &'static SharedToolSupply = TOOLSUPPLY_CELL.init(Mutex::new(ToolSupply::new(
+        board.toolsupply_pwm,
+        init_settings.ts.open_ms,
+        init_settings.ts.close_ms,
+    )));
     let line_tx = LineTx::init();
 
     // init phase
     let _ = line_tx.try_send(Line::new(PsType::Init).begin());
     let pulser_ok = pulser.lock().await.init(line_tx).await;
-    let settings_ok = settings::apply_all(&init_settings, motion, tmc, coord, line_tx).await;
+    toolsupply.lock().await.init();
+    let settings_ok = settings::apply_all(
+        &init_settings,
+        motion,
+        tmc,
+        coord,
+        wirefeed,
+        toolsupply,
+        line_tx,
+    )
+    .await;
     let _ = line_tx.try_send(Line::new(PsType::Init).bool("ok", pulser_ok && settings_ok));
     let _ = line_tx.try_send(Line::new(PsType::Init).end());
 
     join(
-        tick_loop(board.console, cmd_queue, motion, coord, pulser, line_tx),
-        cmd_loop(cmd_queue, motion, tmc, coord, pulser, line_tx),
+        tick_loop(
+            board.console,
+            cmd_queue,
+            motion,
+            coord,
+            pulser,
+            wirefeed,
+            line_tx,
+        ),
+        cmd_loop(
+            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, line_tx,
+        ),
     )
     .await;
 }
@@ -105,6 +147,7 @@ async fn tick_loop(
     motion: &SharedMotion,
     coord: &SharedCoord,
     pulser: &SharedPulser,
+    wirefeed: &SharedWirefeed,
     line_tx: &LineTx,
 ) {
     let mut ticker = Ticker::every(Duration::from_millis(1));
@@ -119,7 +162,7 @@ async fn tick_loop(
             interactive::echo(b, parser.line_len(), line_tx.is_idle(&tx_state), serial);
             match parser.feed(b) {
                 Some(Parsed::Signal(s)) => {
-                    signals::exec(s, motion, coord, pulser, cmd_queue, line_tx).await;
+                    signals::exec(s, motion, coord, pulser, wirefeed, cmd_queue, line_tx).await;
                 }
                 Some(Parsed::Command(c)) => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
@@ -158,6 +201,8 @@ async fn tick_loop(
             let mut m = motion.lock().await;
             m.tick(TICK_DT_S, fb);
         }
+
+        wirefeed.lock().await.tick();
     }
 }
 
@@ -170,6 +215,9 @@ async fn cmd_loop(
     tmc: &SharedTmc,
     coord: &SharedCoord,
     pulser: &SharedPulser,
+    pump: &SharedPump,
+    wirefeed: &SharedWirefeed,
+    toolsupply: &SharedToolSupply,
     line_tx: &LineTx,
 ) {
     let mut settings = SettingsCache::defaults();
@@ -210,6 +258,9 @@ async fn cmd_loop(
             tmc,
             pulser,
             coord,
+            pump,
+            wirefeed,
+            toolsupply,
             line_tx,
             &mut settings,
         )

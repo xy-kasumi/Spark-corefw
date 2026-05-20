@@ -22,8 +22,11 @@ use crate::board::{Pulser, MOTOR_NAMES, NUM_MOTORS};
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
+use crate::pump::Pump;
 use crate::settings::{apply_one, SharedTmc};
 use crate::signals::CANCEL_GEN;
+use crate::toolsupply::ToolSupply;
+use crate::wirefeed::Wirefeed;
 
 pub const CMD_QUEUE_CAP: usize = 64;
 
@@ -59,6 +62,9 @@ pub async fn exec(
     tmc: &SharedTmc,
     pulser: &Mutex<NoopRawMutex, Pulser>,
     coord: &Mutex<NoopRawMutex, CoordState>,
+    pump: &Mutex<NoopRawMutex, Pump>,
+    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
+    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
     line_tx: &LineTx,
     settings: &mut Settings,
 ) {
@@ -125,9 +131,26 @@ pub async fn exec(
         Command::Gcode(GCmd::SelectCoordSys(a)) => {
             coord.lock().await.select(a);
         }
+        Command::Gcode(GCmd::Pump(enable)) => {
+            pump.lock().await.set_enable(enable).await;
+        }
+        Command::Gcode(GCmd::WirefeedStart(rate)) => {
+            wirefeed.lock().await.start(rate);
+            // Wait 2 s for wire tension to stabilize (matches C M10 handler).
+            Timer::after(Duration::from_millis(2000)).await;
+        }
+        Command::Gcode(GCmd::WirefeedStop) => {
+            wirefeed.lock().await.stop();
+        }
+        Command::Gcode(GCmd::ToolSupply(state)) => {
+            toolsupply.lock().await.set_state(state).await;
+        }
         Command::Set(id, v) => {
             // Try-apply-then-commit: cache only updates if hardware accepted the change.
-            if apply_one(id, v, motion, tmc, coord).await.is_err() {
+            if apply_one(id, v, motion, tmc, coord, wirefeed, toolsupply)
+                .await
+                .is_err()
+            {
                 let _ = line_tx.try_send(
                     ErrorLine::new()
                         .msg(format_args!("setting failed"))
@@ -141,7 +164,7 @@ pub async fn exec(
             dump_settings(line_tx, settings).await;
         }
         Command::Stat => {
-            dump_stat(line_tx, motion, tmc, pulser).await;
+            dump_stat(line_tx, motion, tmc, pulser, wirefeed).await;
         }
     }
 }
@@ -248,6 +271,7 @@ async fn dump_stat(
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
     pulser: &Mutex<NoopRawMutex, Pulser>,
+    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
 ) {
     line_tx.send(Line::new(PsType::Stat).begin()).await;
 
@@ -332,6 +356,20 @@ async fn dump_stat(
         send_stat_f32(line_tx, "pulser.pulse_dur_us", stat.pulse_dur_us).await;
         send_stat_f32(line_tx, "pulser.max_duty_pct", stat.max_duty_pct).await;
     }
+
+    let (feeding, pos, rate) = {
+        let w = wirefeed.lock().await;
+        (w.feeding(), w.pos_mm(), w.rate())
+    };
+    line_tx
+        .send(Line::new(PsType::Stat).bool("wirefeed.feeding", feeding))
+        .await;
+    line_tx
+        .send(Line::new(PsType::Stat).float("wirefeed.pos", pos))
+        .await;
+    line_tx
+        .send(Line::new(PsType::Stat).float("wirefeed.rate", rate))
+        .await;
 
     line_tx.send(Line::new(PsType::Stat).end()).await;
 }

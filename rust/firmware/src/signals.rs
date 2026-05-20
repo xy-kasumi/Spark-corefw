@@ -16,6 +16,7 @@ use crate::board::Pulser;
 use crate::commands::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
+use crate::wirefeed::Wirefeed;
 
 /// Bumped on every cancel. The executor snapshots it around long moves (homing)
 /// to tell a completed move from a cancelled one without a shared latch.
@@ -26,6 +27,7 @@ pub async fn exec(
     motion: &Mutex<NoopRawMutex, Motion>,
     coord: &Mutex<NoopRawMutex, CoordState>,
     pulser: &Mutex<NoopRawMutex, Pulser>,
+    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
     cmd_queue: &CmdQueue,
     line_tx: &LineTx,
 ) {
@@ -39,6 +41,7 @@ pub async fn exec(
             }
             coord.lock().await.cancel();
             pulser.lock().await.deenergize().await;
+            wirefeed.lock().await.stop();
             while cmd_queue.try_receive().is_ok() {}
         }
         Signal::QueryQueue => {
