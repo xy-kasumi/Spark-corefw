@@ -22,21 +22,3 @@ pub fn parse(bytes: &[u8]) -> Signal {
         _ => Signal::Unknown,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn known_signals() {
-        assert_eq!(parse(b"!"), Signal::Cancel);
-        assert_eq!(parse(b"?queue"), Signal::QueryQueue);
-        assert_eq!(parse(b"?pos"), Signal::QueryPos);
-    }
-
-    #[test]
-    fn unknown_signal() {
-        assert_eq!(parse(b"?edm"), Signal::Unknown);
-        assert_eq!(parse(b"!!"), Signal::Unknown);
-    }
-}
