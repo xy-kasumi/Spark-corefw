@@ -17,7 +17,7 @@ use model::settings::{self, Settings};
 
 pub use model::command::Command;
 
-use crate::board::{MOTOR_NAMES, NUM_MOTORS};
+use crate::board::{Pulser, MOTOR_NAMES, NUM_MOTORS};
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
@@ -39,6 +39,7 @@ pub async fn exec(
     _peek: Option<&Command>,
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
+    pulser: &Mutex<NoopRawMutex, Pulser>,
     line_tx: &LineTx,
     settings: &mut Settings,
 ) {
@@ -70,7 +71,7 @@ pub async fn exec(
             dump_settings(line_tx, settings).await;
         }
         Command::Stat => {
-            dump_stat(line_tx, motion, tmc).await;
+            dump_stat(line_tx, motion, tmc, pulser).await;
         }
     }
 }
@@ -89,7 +90,12 @@ async fn dump_settings(line_tx: &LineTx, settings: &Settings) {
 ///
 /// Slow: each TMC register read awaits a UART roundtrip + 10 ms settle, so polling all 7
 /// drivers across 4 registers takes several hundred ms.
-async fn dump_stat(line_tx: &LineTx, motion: &Mutex<NoopRawMutex, Motion>, tmc: &SharedTmc) {
+async fn dump_stat(
+    line_tx: &LineTx,
+    motion: &Mutex<NoopRawMutex, Motion>,
+    tmc: &SharedTmc,
+    pulser: &Mutex<NoopRawMutex, Pulser>,
+) {
     line_tx.send(Line::new(PsType::Stat).begin()).await;
 
     let (mode, steps) = {
@@ -132,7 +138,56 @@ async fn dump_stat(line_tx: &LineTx, motion: &Mutex<NoopRawMutex, Motion>, tmc: 
         }
     }
 
+    // Snapshot under the lock, then emit: holding the pulser lock across a
+    // `line_tx.send().await` could deadlock the tick loop (its sole TX drainer)
+    // when the TX queue is full.
+    let stat = {
+        let mut p = pulser.lock().await;
+        p.read_stat().await
+    };
+    if !stat.init_ok {
+        line_tx
+            .send(Line::new(PsType::Stat).str_val("pulser.status", "init failed"))
+            .await;
+    } else {
+        line_tx
+            .send(Line::new(PsType::Stat).bool("pulser.energized", stat.energized))
+            .await;
+        line_tx
+            .send(Line::new(PsType::Stat).int("pulser.poll_count", stat.poll_count as i32))
+            .await;
+        line_tx
+            .send(Line::new(PsType::Stat).int("pulser.i2c_fail", stat.i2c_fail as i32))
+            .await;
+        line_tx
+            .send(Line::new(PsType::Stat).float("pulser.edm.r_pulse", stat.r_pulse))
+            .await;
+        line_tx
+            .send(Line::new(PsType::Stat).float("pulser.edm.r_short", stat.r_short))
+            .await;
+        line_tx
+            .send(Line::new(PsType::Stat).float("pulser.edm.r_open", stat.r_open))
+            .await;
+        let temp = match stat.temp_c {
+            Some(v) => Line::new(PsType::Stat).int("pulser.temp_c", v as i32),
+            None => Line::new(PsType::Stat).str_val("pulser.temp_c", "error"),
+        };
+        line_tx.send(temp).await;
+        send_stat_f32(line_tx, "pulser.pulse_current_a", stat.pulse_current_a).await;
+        send_stat_f32(line_tx, "pulser.pulse_dur_us", stat.pulse_dur_us).await;
+        send_stat_f32(line_tx, "pulser.max_duty_pct", stat.max_duty_pct).await;
+    }
+
     line_tx.send(Line::new(PsType::Stat).end()).await;
+}
+
+/// Send a `stat` float field, or `key:"error"` when the value is absent.
+async fn send_stat_f32(line_tx: &LineTx, key: &str, value: Option<f32>) {
+    let line = match value {
+        Some(v) => Line::new(PsType::Stat).float(key, v),
+        None => Line::new(PsType::Stat).str_val(key, "error"),
+    };
+    line_tx.send(line).await;
 }
 
 fn apply_spec(current: PosPhys, s: &MoveSpec) -> PosPhys {

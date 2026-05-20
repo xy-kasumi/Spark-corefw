@@ -15,15 +15,19 @@
 
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Level, Output, Speed};
+use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::interrupt;
+use embassy_stm32::mode::Async;
 use embassy_stm32::peripherals::{
     PA0, PC1, PC13, PC4, PC6, PC7, PD11, PD4, PE1, PE2, PE3, PE4, PF0, PF1, PF10, PF11, PF12, PF13,
     PF14, PF15, PF2, PF9, PG0, PG1, PG2, PG3, PG4, PG5, TIM6, TIM7,
 };
+use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::CoreInstance;
 use embassy_stm32::usart::{Config as UartConfig, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 
+use crate::drivers::pulser::{PulserBus, PulserDevice};
 use crate::drivers::serial::Serial;
 use crate::drivers::soft_uart::{self, SoftUart, SoftUartHandle};
 use crate::drivers::step_gen::{StepGen, StepGenHandle};
@@ -39,9 +43,25 @@ pub type TmcBus = SoftUartHandle<SoftUartTim, NUM_MOTORS>;
 pub type MotorStepping = StepGenHandle<StepGenTim, NUM_MOTORS>;
 pub type MotorConfig = Tmc2209<TmcBus>;
 
+/// Concrete I2C bus backing the pulser. Pin/peripheral choice is local to `init`.
+pub type PulserBusImpl = I2c<'static, Async>;
+pub type Pulser = crate::pulser::Pulser<PulserBusImpl>;
+
 bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
 });
+
+impl PulserBus for PulserBusImpl {
+    type Error = i2c::Error;
+    async fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error> {
+        I2c::write(self, addr, data).await
+    }
+    async fn write_read(&mut self, addr: u8, tx: &[u8], rx: &mut [u8]) -> Result<(), Self::Error> {
+        I2c::write_read(self, addr, tx, rx).await
+    }
+}
 
 static SOFT_UART: SoftUart<SoftUartTim, NUM_MOTORS> = SoftUart::new();
 static STEP_GEN: StepGen<StepGenTim, NUM_MOTORS> = StepGen::new();
@@ -76,6 +96,7 @@ pub struct Motors {
 pub struct Board {
     pub console: &'static Serial,
     pub motors: Motors,
+    pub pulser: Pulser,
 }
 
 pub fn init(spawner: &Spawner, console_baud: u32) -> Board {
@@ -98,7 +119,24 @@ pub fn init(spawner: &Spawner, console_baud: u32) -> Board {
         (p.PE1, p.PE2, p.PE3, p.PD4),
     );
 
-    Board { console, motors }
+    // Pulser board on I2C1: PB8 (SCL) / PB9 (SDA), 400 kHz fast mode.
+    let i2c = I2c::new(
+        p.I2C1,
+        p.PB8,
+        p.PB9,
+        Irqs,
+        p.DMA1_CH2,
+        p.DMA1_CH3,
+        Hertz(400_000),
+        Default::default(),
+    );
+    let pulser = Pulser::new(PulserDevice::new(i2c));
+
+    Board {
+        console,
+        motors,
+        pulser,
+    }
 }
 
 /// Pin tuple per motor: (uart, step, dir, enable).

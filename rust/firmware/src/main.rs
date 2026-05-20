@@ -7,6 +7,7 @@ mod drivers;
 mod line_tx;
 mod motion;
 mod motor;
+mod pulser;
 mod settings;
 mod signals;
 
@@ -35,6 +36,7 @@ const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
 type SharedMotion = Mutex<NoopRawMutex, Motion>;
+type SharedPulser = Mutex<NoopRawMutex, board::Pulser>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -62,21 +64,29 @@ async fn main(spawner: Spawner) {
 
     let motion: SharedMotion = Mutex::new(Motion::new(motors));
     let tmc: SharedTmc = Mutex::new(board.motors.tmc);
+    let pulser: SharedPulser = Mutex::new(board.pulser);
     let line_tx = LineTx::init();
     let cmd_queue: CmdQueue = Channel::new();
 
     // Push defaults to hardware; emits the `init` p-state with the result.
     settings::apply_all(&init_settings, &motion, &tmc, line_tx).await;
+    pulser.lock().await.init().await;
 
     join(
-        tick_loop(board.console, &cmd_queue, &motion, line_tx),
-        cmd_loop(&cmd_queue, &motion, &tmc, line_tx),
+        tick_loop(board.console, &cmd_queue, &motion, &pulser, line_tx),
+        cmd_loop(&cmd_queue, &motion, &tmc, &pulser, line_tx),
     )
     .await;
 }
 
 /// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
-async fn tick_loop(serial: &Serial, cmd_queue: &CmdQueue, motion: &SharedMotion, line_tx: &LineTx) {
+async fn tick_loop(
+    serial: &Serial,
+    cmd_queue: &CmdQueue,
+    motion: &SharedMotion,
+    pulser: &SharedPulser,
+    line_tx: &LineTx,
+) {
     let mut ticker = Ticker::every(Duration::from_millis(1));
     let mut parser = Parser::new();
     let mut tx_state = DrainState::new();
@@ -114,13 +124,24 @@ async fn tick_loop(serial: &Serial, cmd_queue: &CmdQueue, motion: &SharedMotion,
             let mut m = motion.lock().await;
             m.tick(TICK_DT_S);
         }
+
+        {
+            let mut p = pulser.lock().await;
+            p.tick().await;
+        }
     }
 }
 
 /// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
 /// buffer so the executor can see the next command before committing — required
 /// for upcoming G1-chain continuity (currently unused).
-async fn cmd_loop(cmd_queue: &CmdQueue, motion: &SharedMotion, tmc: &SharedTmc, line_tx: &LineTx) {
+async fn cmd_loop(
+    cmd_queue: &CmdQueue,
+    motion: &SharedMotion,
+    tmc: &SharedTmc,
+    pulser: &SharedPulser,
+    line_tx: &LineTx,
+) {
     let mut settings = SettingsCache::defaults();
 
     let mut peek_buf: Option<Command> = None;
@@ -142,7 +163,16 @@ async fn cmd_loop(cmd_queue: &CmdQueue, motion: &SharedMotion, tmc: &SharedTmc, 
             }
             Err(_) => None,
         };
-        commands::exec(curr, peek.as_ref(), motion, tmc, line_tx, &mut settings).await;
+        commands::exec(
+            curr,
+            peek.as_ref(),
+            motion,
+            tmc,
+            pulser,
+            line_tx,
+            &mut settings,
+        )
+        .await;
         OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
         peek_buf = peek;
     }
