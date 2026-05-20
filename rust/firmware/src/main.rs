@@ -23,6 +23,7 @@ use model::comm::{Parsed, Parser};
 use model::pstate::ErrorLine;
 use model::settings::Settings as SettingsCache;
 use panic_halt as _;
+use static_cell::StaticCell;
 
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
@@ -62,19 +63,27 @@ async fn main(spawner: Spawner) {
         },
     };
 
-    let motion: SharedMotion = Mutex::new(Motion::new(motors));
-    let tmc: SharedTmc = Mutex::new(board.motors.tmc);
-    let pulser: SharedPulser = Mutex::new(board.pulser);
+    // These live in static storage, not as `main`-task locals. Held inline in
+    // main's future they make it exceed the embassy task arena (default 4 KiB;
+    // Motion alone is ~32 KiB), so spawning main panics ("task arena is full")
+    // before any code runs. StaticCell puts them in plain .bss instead.
+    static MOTION_CELL: StaticCell<SharedMotion> = StaticCell::new();
+    let motion: &'static SharedMotion = MOTION_CELL.init(Mutex::new(Motion::new(motors)));
+    static TMC_CELL: StaticCell<SharedTmc> = StaticCell::new();
+    let tmc: &'static SharedTmc = TMC_CELL.init(Mutex::new(board.motors.tmc));
+    static PULSER_CELL: StaticCell<SharedPulser> = StaticCell::new();
+    let pulser: &'static SharedPulser = PULSER_CELL.init(Mutex::new(board.pulser));
+    static CMD_QUEUE_CELL: StaticCell<CmdQueue> = StaticCell::new();
+    let cmd_queue: &'static CmdQueue = CMD_QUEUE_CELL.init(Channel::new());
     let line_tx = LineTx::init();
-    let cmd_queue: CmdQueue = Channel::new();
 
     // Push defaults to hardware; emits the `init` p-state with the result.
-    settings::apply_all(&init_settings, &motion, &tmc, line_tx).await;
+    settings::apply_all(&init_settings, motion, tmc, line_tx).await;
     pulser.lock().await.init().await;
 
     join(
-        tick_loop(board.console, &cmd_queue, &motion, &pulser, line_tx),
-        cmd_loop(&cmd_queue, &motion, &tmc, &pulser, line_tx),
+        tick_loop(board.console, cmd_queue, motion, pulser, line_tx),
+        cmd_loop(cmd_queue, motion, tmc, pulser, line_tx),
     )
     .await;
 }
