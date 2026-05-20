@@ -3,8 +3,18 @@
 
 use model::coords::PosPhys;
 use model::motion::{Mode, MotionInputs, MotionState};
+use model::settings::Axis;
 
 use crate::motor::Motors;
+
+/// Per-tick pulser feedback fed into the motion model (EDM advance/retract and
+/// probe contact). Snapshotted by the orchestrator before ticking motion.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PulserFeedback {
+    pub open_rate: u8,
+    pub short_rate: u8,
+    pub discharge: bool,
+}
 
 /// EDM path-buffer history capacity: 10 mm max retract at 0.005 mm resolution.
 pub const PB_CAPACITY: usize = 2001;
@@ -35,6 +45,20 @@ impl Motion {
         self.state.mode()
     }
 
+    /// True when the running EDM move can accept another chained segment.
+    pub fn can_enqueue(&self) -> bool {
+        self.state.can_enqueue()
+    }
+
+    /// Re-anchor `axis` to `origin_mm` after a homing move: update the motor
+    /// offset so the position reads `origin_mm`, then reset the controller to
+    /// that new position. Mirrors C `update_homing_offset` + `pos[axis]=origin`.
+    pub fn finish_home(&mut self, axis: Axis, origin_mm: f32) {
+        self.motors.reanchor(axis, origin_mm);
+        let here = self.motors.current();
+        self.state.set_position(here);
+    }
+
     /// Raw microstep counters for the four wired axes (m0..m3 = x/y/z/c).
     pub fn motor_step_counts(&self) -> [i32; 4] {
         [
@@ -46,8 +70,14 @@ impl Motion {
     }
 
     /// Advance the controller and apply the resulting target to motors.
-    pub fn tick(&mut self, dt_s: f32) {
-        if let Ok(out) = self.state.tick(MotionInputs { dt: dt_s }) {
+    pub fn tick(&mut self, dt_s: f32, fb: PulserFeedback) {
+        let input = MotionInputs {
+            dt: dt_s,
+            open_rate: fb.open_rate,
+            short_rate: fb.short_rate,
+            discharge: fb.discharge,
+        };
+        if let Ok(out) = self.state.tick(input) {
             self.motors.set_target(out.target);
         }
     }

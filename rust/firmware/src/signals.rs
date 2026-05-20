@@ -3,7 +3,7 @@
 //! in the tick-loop RX phase, so it must finish quickly.
 
 use core::fmt::Write;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -12,25 +12,33 @@ use model::coordstate::CoordState;
 use model::pstate::{Line, PsType};
 use model::signal::Signal;
 
+use crate::board::Pulser;
 use crate::commands::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
+
+/// Bumped on every cancel. The executor snapshots it around long moves (homing)
+/// to tell a completed move from a cancelled one without a shared latch.
+pub static CANCEL_GEN: AtomicU32 = AtomicU32::new(0);
 
 pub async fn exec(
     sig: Signal,
     motion: &Mutex<NoopRawMutex, Motion>,
     coord: &Mutex<NoopRawMutex, CoordState>,
+    pulser: &Mutex<NoopRawMutex, Pulser>,
     cmd_queue: &CmdQueue,
     line_tx: &LineTx,
 ) {
     match sig {
         Signal::Cancel => {
+            CANCEL_GEN.fetch_add(1, Ordering::Relaxed);
             // Lock order motion -> coord (matches commands.rs).
             {
                 let mut m = motion.lock().await;
                 m.cancel();
             }
             coord.lock().await.cancel();
+            pulser.lock().await.deenergize().await;
             while cmd_queue.try_receive().is_ok() {}
         }
         Signal::QueryQueue => {

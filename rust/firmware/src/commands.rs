@@ -3,17 +3,18 @@
 //! for the executor's callers.
 
 use core::fmt::Write;
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Timer};
 use heapless::String;
 use model::coordstate::CoordState;
-use model::gcode::Command as GCmd;
+use model::gcode::{Command as GCmd, HomeAxes};
 use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
-use model::settings::{self, Settings};
+use model::settings::{self, Axis, Settings};
 
 pub use model::command::Command;
 
@@ -22,6 +23,7 @@ use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::settings::{apply_one, SharedTmc};
+use crate::signals::CANCEL_GEN;
 
 pub const CMD_QUEUE_CAP: usize = 64;
 
@@ -32,11 +34,27 @@ pub type CmdQueue = Channel<NoopRawMutex, Command, CMD_QUEUE_CAP>;
 /// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field.
 pub static OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
 
+/// Rapid feed, also used for homing moves (matches C `VELOCITY_MM_PER_S`).
 const RAPID_SPEED_MM_PER_S: f32 = 10.0;
+/// Probe feed (matches C `PROBE_VELOCITY_MM_PER_S`).
+const PROBE_SPEED_MM_PER_S: f32 = 1.0;
+
+/// Default pulser parameters for G1/G38.3, mirroring the C `pulser_config`
+/// initializer. M3/M4 (which would override these) are not ported yet.
+const PULSER_NEGATIVE: bool = true;
+const PULSER_PULSE_US: f32 = 500.0;
+const PULSER_CURRENT_A: f32 = 1.0;
+const PULSER_DUTY_PCT: f32 = 25.0;
+
+/// True if `cmd` is a G1 move — the only command that chains via the path buffer.
+pub fn is_g1(cmd: &Command) -> bool {
+    matches!(cmd, Command::Gcode(GCmd::Linear(_)))
+}
 
 pub async fn exec(
     cmd: Command,
-    _peek: Option<&Command>,
+    cont_prev: bool,
+    cont_next: bool,
     motion: &Mutex<NoopRawMutex, Motion>,
     tmc: &SharedTmc,
     pulser: &Mutex<NoopRawMutex, Pulser>,
@@ -52,11 +70,57 @@ pub async fn exec(
             let target = coord.lock().await.resolve_move(&spec, here);
             m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
         }
-        Command::Gcode(GCmd::Linear(_)) => {
-            let line = ErrorLine::new()
-                .msg(format_args!("G1 not yet implemented"))
-                .finish();
-            let _ = line_tx.try_send(line);
+        Command::Gcode(GCmd::Linear(spec)) => {
+            let (target, chaining) = {
+                let m = motion.lock().await;
+                let here = m.current_position();
+                let target = coord.lock().await.resolve_move(&spec, here);
+                // Only chain onto a still-running EDM move; a cancel drops it to
+                // Idle and breaks the chain even if cont_prev was set.
+                (target, cont_prev && m.mode() == Mode::EdmMove)
+            };
+            if chaining {
+                motion.lock().await.state().enqueue_edm(target, cont_next);
+            } else {
+                pulser
+                    .lock()
+                    .await
+                    .energize(
+                        PULSER_NEGATIVE,
+                        PULSER_PULSE_US,
+                        PULSER_CURRENT_A,
+                        PULSER_DUTY_PCT,
+                    )
+                    .await;
+                motion.lock().await.state().start_edm(target, cont_next);
+            }
+            wait_move_end(motion, pulser, cont_next).await;
+        }
+        Command::Gcode(GCmd::Probe(spec)) => {
+            let target = {
+                let m = motion.lock().await;
+                let here = m.current_position();
+                coord.lock().await.resolve_move(&spec, here)
+            };
+            pulser
+                .lock()
+                .await
+                .energize(
+                    PULSER_NEGATIVE,
+                    PULSER_PULSE_US,
+                    PULSER_CURRENT_A,
+                    PULSER_DUTY_PCT,
+                )
+                .await;
+            motion
+                .lock()
+                .await
+                .state()
+                .start_probe(target, PROBE_SPEED_MM_PER_S);
+            wait_move_end(motion, pulser, false).await;
+        }
+        Command::Gcode(GCmd::Home(axes)) => {
+            exec_home(axes, motion, line_tx, settings).await;
         }
         Command::Gcode(GCmd::SelectCoordSys(a)) => {
             coord.lock().await.select(a);
@@ -79,6 +143,89 @@ pub async fn exec(
         Command::Stat => {
             dump_stat(line_tx, motion, tmc, pulser).await;
         }
+    }
+}
+
+/// Wait for the current move to finish, polling on the tick cadence while the
+/// tick loop concurrently advances motion (mirrors C `wait_move_command_end`).
+/// With `cont_next`, return once the path can accept the next chained segment
+/// (pulser stays energized); otherwise wait for full stop and de-energize.
+async fn wait_move_end(
+    motion: &Mutex<NoopRawMutex, Motion>,
+    pulser: &Mutex<NoopRawMutex, Pulser>,
+    cont_next: bool,
+) {
+    if cont_next {
+        while !motion.lock().await.can_enqueue() {
+            Timer::after(Duration::from_millis(1)).await;
+        }
+    } else {
+        while motion.lock().await.mode() != Mode::Idle {
+            Timer::after(Duration::from_millis(1)).await;
+        }
+        pulser.lock().await.deenergize().await;
+    }
+}
+
+/// G28: home each requested axis (or all, in phase order) by slamming `side*travel`
+/// into the hard stop, then re-anchoring the axis to its configured origin. Stall
+/// sensing is dead on this board, so the move always stops at target.
+async fn exec_home(
+    axes: HomeAxes,
+    motion: &Mutex<NoopRawMutex, Motion>,
+    line_tx: &LineTx,
+    settings: &Settings,
+) {
+    if axes.c {
+        let _ = line_tx.try_send(
+            ErrorLine::new()
+                .msg(format_args!("C homing not supported"))
+                .finish(),
+        );
+        return;
+    }
+    let count = axes.x as u8 + axes.y as u8 + axes.z as u8;
+    if count > 1 {
+        let _ = line_tx.try_send(ErrorLine::new().msg(format_args!("too many axes")).finish());
+        return;
+    }
+
+    // count == 0 means home all in phase order; otherwise the single named axis.
+    let mut order = [Axis::X, Axis::Y, Axis::Z];
+    order.sort_unstable_by(|a, b| {
+        settings.axes[a.idx()]
+            .phase
+            .total_cmp(&settings.axes[b.idx()].phase)
+    });
+    for axis in order {
+        let named = match axis {
+            Axis::X => axes.x,
+            Axis::Y => axes.y,
+            Axis::Z => axes.z,
+        };
+        if count == 1 && !named {
+            continue;
+        }
+
+        let cfg = settings.axes[axis.idx()];
+        let gen = CANCEL_GEN.load(Ordering::Relaxed);
+        {
+            let mut m = motion.lock().await;
+            let mut target = m.current_position();
+            match axis {
+                Axis::X => target.x += cfg.side * cfg.travel,
+                Axis::Y => target.y += cfg.side * cfg.travel,
+                Axis::Z => target.z += cfg.side * cfg.travel,
+            }
+            m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
+        }
+        while motion.lock().await.mode() != Mode::Idle {
+            Timer::after(Duration::from_millis(1)).await;
+        }
+        if CANCEL_GEN.load(Ordering::Relaxed) != gen {
+            break; // cancelled mid-home: do not re-anchor to a bogus origin
+        }
+        motion.lock().await.finish_home(axis, cfg.origin);
     }
 }
 
@@ -111,6 +258,8 @@ async fn dump_stat(
     let mode_name = match mode {
         Mode::Idle => "idle",
         Mode::Rapid => "rapid",
+        Mode::EdmMove => "edm",
+        Mode::Probing => "probe",
     };
     line_tx
         .send(Line::new(PsType::Stat).str_val("motion.mode", mode_name))

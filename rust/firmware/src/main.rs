@@ -30,7 +30,7 @@ use static_cell::StaticCell;
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
 use crate::line_tx::{DrainState, LineTx};
-use crate::motion::Motion;
+use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
 use crate::settings::SharedTmc;
 
@@ -64,6 +64,7 @@ async fn main(spawner: Spawner) {
             steps_per_mm_z: init_settings.motors[2].unitsteps,
             steps_per_turn_c: init_settings.motors[3].unitsteps,
         },
+        home_offset: [0; 3],
     };
 
     // These live in static storage, not as `main`-task locals. Held inline in
@@ -117,7 +118,7 @@ async fn tick_loop(
             interactive::echo(b, parser.line_len(), line_tx.is_idle(&tx_state), serial);
             match parser.feed(b) {
                 Some(Parsed::Signal(s)) => {
-                    signals::exec(s, motion, coord, cmd_queue, line_tx).await;
+                    signals::exec(s, motion, coord, pulser, cmd_queue, line_tx).await;
                 }
                 Some(Parsed::Command(c)) => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
@@ -139,21 +140,29 @@ async fn tick_loop(
 
         line_tx.drain(serial, &mut tx_state);
 
-        {
-            let mut m = motion.lock().await;
-            m.tick(TICK_DT_S);
-        }
-
-        {
+        // Refresh pulser feedback first, then feed the snapshot into the motion
+        // tick. Locks are taken sequentially (never nested), so no lock-order
+        // constraint with the executor's motion->coord/pulser order.
+        let fb = {
             let mut p = pulser.lock().await;
             p.tick().await;
+            PulserFeedback {
+                open_rate: p.open_rate(),
+                short_rate: p.short_rate(),
+                discharge: p.has_discharge(),
+            }
+        };
+
+        {
+            let mut m = motion.lock().await;
+            m.tick(TICK_DT_S, fb);
         }
     }
 }
 
 /// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
-/// buffer so the executor can see the next command before committing — required
-/// for upcoming G1-chain continuity (currently unused).
+/// buffer so the executor can see the next command before committing — used to
+/// detect G1-chain continuity (`cont_next`).
 async fn cmd_loop(
     cmd_queue: &CmdQueue,
     motion: &SharedMotion,
@@ -165,6 +174,8 @@ async fn cmd_loop(
     let mut settings = SettingsCache::defaults();
 
     let mut peek_buf: Option<Command> = None;
+    // Tracks whether the previous command was a G1 with a following G1 (cont_next).
+    let mut last_has_cont = false;
     loop {
         // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
         // `await` as the only yield point means the signal reader can't observe a torn count.
@@ -183,9 +194,13 @@ async fn cmd_loop(
             }
             Err(_) => None,
         };
+        // Chain consecutive G1s: cont_next is set when both this and the peeked
+        // command are G1. cont_prev carries the previous iteration's cont_next.
+        let cont_next = commands::is_g1(&curr) && peek.as_ref().map_or(false, commands::is_g1);
         commands::exec(
             curr,
-            peek.as_ref(),
+            last_has_cont,
+            cont_next,
             motion,
             tmc,
             pulser,
@@ -195,6 +210,7 @@ async fn cmd_loop(
         )
         .await;
         OUTSTANDING.fetch_sub(1, Ordering::Relaxed);
+        last_has_cont = cont_next;
         peek_buf = peek;
     }
 }

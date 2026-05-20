@@ -26,7 +26,7 @@ pub enum Axis {
 }
 
 impl Axis {
-    fn idx(self) -> usize {
+    pub fn idx(self) -> usize {
         match self {
             Axis::X => 0,
             Axis::Y => 1,

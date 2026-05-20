@@ -14,6 +14,10 @@ pub enum Command {
     Rapid(MoveSpec),
     /// G1: feed (linear) move.
     Linear(MoveSpec),
+    /// G28: home the named axes (or all, if none named).
+    Home(HomeAxes),
+    /// G38.3: probe toward target, stop on contact, no error if not reached.
+    Probe(MoveSpec),
     /// G53-G56: select the active (modal) coordinate system.
     SelectCoordSys(ActiveCoordSys),
 }
@@ -25,6 +29,16 @@ pub struct MoveSpec {
     pub z: Option<f32>,
     /// C-axis in turns. Parser converts the incoming degrees from G-code.
     pub c: Option<f32>,
+}
+
+/// Which axes a `G28` named (bare letters, no values). No axis named means
+/// "home all"; the executor rejects C and multi-axis combinations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HomeAxes {
+    pub x: bool,
+    pub y: bool,
+    pub z: bool,
+    pub c: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,12 +58,42 @@ pub fn parse(line: &[u8]) -> Result<Command, ParseError> {
     if letter != b'G' {
         return Err(ParseError::UnknownCommand);
     }
-    match code {
-        0 => parse_move(&mut p).map(Command::Rapid),
-        1 => parse_move(&mut p).map(Command::Linear),
-        53..=56 => parse_select(&mut p, code),
+    let sub = p.read_subcode()?;
+    match (code, sub) {
+        (0, None) => parse_move(&mut p).map(Command::Rapid),
+        (1, None) => parse_move(&mut p).map(Command::Linear),
+        (28, None) => parse_home(&mut p).map(Command::Home),
+        (38, Some(3)) => parse_move(&mut p).map(Command::Probe),
+        (53..=56, None) => parse_select(&mut p, code),
         _ => Err(ParseError::UnknownCommand),
     }
+}
+
+/// Parse a `G28` axis list: bare uppercase axis letters separated by whitespace,
+/// with no values (a value after a letter is rejected).
+fn parse_home(p: &mut Cursor) -> Result<HomeAxes, ParseError> {
+    let mut axes = HomeAxes::default();
+    loop {
+        if p.eof_or_only_ws() {
+            break;
+        }
+        if !p.require_ws() {
+            return Err(ParseError::ExpectedSeparator);
+        }
+        let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
+        match letter {
+            b'X' => axes.x = true,
+            b'Y' => axes.y = true,
+            b'Z' => axes.z = true,
+            b'C' => axes.c = true,
+            _ => return Err(ParseError::BadAxis),
+        }
+        // Bare letters only: a digit (value) following an axis is invalid.
+        if !p.eof_or_only_ws() && !p.at_ws() {
+            return Err(ParseError::TrailingGarbage);
+        }
+    }
+    Ok(axes)
 }
 
 /// Parse a coordinate-system select (G53-G56). Takes no parameters.
@@ -135,6 +179,20 @@ impl<'a> Cursor<'a> {
         Some((letter, value))
     }
 
+    fn at_ws(&self) -> bool {
+        !self.eof() && matches!(self.buf[self.pos], b' ' | b'\t')
+    }
+
+    /// Read an optional `.N` sub-code attached to the command number. `None` when
+    /// no dot follows; `Err(BadNumber)` for a dot with no digits.
+    fn read_subcode(&mut self) -> Result<Option<i32>, ParseError> {
+        if self.eof() || self.buf[self.pos] != b'.' {
+            return Ok(None);
+        }
+        self.pos += 1;
+        self.read_int().map(Some).ok_or(ParseError::BadNumber)
+    }
+
     fn read_int(&mut self) -> Option<i32> {
         let start = self.pos;
         while !self.eof() && self.buf[self.pos].is_ascii_digit() {
@@ -171,9 +229,8 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! Tests mirror tests/app/src/gcode_base_test.c. Tests for commands not yet
-    //! implemented (M-codes, G28, G38) are deferred to Phase 4 when the
-    //! Command enum gains those variants.
+    //! Tests mirror tests/app/src/gcode_base_test.c. M-code tests stay deferred
+    //! until the Command enum gains M variants.
 
     use super::*;
 
@@ -214,6 +271,61 @@ mod tests {
         assert_eq!(s.y, Some(2.5));
         assert_eq!(s.z, Some(3.5));
         assert_eq!(s.c, Some(0.25));
+    }
+
+    #[test]
+    fn g38_3_command() {
+        let Command::Probe(s) = parse(b"G38.3").unwrap() else {
+            panic!("expected Probe");
+        };
+        assert_eq!(s, MoveSpec::default());
+    }
+
+    #[test]
+    fn g38_3_with_target() {
+        let Command::Probe(s) = parse(b"G38.3 Z-5").unwrap() else {
+            panic!("expected Probe");
+        };
+        assert_eq!(s.z, Some(-5.0));
+    }
+
+    #[test]
+    fn g38_2_unsupported() {
+        // Only G38.3 is handled; G38.2 and bare G38 are unknown.
+        assert_eq!(parse(b"G38.2"), Err(ParseError::UnknownCommand));
+        assert_eq!(parse(b"G38"), Err(ParseError::UnknownCommand));
+    }
+
+    #[test]
+    fn g28_axis_only() {
+        let Command::Home(a) = parse(b"G28 X").unwrap() else {
+            panic!("expected Home");
+        };
+        assert_eq!(
+            a,
+            HomeAxes {
+                x: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn g28_c_axis() {
+        let Command::Home(a) = parse(b"G28 C").unwrap() else {
+            panic!("expected Home");
+        };
+        assert!(a.c && !a.x && !a.y && !a.z);
+    }
+
+    #[test]
+    fn g28_home_all() {
+        assert_eq!(parse(b"G28").unwrap(), Command::Home(HomeAxes::default()));
+    }
+
+    #[test]
+    fn g28_rejects_value() {
+        assert!(parse(b"G28 X10").is_err());
     }
 
     #[test]
