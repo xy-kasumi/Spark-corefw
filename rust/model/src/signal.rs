@@ -9,6 +9,8 @@ pub enum Signal {
     QueryQueue,
     /// `?pos` — emit current machine position.
     QueryPos,
+    /// `?edm` — emit EDM/move telemetry.
+    QueryEdm,
     /// Recognized signal byte but unknown verb; silently ignored.
     Unknown,
 }
@@ -19,6 +21,7 @@ pub fn parse(bytes: &[u8]) -> Signal {
         b"!" => Signal::Cancel,
         b"?queue" => Signal::QueryQueue,
         b"?pos" => Signal::QueryPos,
+        b"?edm" => Signal::QueryEdm,
         _ => Signal::Unknown,
     }
 }

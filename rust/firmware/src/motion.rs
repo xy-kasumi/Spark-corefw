@@ -19,6 +19,18 @@ pub struct PulserFeedback {
 /// EDM path-buffer history capacity: 10 mm max retract at 0.005 mm resolution.
 pub const PB_CAPACITY: usize = 2001;
 
+/// Snapshot of motion state backing the `?edm` query. `has_edm_data` is set
+/// only during an EDM-controlled move; `is_moving` covers any active move.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EdmState {
+    pub has_edm_data: bool,
+    pub is_moving: bool,
+    pub forward_buffer: f32,
+    pub backward_buffer: f32,
+    pub distance: f32,
+    pub distance_max: f32,
+}
+
 pub struct Motion {
     state: MotionState<PB_CAPACITY>,
     motors: Motors,
@@ -43,6 +55,20 @@ impl Motion {
 
     pub fn mode(&self) -> Mode {
         self.state.mode()
+    }
+
+    /// Motion-side fields for the `?edm` query. Pulser-side fields (eff_duty,
+    /// rates, temp) are read separately from the pulser.
+    pub fn edm_state(&self) -> EdmState {
+        let mode = self.state.mode();
+        EdmState {
+            has_edm_data: mode == Mode::EdmMove,
+            is_moving: mode != Mode::Idle,
+            forward_buffer: self.state.forward_buffer(),
+            backward_buffer: self.state.backward_buffer(),
+            distance: self.state.distance(),
+            distance_max: self.state.distance_max(),
+        }
     }
 
     /// True when the running EDM move can accept another chained segment.

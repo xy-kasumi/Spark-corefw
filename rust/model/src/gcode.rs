@@ -28,6 +28,33 @@ pub enum Command {
     WirefeedStop,
     /// M60/M61: move the tool supply servo to the given state.
     ToolSupply(ToolSupplyState),
+    /// M3/M4: set the modal pulser configuration used by the next G1/G38.3.
+    Pulser(PulserConfig),
+}
+
+/// Modal pulser parameters set by M3 (tool-negative) / M4 (tool-positive).
+/// Unspecified P/Q/R fall back to defaults — M3/M4 fully replace the prior
+/// config rather than merging, matching the C `decode_pulser_params`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PulserConfig {
+    pub tool_negative: bool,
+    /// Pulse on-time, µs (P).
+    pub pulse_us: f32,
+    /// Pulse current, A (Q).
+    pub current_a: f32,
+    /// Max duty cycle, percent (R).
+    pub duty_pct: f32,
+}
+
+impl Default for PulserConfig {
+    fn default() -> Self {
+        Self {
+            tool_negative: true,
+            pulse_us: 500.0,
+            current_a: 1.0,
+            duty_pct: 25.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +118,8 @@ fn parse_gcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, P
 
 fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, ParseError> {
     match (code, sub) {
+        (3, None) => parse_pulser(p, true).map(Command::Pulser),
+        (4, None) => parse_pulser(p, false).map(Command::Pulser),
         (8, None) => no_params(p).map(|_| Command::Pump(true)),
         (9, None) => no_params(p).map(|_| Command::Pump(false)),
         (10, None) => parse_required_r(p).map(Command::WirefeedStart),
@@ -125,6 +154,33 @@ fn parse_required_r(p: &mut Cursor) -> Result<f32, ParseError> {
     let value = p.read_float().ok_or(ParseError::BadNumber)?;
     no_params(p)?;
     Ok(value)
+}
+
+/// Parse M3/M4 pulser parameters: optional `P`/`Q`/`R` floats in any order.
+/// Omitted parameters keep their [`PulserConfig::default`] value. A bare letter
+/// (no value) or an unrecognized letter is rejected.
+fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Result<PulserConfig, ParseError> {
+    let mut cfg = PulserConfig {
+        tool_negative,
+        ..Default::default()
+    };
+    loop {
+        if p.eof_or_only_ws() {
+            break;
+        }
+        if !p.require_ws() {
+            return Err(ParseError::ExpectedSeparator);
+        }
+        let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
+        let value = p.read_float().ok_or(ParseError::BadNumber)?;
+        match letter {
+            b'P' => cfg.pulse_us = value,
+            b'Q' => cfg.current_a = value,
+            b'R' => cfg.duty_pct = value,
+            _ => return Err(ParseError::BadAxis),
+        }
+    }
+    Ok(cfg)
 }
 
 /// Parse a `G28` axis list: bare uppercase axis letters separated by whitespace,
@@ -287,10 +343,65 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! Tests mirror tests/app/src/gcode_base_test.c. M-code tests stay deferred
-    //! until the Command enum gains M variants.
+    //! Tests mirror tests/app/src/gcode_base_test.c. The C M5/M999 cases test the
+    //! generic parser (which accepts any M number); our typed parser rejects
+    //! unknown M-codes, so only the M3/M4 cases port over.
 
     use super::*;
+
+    #[test]
+    fn basic_m3_command() {
+        assert_eq!(
+            parse(b"M3").unwrap(),
+            Command::Pulser(PulserConfig {
+                tool_negative: true,
+                ..Default::default()
+            })
+        );
+    }
+
+    #[test]
+    fn m3_with_all_parameters() {
+        let Command::Pulser(c) = parse(b"M3 P750 Q1.5 R30").unwrap() else {
+            panic!("expected Pulser");
+        };
+        assert!(c.tool_negative);
+        assert_eq!(c.pulse_us, 750.0);
+        assert_eq!(c.current_a, 1.5);
+        assert_eq!(c.duty_pct, 30.0);
+    }
+
+    #[test]
+    fn m4_with_partial_parameters() {
+        // Tool-positive; P omitted keeps the default, Q/R override.
+        let Command::Pulser(c) = parse(b"M4 Q2.0 R25").unwrap() else {
+            panic!("expected Pulser");
+        };
+        assert!(!c.tool_negative);
+        assert_eq!(c.pulse_us, 500.0);
+        assert_eq!(c.current_a, 2.0);
+        assert_eq!(c.duty_pct, 25.0);
+    }
+
+    #[test]
+    fn m3_mixed_parameters() {
+        let Command::Pulser(c) = parse(b"M3 P1000 R50").unwrap() else {
+            panic!("expected Pulser");
+        };
+        assert_eq!(c.pulse_us, 1000.0);
+        assert_eq!(c.current_a, 1.0);
+        assert_eq!(c.duty_pct, 50.0);
+    }
+
+    #[test]
+    fn m3_bare_param_fails() {
+        assert!(parse(b"M3 P").is_err());
+    }
+
+    #[test]
+    fn m3_unknown_param_fails() {
+        assert!(parse(b"M3 P500 S100").is_err());
+    }
 
     #[test]
     fn basic_g0_command() {

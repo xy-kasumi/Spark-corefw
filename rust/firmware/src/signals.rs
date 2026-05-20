@@ -89,8 +89,42 @@ pub async fn exec(
                 );
             }
         }
+        Signal::QueryEdm => {
+            // Sequential (non-nested) locks: motion first, then pulser. The C
+            // handler reads the tick's snapshot; we read both modules live.
+            let edm = motion.lock().await.edm_state();
+            let (eff_duty, r_open, r_short, temp) = {
+                let p = pulser.lock().await;
+                (
+                    p.eff_duty(),
+                    p.open_rate() as f32 / 255.0,
+                    p.short_rate() as f32 / 255.0,
+                    p.temp(),
+                )
+            };
+            let _ = line_tx.try_send(Line::new(PsType::Edm).begin());
+            if edm.has_edm_data {
+                let _ = line_tx.try_send(
+                    Line::new(PsType::Edm)
+                        .float("eff_duty", eff_duty)
+                        .float("open", r_open)
+                        .float("short", r_short)
+                        .int("temp", temp as i32),
+                );
+            }
+            if edm.is_moving {
+                let _ = line_tx.try_send(
+                    Line::new(PsType::Edm)
+                        .float("pb_f", edm.forward_buffer)
+                        .float("pb_b", edm.backward_buffer)
+                        .float("dist", edm.distance)
+                        .float("dist_max", edm.distance_max),
+                );
+            }
+            let _ = line_tx.try_send(Line::new(PsType::Edm).end());
+        }
         Signal::Unknown => {
-            // FIXME: ?edm and other queries not implemented.
+            // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.
         }
     }
 }

@@ -50,6 +50,9 @@ pub struct MotionState<const N: usize> {
     /// EDM move only: stop when the path end is reached. False while more
     /// segments may still be chained (continuation).
     edm_stop_at_target: bool,
+    /// Furthest net distance reached since the current move began. Reset at each
+    /// move start, updated every moving tick. Reported by `?edm`.
+    distance_max: f32,
 }
 
 impl<const N: usize> MotionState<N> {
@@ -59,6 +62,7 @@ impl<const N: usize> MotionState<N> {
             path: PathBuffer::new(start, start),
             feed_mm_per_s: 0.0,
             edm_stop_at_target: true,
+            distance_max: 0.0,
         }
     }
 
@@ -67,6 +71,7 @@ impl<const N: usize> MotionState<N> {
         let here = self.path.position();
         self.path = PathBuffer::new(here, target);
         self.feed_mm_per_s = feed_mm_per_s;
+        self.distance_max = 0.0;
         self.mode = Mode::Rapid;
     }
 
@@ -76,6 +81,7 @@ impl<const N: usize> MotionState<N> {
         let here = self.path.position();
         self.path = PathBuffer::new(here, target);
         self.feed_mm_per_s = feed_mm_per_s;
+        self.distance_max = 0.0;
         self.mode = Mode::Probing;
     }
 
@@ -86,6 +92,7 @@ impl<const N: usize> MotionState<N> {
         self.path = PathBuffer::new(here, target);
         self.feed_mm_per_s = 0.0;
         self.edm_stop_at_target = !has_cont;
+        self.distance_max = 0.0;
         self.mode = Mode::EdmMove;
     }
 
@@ -149,6 +156,11 @@ impl<const N: usize> MotionState<N> {
             }
             Mode::Idle => {}
         }
+        // Track the furthest distance reached while moving (mirrors C stats update,
+        // which runs only when the move is still in progress).
+        if self.mode != Mode::Idle {
+            self.distance_max = self.distance_max.max(self.path.distance());
+        }
         Ok(MotionOutputs {
             target: self.path.position(),
             at_end: self.path.at_end(),
@@ -157,5 +169,25 @@ impl<const N: usize> MotionState<N> {
 
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// Forward path distance left before the written path end. (`?edm` pb_f)
+    pub fn forward_buffer(&self) -> f32 {
+        self.path.forward_buffer()
+    }
+
+    /// Backward path distance left before the retraction limit. (`?edm` pb_b)
+    pub fn backward_buffer(&self) -> f32 {
+        self.path.backward_buffer()
+    }
+
+    /// Net distance traveled from the move's start point. (`?edm` dist)
+    pub fn distance(&self) -> f32 {
+        self.path.distance()
+    }
+
+    /// Furthest net distance reached since the move began. (`?edm` dist_max)
+    pub fn distance_max(&self) -> f32 {
+        self.distance_max
     }
 }

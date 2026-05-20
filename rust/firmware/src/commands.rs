@@ -11,7 +11,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use heapless::String;
 use model::coordstate::CoordState;
-use model::gcode::{Command as GCmd, HomeAxes};
+use model::gcode::{Command as GCmd, HomeAxes, PulserConfig};
 use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::{self, Axis, Settings};
@@ -42,13 +42,6 @@ const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 /// Probe feed (matches C `PROBE_VELOCITY_MM_PER_S`).
 const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
-/// Default pulser parameters for G1/G38.3, mirroring the C `pulser_config`
-/// initializer. M3/M4 (which would override these) are not ported yet.
-const PULSER_NEGATIVE: bool = true;
-const PULSER_PULSE_US: f32 = 500.0;
-const PULSER_CURRENT_A: f32 = 1.0;
-const PULSER_DUTY_PCT: f32 = 25.0;
-
 /// True if `cmd` is a G1 move — the only command that chains via the path buffer.
 pub fn is_g1(cmd: &Command) -> bool {
     matches!(cmd, Command::Gcode(GCmd::Linear(_)))
@@ -67,6 +60,7 @@ pub async fn exec(
     toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
     line_tx: &LineTx,
     settings: &mut Settings,
+    pulser_cfg: &mut PulserConfig,
 ) {
     match cmd {
         Command::Gcode(GCmd::Rapid(spec)) => {
@@ -92,10 +86,10 @@ pub async fn exec(
                     .lock()
                     .await
                     .energize(
-                        PULSER_NEGATIVE,
-                        PULSER_PULSE_US,
-                        PULSER_CURRENT_A,
-                        PULSER_DUTY_PCT,
+                        pulser_cfg.tool_negative,
+                        pulser_cfg.pulse_us,
+                        pulser_cfg.current_a,
+                        pulser_cfg.duty_pct,
                     )
                     .await;
                 motion.lock().await.state().start_edm(target, cont_next);
@@ -112,10 +106,10 @@ pub async fn exec(
                 .lock()
                 .await
                 .energize(
-                    PULSER_NEGATIVE,
-                    PULSER_PULSE_US,
-                    PULSER_CURRENT_A,
-                    PULSER_DUTY_PCT,
+                    pulser_cfg.tool_negative,
+                    pulser_cfg.pulse_us,
+                    pulser_cfg.current_a,
+                    pulser_cfg.duty_pct,
                 )
                 .await;
             motion
@@ -144,6 +138,10 @@ pub async fn exec(
         }
         Command::Gcode(GCmd::ToolSupply(state)) => {
             toolsupply.lock().await.set_state(state).await;
+        }
+        Command::Gcode(GCmd::Pulser(cfg)) => {
+            // Modal: M3/M4 only update the config the next G1/G38.3 energizes with.
+            *pulser_cfg = cfg;
         }
         Command::Set(id, v) => {
             // Try-apply-then-commit: cache only updates if hardware accepted the change.
