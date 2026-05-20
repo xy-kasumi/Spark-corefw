@@ -60,3 +60,6 @@ tio --map OCRNL,ONLCRNL,INLCRNL --local-echo /dev/ttyACM0
 
 ### Board physical connection
 See [photo for Octopus Pro](docs/board_pins.png).
+
+## Fun Fact
+* This code was written in C + Zephyr up until commit `ce0342d` (2026-05-21).
