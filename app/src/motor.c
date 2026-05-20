@@ -209,17 +209,6 @@ int motor_get_current_steps(int motor_num) {
   return motor_states[motor_num].current_steps;
 }
 
-bool motor_stalled(int motor_num) {
-  if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
-    return false;  // Invalid motor number
-  }
-  if (!motor_states[motor_num].stall_detection_enabled) {
-    return false;  // Stall detection disabled
-  }
-  const struct device* motor = motor_states[motor_num].device;
-  return tmc_stalled(motor);
-}
-
 void motor_set_stall_detection(int motor_num, bool enabled) {
   if (motor_num < 0 || motor_num >= MOTOR_COUNT) {
     return;  // Invalid motor number

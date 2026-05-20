@@ -94,36 +94,6 @@ static void cmd_stat(slice_t command, slice_t args) {
   comm_ps_end(PS_STAT);
 }
 
-// Command: test
-static void cmd_test(slice_t command, slice_t args) {
-  if (sl_is_empty(args)) {
-    comm_error(command, "missing args");
-    return;
-  }
-
-  // Split target from rest of args
-  slice_t params;
-  slice_t target = sl_split_at(args, ' ', &params);
-
-  if (sl_eq_str(target, "pulser")) {
-    // Parse duration parameter
-    if (sl_is_empty(params)) {
-      comm_error(command, "missing duration[sec]");
-      return;
-    }
-
-    int duration;
-    if (!sl_parse_int(params, &duration) || duration <= 0) {
-      comm_error(command, "invalid duration");
-      return;
-    }
-
-    exec_test_pulser(duration);
-  } else {
-    comm_error(command, "unknown target");
-  }
-}
-
 static bool is_gcode(slice_t command) {
   return command.size > 0 && (command.ptr[0] == 'G' || command.ptr[0] == 'M');
 }
@@ -147,8 +117,6 @@ static void handle_command(slice_t command, slice_t next_command) {
       cmd_set(command, args);
     } else if (sl_eq_str(cmd, "get")) {
       cmd_get(command, args);
-    } else if (sl_eq_str(cmd, "test")) {
-      cmd_test(command, args);
     } else {
       comm_error(command, "unknown command");
     }

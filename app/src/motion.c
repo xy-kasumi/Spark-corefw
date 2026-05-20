@@ -88,23 +88,6 @@ static pos_drv_t phys_to_drv(pos_phys_t phys) {
                      .c = raw_drv.c};  // No offset for C-axis
 }
 
-// Update homing offset after successful homing (X, Y, Z only)
-// Convert axis to motor number (-1 if not found)
-static int axis_to_motor(axis_t axis) {
-  switch (axis) {
-    case AXIS_X:
-      return MOTOR_X;
-    case AXIS_Y:
-      return MOTOR_Y;
-    case AXIS_Z:
-      return MOTOR_Z;
-    case AXIS_C:
-      return MOTOR_C;
-    default:
-      return -1;
-  }
-}
-
 static void update_homing_offset(axis_t axis, pos_phys_t* current_pos) {
   // Get current driver position (where we actually are)
   pos_drv_t current_drv = {.x = motor_get_current_steps(MOTOR_X),
@@ -205,14 +188,6 @@ static void motion_tick_handler(struct k_work* work) {
   }
 
   // Check specified stop conditions.
-  if (stop_conditions & STOP_REASON_STALL) {
-    int motor_num = axis_to_motor(homing_axis);
-    if (motor_num >= 0 && motor_stalled(motor_num)) {
-      stop_motion(STOP_REASON_STALL);
-      return;
-    }
-  }
-
   if (stop_conditions & STOP_REASON_PROBE) {
     if (pulser_has_discharge()) {
       stop_motion(STOP_REASON_PROBE);

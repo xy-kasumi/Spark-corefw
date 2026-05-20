@@ -36,7 +36,6 @@ typedef enum {
   PS_INIT,
   PS_SETTINGS,
   PS_STAT,
-  PS_BLOB,
 } ps_type_t;
 
 /**

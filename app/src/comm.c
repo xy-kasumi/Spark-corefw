@@ -131,9 +131,6 @@ static int copy_ps_tag(ps_type_t ps, uint8_t* buf) {
     case PS_SETTINGS:
       tag = "stg ";
       break;
-    case PS_BLOB:
-      tag = "blob ";
-      break;
     case PS_STAT:
       tag = "stat ";
       break;
