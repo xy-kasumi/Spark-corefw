@@ -101,24 +101,12 @@ fn parse_reply<E>(buf: &[u8; 8], expected_reg: u8) -> Result<u32, Error<E>> {
 
 pub struct Tmc2209<T: TmcTransport> {
     transport: T,
-    last_ifcnt: u8,
     pub name: &'static str,
 }
 
 impl<T: TmcTransport> Tmc2209<T> {
     pub fn new(transport: T, name: &'static str) -> Self {
-        Self {
-            transport,
-            last_ifcnt: 0,
-            name,
-        }
-    }
-
-    /// Read & cache IFCNT so the next write_reg's verify has a baseline.
-    pub async fn init(&mut self) -> Result<(), Error<T::Error>> {
-        let v = self.read_reg(REG_IFCNT).await?;
-        self.last_ifcnt = v as u8;
-        Ok(())
+        Self { transport, name }
     }
 
     pub async fn read_reg(&mut self, addr: u8) -> Result<u32, Error<T::Error>> {
@@ -134,14 +122,14 @@ impl<T: TmcTransport> Tmc2209<T> {
     }
 
     pub async fn write_reg(&mut self, addr: u8, val: u32) -> Result<(), Error<T::Error>> {
+        // check IFCNT before & after to simplify setup by spending more read time.
+        // note: this prevents gotcha of firmware rewrite w/o board power cycle (IFCNT stays non-zero)
+        let before = self.read_reg(REG_IFCNT).await? as u8;
         let req = encode_write(addr, val);
         self.transport.write(&req).await.map_err(Error::Transport)?;
         Timer::after(Duration::from_millis(SETTLE_MS)).await;
-        let new_ifcnt = self.read_reg(REG_IFCNT).await? as u8;
-        let expected = self.last_ifcnt.wrapping_add(1);
-        // Resync to reality even on mismatch — next call shouldn't compound the error.
-        self.last_ifcnt = new_ifcnt;
-        if new_ifcnt == expected {
+        let after = self.read_reg(REG_IFCNT).await? as u8;
+        if after == before.wrapping_add(1) {
             Ok(())
         } else {
             Err(Error::WriteVerifyFailed)
