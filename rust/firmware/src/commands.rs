@@ -18,7 +18,7 @@ use model::settings::{self, Axis, Settings};
 
 pub use model::command::Command;
 
-use crate::board::{Pulser, MOTOR_NAMES, NUM_MOTORS};
+use crate::board::{MotorStepping, Pulser, MOTOR_NAMES, NUM_MOTORS};
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
@@ -58,6 +58,7 @@ pub async fn exec(
     pump: &Mutex<NoopRawMutex, Pump>,
     wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
     toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
+    step: &[MotorStepping; NUM_MOTORS],
     line_tx: &LineTx,
     settings: &mut Settings,
     pulser_cfg: &mut PulserConfig,
@@ -145,7 +146,7 @@ pub async fn exec(
         }
         Command::Set(id, v) => {
             // Try-apply-then-commit: cache only updates if hardware accepted the change.
-            if apply_one(id, v, motion, tmc, coord, wirefeed, toolsupply)
+            if apply_one(id, v, motion, tmc, coord, wirefeed, toolsupply, step)
                 .await
                 .is_err()
             {

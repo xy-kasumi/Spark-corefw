@@ -4,7 +4,10 @@
 //! Per-motor 3-state machine (Idle → PulseHigh → PulseLow → Idle), 30µs per phase.
 //! One step = 90µs → ~11.1k steps/sec max.
 //!
-//! Only STEP, DIR, and position counting are driven here. EN policy is the caller's.
+//! EN is driven here too: a motor energizes in the same tick it begins stepping
+//! and de-energizes after an idle timeout. Energize must be co-timed with the step
+//! decision, so it lives in the ISR alongside position counting rather than in a
+//! slower caller loop (which would step a still-disabled driver and drop steps).
 
 use core::cell::RefCell;
 
@@ -15,6 +18,11 @@ use embassy_stm32::timer::low_level::Timer as LlTimer;
 use embassy_stm32::timer::CoreInstance;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
+
+/// ISR period; one phase of the step state machine.
+const STEP_ISR_PERIOD_US: u32 = 30;
+/// Idle timeout used before settings are applied (200 ms, matching the C default).
+const DEFAULT_IDLE_TIMEOUT_TICKS: u32 = (200 * 1000) / STEP_ISR_PERIOD_US;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StepState {
@@ -31,6 +39,13 @@ struct MotorState {
     direction: bool,
     step_pin: Option<Output<'static>>,
     dir_pin: Option<Output<'static>>,
+    /// Active-low: Low energizes, High disables.
+    en_pin: Option<Output<'static>>,
+    // Energization policy.
+    always_energized: bool,
+    idle_timeout_ticks: u32,
+    energized: bool,
+    idle_ticks: u32,
 }
 
 const fn motor_state_init() -> MotorState {
@@ -41,6 +56,11 @@ const fn motor_state_init() -> MotorState {
         direction: false,
         step_pin: None,
         dir_pin: None,
+        en_pin: None,
+        always_energized: false,
+        idle_timeout_ticks: DEFAULT_IDLE_TIMEOUT_TICKS,
+        energized: false,
+        idle_ticks: 0,
     }
 }
 
@@ -69,13 +89,13 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
         }
     }
 
-    /// Create StepGen using given timer & per-motor (step, dir) pins.
+    /// Create StepGen using given timer & per-motor (step, dir, en) pins.
     /// Configures timer to 30us, but caller is responsible for calling tick() from the timer's ISR.
-    /// EN pin policy (energize before set_target) is owned by the caller.
+    /// EN pins are active-low and start de-energized; energization is driven on demand.
     pub fn init(
         &'static self,
         tim: T,
-        pins: [(Output<'static>, Output<'static>); N],
+        pins: [(Output<'static>, Output<'static>, Output<'static>); N],
     ) -> [StepGenHandle<T, N>; N] {
         let timer = LlTimer::new(tim);
         timer.set_frequency(Hertz(33_333));
@@ -85,9 +105,10 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
         self.inner.lock(|cell| {
             let mut e = cell.borrow_mut();
             e.timer = Some(timer);
-            for (i, (step, dir)) in pins.into_iter().enumerate() {
+            for (i, (step, dir, en)) in pins.into_iter().enumerate() {
                 e.motors[i].step_pin = Some(step);
                 e.motors[i].dir_pin = Some(dir);
+                e.motors[i].en_pin = Some(en);
             }
         });
 
@@ -127,10 +148,23 @@ impl MotorState {
         }
     }
 
+    fn ensure_energized(&mut self, energize: bool) {
+        if self.energized == energize {
+            return;
+        }
+        if let Some(p) = self.en_pin.as_mut() {
+            p.set_level(if energize { Level::Low } else { Level::High });
+        }
+        self.energized = energize;
+    }
+
     fn process(&mut self) {
         match self.step_state {
             StepState::Idle => {
                 if self.current != self.target {
+                    // Energize in the same tick the step begins, before the pulse.
+                    self.idle_ticks = 0;
+                    self.ensure_energized(true);
                     let dir = self.target > self.current;
                     if dir != self.direction {
                         self.direction = dir;
@@ -138,6 +172,12 @@ impl MotorState {
                     }
                     self.write_step(Level::High);
                     self.step_state = StepState::PulseHigh;
+                } else if !self.always_energized {
+                    if self.idle_ticks < self.idle_timeout_ticks {
+                        self.idle_ticks += 1;
+                    } else {
+                        self.ensure_energized(false);
+                    }
                 }
             }
             StepState::PulseHigh => {
@@ -175,5 +215,20 @@ impl<T: CoreInstance, const N: usize> StepGenHandle<T, N> {
         self.engine
             .inner
             .lock(|cell| cell.borrow().motors[self.idx].current)
+    }
+
+    /// Set the idle de-energize timeout. Negative `timeout_ms` keeps the motor
+    /// always energized.
+    pub fn set_deenergize_after(&self, timeout_ms: i32) {
+        self.engine.inner.lock(|cell| {
+            let m = &mut cell.borrow_mut().motors[self.idx];
+            if timeout_ms < 0 {
+                m.always_energized = true;
+                m.idle_timeout_ticks = 0;
+            } else {
+                m.always_energized = false;
+                m.idle_timeout_ticks = (timeout_ms as u32 * 1000) / STEP_ISR_PERIOD_US;
+            }
+        });
     }
 }

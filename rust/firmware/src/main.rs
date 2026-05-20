@@ -54,20 +54,19 @@ type SharedToolSupply = Mutex<NoopRawMutex, ToolSupply>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let mut board = board::init(&spawner, 115200);
+    let board = board::init(&spawner, 115200);
 
-    // Energize XYZ; C (m3) and m4..m6 stay off.
-    board.motors.en[0].set_low();
-    board.motors.en[1].set_low();
-    board.motors.en[2].set_low();
+    // All motors start de-energized; step_gen energizes each on demand and
+    // de-energizes after its per-motor idle timeout (set via `m.N.idlems`).
+    let step = board.motors.step;
 
     // Seed Motion's calibration from defaults so apply_all is the sole writer of these numbers.
     let init_settings = SettingsCache::defaults();
     let motors = Motors {
-        x: board.motors.step[0],
-        y: board.motors.step[1],
-        z: board.motors.step[2],
-        c: board.motors.step[3],
+        x: step[0],
+        y: step[1],
+        z: step[2],
+        c: step[3],
         cal: MotorAxisConfig {
             steps_per_mm_x: init_settings.motors[0].unitsteps,
             steps_per_mm_y: init_settings.motors[1].unitsteps,
@@ -95,9 +94,11 @@ async fn main(spawner: Spawner) {
     let pump: &'static SharedPump = PUMP_CELL.init(Mutex::new(Pump::new(board.pump)));
     static WIREFEED_CELL: StaticCell<SharedWirefeed> = StaticCell::new();
     let wirefeed: &'static SharedWirefeed = WIREFEED_CELL.init(Mutex::new(Wirefeed::new(
-        board.motors.step[6],
+        step[6],
         init_settings.motors[6].unitsteps,
     )));
+    static STEP_CELL: StaticCell<[board::MotorStepping; board::NUM_MOTORS]> = StaticCell::new();
+    let step: &'static [board::MotorStepping; board::NUM_MOTORS] = STEP_CELL.init(step);
     static TOOLSUPPLY_CELL: StaticCell<SharedToolSupply> = StaticCell::new();
     let toolsupply: &'static SharedToolSupply = TOOLSUPPLY_CELL.init(Mutex::new(ToolSupply::new(
         board.toolsupply_pwm,
@@ -117,6 +118,7 @@ async fn main(spawner: Spawner) {
         coord,
         wirefeed,
         toolsupply,
+        step,
         line_tx,
     )
     .await;
@@ -134,7 +136,7 @@ async fn main(spawner: Spawner) {
             line_tx,
         ),
         cmd_loop(
-            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, line_tx,
+            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, step, line_tx,
         ),
     )
     .await;
@@ -218,6 +220,7 @@ async fn cmd_loop(
     pump: &SharedPump,
     wirefeed: &SharedWirefeed,
     toolsupply: &SharedToolSupply,
+    step: &'static [board::MotorStepping; board::NUM_MOTORS],
     line_tx: &LineTx,
 ) {
     let mut settings = SettingsCache::defaults();
@@ -263,6 +266,7 @@ async fn cmd_loop(
             pump,
             wirefeed,
             toolsupply,
+            step,
             line_tx,
             &mut settings,
             &mut pulser_cfg,
