@@ -7,6 +7,7 @@ mod drivers;
 mod line_tx;
 mod motion;
 mod motor;
+mod panic_diag;
 mod pulser;
 mod settings;
 mod signals;
@@ -22,7 +23,6 @@ use embassy_time::{Duration, Ticker};
 use model::comm::{Parsed, Parser};
 use model::pstate::ErrorLine;
 use model::settings::Settings as SettingsCache;
-use panic_halt as _;
 use static_cell::StaticCell;
 
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
