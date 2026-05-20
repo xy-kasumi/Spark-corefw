@@ -1,6 +1,0 @@
-# SPDX-License-Identifier: CC0-1.0
-board:
-  name: octopus_pro
-  vendor: btt
-  socs:
-    - name: stm32h723xx

@@ -1,5 +1,0 @@
-# SPDX-License-Identifier: CC0-1.0
-build:
-  settings:
-    board_root: .
-    dts_root: .

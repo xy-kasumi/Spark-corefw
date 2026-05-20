@@ -1,4 +1,5 @@
 //! Board: BTT Octopus Pro v1.1 with TMC2209 stepper drivers.
+//! Physical connections: see `docs/board_pins.png` at the repo root.
 //! motor7 (PA14 DIR) is omitted because PA14 doubles as SWCLK.
 //!
 //! |  m# | step | dir  | en   | uart | diag |

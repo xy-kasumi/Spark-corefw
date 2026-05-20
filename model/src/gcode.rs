@@ -343,9 +343,8 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! Tests mirror tests/app/src/gcode_base_test.c. The C M5/M999 cases test the
-    //! generic parser (which accepts any M number); our typed parser rejects
-    //! unknown M-codes, so only the M3/M4 cases port over.
+    //! The typed parser rejects unknown M-codes, so only M3/M4 are accepted
+    //! (a generic parser accepting any M number would also take M5/M999).
 
     use super::*;
 

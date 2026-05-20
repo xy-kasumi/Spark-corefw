@@ -1,17 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
 
-# Check if west command is available
-if ! command -v west &> /dev/null; then
-    echo "Error: 'west' command not found."
-    echo "Please activate the Zephyr virtual environment first."
-    exit 1
-fi
+# Probe host: a system openocd on PATH by default (apt install openocd, or an
+# xpack build). Set OPENOCD_SCRIPTS only for a relocated scripts dir; a normal
+# install resolves its bundled cmsis-dap/stm32h7x configs on its own.
+OPENOCD="${OPENOCD:-openocd}"
+ELF="firmware/target/thumbv7em-none-eabihf/release/firmware"
 
-# Check if we're in the correct directory
-if [ ! -f "app/src/main.c" ]; then
-    echo "Error: Not in the correct directory."
-    echo "Please run this script from the Spark-corefw repository root directory."
-    exit 1
-fi
+oocd=(-f interface/cmsis-dap.cfg -f target/stm32h7x.cfg)
+[ -n "${OPENOCD_SCRIPTS:-}" ] && oocd=(-s "$OPENOCD_SCRIPTS" "${oocd[@]}")
 
-west flash
+(cd firmware && cargo build --release)
+
+"$OPENOCD" "${oocd[@]}" -c "program $ELF verify reset exit"

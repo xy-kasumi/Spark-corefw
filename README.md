@@ -2,86 +2,61 @@
 
 WIP
 
-Zephyr-based firmware for https://github.com/xy-kasumi/Spark.
+Firmware for https://github.com/xy-kasumi/Spark — a RepRap-style new-generation
+EDM (electric discharge machining) machine. It controls motors, sensors etc. by
+consuming commands & G-code from the host.
+
+Written in Rust on [embassy](https://embassy.dev/), targeting the BTT Octopus
+Pro (STM32H723).
 
 See
 * [spec/gcode.md](spec/gcode.md) Supported G-code
 * [spec/settings.md](spec/settings.md) Supported settings
 * [spec/protocol.md](spec/protocol.md) Serial communication protocol
 
-## Licenses
-* Main app code (app/src, tests/app/src): AGPL-3.0-or-later
-  * Follows main Spark project policy
-* Driver code (drivers/, include/drivers): Apache-2.0
-  * Since Zephyr is Apache-2.0, this will make it easier if someone want to put this upstream
-* Config files: CC0
-  * Don't care, just copy-paste them around
+## Layout
+* `model/` — portable compute (G-code parser, motion, coordinates, protocol).
+  Host-testable, no hardware dependency.
+* `firmware/` — the on-device binary: embassy app and hardware drivers.
 
-## Environment Setup
-* Windows PC
-* Ubuntu running in WSL 2
-* Raspberry Pi Debug Probe connected to the PC
+## License
+AGPL-3.0-or-later, following the main Spark project policy.
 
-### Building
-Setup Zephyr to WSL2 Ubuntu by following https://docs.zephyrproject.org/latest/develop/getting_started/index.html
-
-Init a new workspace for Spark-corefw by
+## Building & Testing
 ```shell
-west init -m https://github.com/xy-kasumi/Spark-corefw --mr main ~/zephyr-ws-spark
-cd ~/zephyr-ws-spark
-west update
+./build.sh   # cross-compile the firmware binary (release)
+./test.sh    # run host-side tests for the model crate
 ```
 
-Confirm that it builds
+## Flashing & on-target diagnostics
+Flashing uses `openocd` (not probe-rs).
+* For the Raspberry Pi Debug Probe, probe-rs requires V2.x firmware, and
+  something in V2.x prevents it from working under WSL2.
+
 ```shell
-cd ~/zephyr-ws-spark/Spark-corefw
-west build -b octopus_pro app
+./flash.sh        # build + program + verify + reset via OpenOCD
+./panic_diag.sh   # post-mortem: read the PANIC_REPORT breadcrumb from a stuck target
 ```
+`panic_diag.sh` also needs `nm`, and only works when the exact ELF matching the
+running hardware is available.
 
-### Flashing
-Run powershell as admin.
-`usbpid list` will list USB devices on windows. Find the `BUSID` of the probe, which contains "CMSIS-DAP".
+## Environment
+* Windows PC, Ubuntu in WSL 2, Raspberry Pi Debug Probe connected to the PC.
 
+Attach the probe to WSL2 from an admin PowerShell:
 ```powershell
 winget install usbipd
-usbipd list
+usbipd list                          # find the BUSID containing "CMSIS-DAP"
 usbipd attach --wsl --busid=<BUSID>
 ```
+Then follow Zephyr's [udev rules guide](https://docs.zephyrproject.org/latest/develop/beyond-GSG.html#setting-udev-rules)
+to set USB device permissions, and reconnect the probe.
 
-Follow this in WSL2 to setup USB device permission.
-* https://docs.zephyrproject.org/latest/develop/beyond-GSG.html#setting-udev-rules
-
-Reconnect the USB device.
-
-`west flash` should now work.
+Note: attaching to WSL2 makes the probe disappear from Windows, so use a
+terminal emulator inside WSL2. To manually connect and run commands:
 ```shell
-cd ~/zephyr-ws-spark/Spark-corefw
-west flash
+tio --map OCRNL,ONLCRNL,INLCRNL --local-echo /dev/ttyACM0
 ```
 
-Note: this process makes the probe disappear from Windows land.
-You need to use terminal emulator inside WSL2.
-
-I'm using `tio /dev/ttyACM0 --local-echo`
-
-### Board Physical Connection
-See [photo for Octopus Pro](boards/btt/octopus_pro/board_pins.png)
-
-### Tips
-* To make VSCode IntelliSense work, open `~/zephyr-ws-spark` folder
-* I'm running claude at `~/zephyr-ws-spark/Spark-corefw` rather than the workspace.
-* If `west` doesn't work, make sure you ran `source ~/zephyrproject/.venv/bin/activate` in current shell session
-
-
-### Rust version
-
-Everything is under `rust/`.
-
-```shell
-cd rust/
-./build.sh
-```
-
-It uses OpenOCD instead of probe-rs
-* For Raspi Debug probe, probe-rs requires V2.x firmware
-* However, something in V2.x firmware prevents making it work in WSL2
+### Board physical connection
+See [photo for Octopus Pro](docs/board_pins.png).

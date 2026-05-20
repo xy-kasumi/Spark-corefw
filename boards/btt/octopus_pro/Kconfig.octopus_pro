@@ -1,3 +1,0 @@
-# SPDX-License-Identifier: CC0-1.0
-config BOARD_OCTOPUS_PRO
-	select SOC_STM32H723XX

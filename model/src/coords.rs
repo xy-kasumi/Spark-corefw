@@ -153,8 +153,6 @@ pub fn shortest_turn_delta(current: f32, target: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    //! Tests mirror tests/app/src/coords_test.c.
-
     use super::*;
 
     fn p(x: f32, y: f32, z: f32) -> PosPhys {

@@ -190,11 +190,9 @@ impl<const N: usize> PathBuffer<N> {
 
 #[cfg(test)]
 mod tests {
-    //! Tests mirror tests/app/src/motion_base_test.c.
-    //!
-    //! Test `N` (201) is the value the C tests were written against; production firmware
-    //! uses a larger history. The history-cap-dependent assertions in the C tests
-    //! (`pb_get_buffers_added`, `pb_get_distance`) only make sense at this smaller size.
+    //! Test `N` (201) is a deliberately small history cap; production firmware uses a
+    //! larger one. The history-cap-dependent tests (`pb_get_buffers_added`,
+    //! `pb_get_distance`) only make sense at this smaller size.
 
     use super::*;
 
