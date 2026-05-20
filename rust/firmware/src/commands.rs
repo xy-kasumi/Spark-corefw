@@ -146,17 +146,22 @@ pub async fn exec(
         }
         Command::Set(id, v) => {
             // Try-apply-then-commit: cache only updates if hardware accepted the change.
-            if apply_one(id, v, motion, tmc, coord, wirefeed, toolsupply, step)
-                .await
-                .is_err()
-            {
-                let _ = line_tx.try_send(
-                    ErrorLine::new()
-                        .msg(format_args!("setting failed"))
-                        .finish(),
-                );
-            } else {
-                let _ = id.write(settings, v);
+            match apply_one(id, v, motion, tmc, coord, wirefeed, toolsupply, step).await {
+                Ok(()) => {
+                    let _ = id.write(settings, v);
+                }
+                Err(e) => {
+                    let _ = line_tx.try_send(
+                        ErrorLine::new()
+                            .msg(format_args!(
+                                "setting failed: {}={} ({:?})",
+                                id.path().as_str(),
+                                v,
+                                e
+                            ))
+                            .finish(),
+                    );
+                }
             }
         }
         Command::Get => {
