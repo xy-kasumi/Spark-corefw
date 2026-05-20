@@ -65,11 +65,16 @@ pub async fn exec(
 ) {
     match cmd {
         Command::Gcode(GCmd::Rapid(spec)) => {
-            // Lock order motion -> coord (matches signals.rs) to avoid deadlock.
-            let mut m = motion.lock().await;
-            let here = m.current_position();
-            let target = coord.lock().await.resolve_move(&spec, here);
-            m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
+            {
+                // Lock order motion -> coord (matches signals.rs) to avoid deadlock.
+                let mut m = motion.lock().await;
+                let here = m.current_position();
+                let target = coord.lock().await.resolve_move(&spec, here);
+                m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
+            }
+            // Block until the rapid finishes; otherwise the next queued command
+            // would overwrite this still-running move (matches C G0 handler).
+            wait_move_end(motion, pulser, cont_next).await;
         }
         Command::Gcode(GCmd::Linear(spec)) => {
             let (target, chaining) = {
