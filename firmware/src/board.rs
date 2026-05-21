@@ -118,6 +118,11 @@ impl<T: CoreInstance, const N: usize> TmcTransport for SoftUartHandle<T, N> {
 pub struct Motors {
     pub tmc: [MotorConfig; NUM_MOTORS],
     pub step: [MotorStepping; NUM_MOTORS],
+    /// EN lines (active-low), held low for the program's lifetime so every motor
+    /// stays energized. Never read after construction; owned here only to keep
+    /// the pins driven.
+    #[allow(dead_code)]
+    en: [Output<'static>; NUM_MOTORS],
 }
 
 /// Tool supply servo PWM (TIM1 channel 1 on PE9).
@@ -214,44 +219,47 @@ fn init_motors(
         ],
     );
 
-    // EN pins are active-low and start High = de-energized; step_gen energizes on demand.
+    // EN pins are active-low. Motors are always energized.
+    let en = [
+        Output::new(m0.3, Level::Low, Speed::Low),
+        Output::new(m1.3, Level::Low, Speed::Low),
+        Output::new(m2.3, Level::Low, Speed::Low),
+        Output::new(m3.3, Level::Low, Speed::Low),
+        Output::new(m4.3, Level::Low, Speed::Low),
+        Output::new(m5.3, Level::Low, Speed::Low),
+        Output::new(m6.3, Level::Low, Speed::Low),
+    ];
+
     let step_handles = STEP_GEN.init(
         tim_step,
         [
             (
                 Output::new(m0.1, Level::Low, Speed::Low),
                 Output::new(m0.2, Level::Low, Speed::Low),
-                Output::new(m0.3, Level::High, Speed::Low),
             ),
             (
                 Output::new(m1.1, Level::Low, Speed::Low),
                 Output::new(m1.2, Level::Low, Speed::Low),
-                Output::new(m1.3, Level::High, Speed::Low),
             ),
             (
                 Output::new(m2.1, Level::Low, Speed::Low),
                 Output::new(m2.2, Level::Low, Speed::Low),
-                Output::new(m2.3, Level::High, Speed::Low),
             ),
             (
                 Output::new(m3.1, Level::Low, Speed::Low),
                 Output::new(m3.2, Level::Low, Speed::Low),
-                Output::new(m3.3, Level::High, Speed::Low),
             ),
             (
                 Output::new(m4.1, Level::Low, Speed::Low),
                 Output::new(m4.2, Level::Low, Speed::Low),
-                Output::new(m4.3, Level::High, Speed::Low),
             ),
             (
                 Output::new(m5.1, Level::Low, Speed::Low),
                 Output::new(m5.2, Level::Low, Speed::Low),
-                Output::new(m5.3, Level::High, Speed::Low),
             ),
             (
                 Output::new(m6.1, Level::Low, Speed::Low),
                 Output::new(m6.2, Level::Low, Speed::Low),
-                Output::new(m6.3, Level::High, Speed::Low),
             ),
         ],
     );
@@ -262,5 +270,6 @@ fn init_motors(
     Motors {
         tmc,
         step: step_handles,
+        en,
     }
 }

@@ -79,7 +79,6 @@ impl CoordSys {
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct MotorCfg {
     pub current: f32,
-    pub idlems: f32,
     pub microstep: f32,
     pub thresh: f32,
     pub unitsteps: f32,
@@ -120,7 +119,6 @@ impl Settings {
     pub const fn defaults() -> Self {
         let common_motor = MotorCfg {
             current: 30.0,
-            idlems: 200.0,
             microstep: 32.0,
             thresh: 2.0,
             unitsteps: 200.0,
@@ -147,7 +145,6 @@ impl Settings {
         s.motors[2].unitsteps = -200.0;
         s.motors[5].unitsteps = 6400.0;
         s.motors[6].unitsteps = 203.8;
-        s.motors[6].idlems = 5000.0;
         s.axes[0].phase = 1.0; // X
         s.axes[1].phase = 2.0; // Y
         s.axes[1].side = -1.0; // Y
@@ -172,7 +169,6 @@ pub enum SettingId {
     AxisHomeTravel(Axis),
     CsPos(CoordSys, Axis),
     MotorCurrent(u8),
-    MotorIdlems(u8),
     MotorMicrostep(u8),
     MotorThresh(u8),
     MotorUnitsteps(u8),
@@ -208,7 +204,6 @@ impl SettingId {
             SettingId::AxisHomeTravel(a) => write!(s, "a.{}.home.travel", a.name()),
             SettingId::CsPos(c, a) => write!(s, "cs.{}.pos.{}", c.name(), a.name()),
             SettingId::MotorCurrent(i) => write!(s, "m.{}.current", i),
-            SettingId::MotorIdlems(i) => write!(s, "m.{}.idlems", i),
             SettingId::MotorMicrostep(i) => write!(s, "m.{}.microstep", i),
             SettingId::MotorThresh(i) => write!(s, "m.{}.thresh", i),
             SettingId::MotorUnitsteps(i) => write!(s, "m.{}.unitsteps", i),
@@ -233,7 +228,6 @@ impl SettingId {
                 }
             }
             SettingId::MotorCurrent(i) => s.motors[i as usize].current,
-            SettingId::MotorIdlems(i) => s.motors[i as usize].idlems,
             SettingId::MotorMicrostep(i) => s.motors[i as usize].microstep,
             SettingId::MotorThresh(i) => s.motors[i as usize].thresh,
             SettingId::MotorUnitsteps(i) => s.motors[i as usize].unitsteps,
@@ -260,7 +254,6 @@ impl SettingId {
                 }
             }
             SettingId::MotorCurrent(i) => s.motors[i as usize].current = v,
-            SettingId::MotorIdlems(i) => s.motors[i as usize].idlems = v,
             SettingId::MotorMicrostep(i) => s.motors[i as usize].microstep = v,
             SettingId::MotorThresh(i) => s.motors[i as usize].thresh = v,
             SettingId::MotorUnitsteps(i) => s.motors[i as usize].unitsteps = v,
@@ -292,7 +285,6 @@ pub fn iter_all() -> impl Iterator<Item = SettingId> {
     let motors = (0u8..N_MOTORS as u8).flat_map(|i| {
         [
             MotorCurrent(i),
-            MotorIdlems(i),
             MotorMicrostep(i),
             MotorThresh(i),
             MotorUnitsteps(i),
@@ -332,7 +324,6 @@ fn parse_motor<'a>(segs: &mut core::str::Split<'a, char>) -> Option<SettingId> {
     }
     Some(match segs.next()? {
         "current" => SettingId::MotorCurrent(idx),
-        "idlems" => SettingId::MotorIdlems(idx),
         "microstep" => SettingId::MotorMicrostep(idx),
         "thresh" => SettingId::MotorThresh(idx),
         "unitsteps" => SettingId::MotorUnitsteps(idx),

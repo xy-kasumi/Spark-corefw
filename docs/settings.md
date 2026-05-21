@@ -1,5 +1,5 @@
 ## Settings Description
-Settings composes of (key, value) pairs.
+Settings is (key, value) dictionary.
 A key is a string, a value is a float.
 
 Keys are organized in hierarchical ways, splitted by `.`.
@@ -31,11 +31,6 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 	* % of current to apply to motor
 * **microstep** Microsteps
 	* valid: 1, 2, 4, ..., 128, 256
-* **idlems** Motor idle shutdown wait
-    * valid: [-1, 1000]
-	* duration (msec) to wait before de-energizing motor when not moving
-		* negative: always keep energized (use -1)
-		* 0 or positive: msec to wait (max is 1000)
 
 ### **a.{x,y,z}** Axis
 * **home.{side,origin,phase,travel}**

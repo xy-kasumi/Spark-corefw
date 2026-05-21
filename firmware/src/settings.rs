@@ -15,7 +15,7 @@ use model::gcode::ToolSupplyState;
 use model::pstate::{Line, PsType};
 use model::settings::{self, SettingId, Settings};
 
-use crate::board::{MotorConfig, MotorStepping, ToolSupply, NUM_MOTORS};
+use crate::board::{MotorConfig, ToolSupply, NUM_MOTORS};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
 use crate::wirefeed::Wirefeed;
@@ -38,7 +38,6 @@ pub async fn apply_one(
     coord: &Mutex<NoopRawMutex, CoordState>,
     wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
     toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
-    step: &[MotorStepping; NUM_MOTORS],
 ) -> Result<(), ApplyError> {
     match id {
         SettingId::MotorMicrostep(i) => {
@@ -91,9 +90,6 @@ pub async fn apply_one(
                 .configure(ToolSupplyState::Closed, value)
                 .await;
         }
-        SettingId::MotorIdlems(i) => {
-            step[i as usize].set_deenergize_after(value as i32);
-        }
         SettingId::AxisHomeOrigin(_)
         | SettingId::AxisHomePhase(_)
         | SettingId::AxisHomeSide(_)
@@ -113,22 +109,12 @@ pub async fn apply_all(
     coord: &Mutex<NoopRawMutex, CoordState>,
     wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
     toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
-    step: &[MotorStepping; NUM_MOTORS],
     line_tx: &LineTx,
 ) -> bool {
     for id in settings::iter_all() {
-        if apply_one(
-            id,
-            id.read(s),
-            motion,
-            tmc,
-            coord,
-            wirefeed,
-            toolsupply,
-            step,
-        )
-        .await
-        .is_err()
+        if apply_one(id, id.read(s), motion, tmc, coord, wirefeed, toolsupply)
+            .await
+            .is_err()
         {
             let path = id.path();
             let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", false));

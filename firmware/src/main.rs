@@ -60,9 +60,6 @@ type SharedToolSupply = Mutex<NoopRawMutex, ToolSupply>;
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let board = board::init(&spawner, 115200);
-
-    // All motors start de-energized; step_gen energizes each on demand and
-    // de-energizes after its per-motor idle timeout (set via `m.N.idlems`).
     let step = board.motors.step;
 
     // Seed Motion's calibration from defaults so apply_all is the sole writer of these numbers.
@@ -102,8 +99,6 @@ async fn main(spawner: Spawner) {
         step[6],
         init_settings.motors[6].unitsteps,
     )));
-    static STEP_CELL: StaticCell<[board::MotorStepping; board::NUM_MOTORS]> = StaticCell::new();
-    let step: &'static [board::MotorStepping; board::NUM_MOTORS] = STEP_CELL.init(step);
     static TOOLSUPPLY_CELL: StaticCell<SharedToolSupply> = StaticCell::new();
     let toolsupply: &'static SharedToolSupply = TOOLSUPPLY_CELL.init(Mutex::new(ToolSupply::new(
         board.toolsupply_pwm,
@@ -123,7 +118,6 @@ async fn main(spawner: Spawner) {
         coord,
         wirefeed,
         toolsupply,
-        step,
         line_tx,
     )
     .await;
@@ -142,7 +136,7 @@ async fn main(spawner: Spawner) {
             line_tx,
         ),
         cmd_loop(
-            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, step, line_tx,
+            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, line_tx,
         ),
     )
     .await;
@@ -253,7 +247,6 @@ async fn cmd_loop(
     pump: &SharedPump,
     wirefeed: &SharedWirefeed,
     toolsupply: &SharedToolSupply,
-    step: &'static [board::MotorStepping; board::NUM_MOTORS],
     line_tx: &LineTx,
 ) {
     let mut settings = SettingsCache::defaults();
@@ -299,7 +292,6 @@ async fn cmd_loop(
             pump,
             wirefeed,
             toolsupply,
-            step,
             line_tx,
             &mut settings,
             &mut pulser_cfg,
