@@ -238,8 +238,11 @@ impl<T: timer::CoreInstance, const N: usize> Uart<T, N> {
             e.current_pin = pin_idx;
             e.state = State::Send;
         });
-        match embassy_time::with_timeout(embassy_time::Duration::from_millis(15), self.signal.wait())
-            .await
+        match embassy_time::with_timeout(
+            embassy_time::Duration::from_millis(15),
+            self.signal.wait(),
+        )
+        .await
         {
             Ok(()) => Ok(()),
             Err(_) => {
@@ -263,8 +266,11 @@ impl<T: timer::CoreInstance, const N: usize> Uart<T, N> {
             e.current_pin = pin_idx;
             e.state = State::Receive;
         });
-        match embassy_time::with_timeout(embassy_time::Duration::from_millis(15), self.signal.wait())
-            .await
+        match embassy_time::with_timeout(
+            embassy_time::Duration::from_millis(15),
+            self.signal.wait(),
+        )
+        .await
         {
             Ok(()) => {
                 self.inner.lock(|cell| {

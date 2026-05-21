@@ -29,7 +29,9 @@ pub enum Error {
 
 fn motor_idx(s: &str) -> Result<usize, Error> {
     let idx: usize = s.parse().map_err(|_| Error::UnknownKey)?;
-    (idx < board::NUM_MOTORS).then_some(idx).ok_or(Error::UnknownKey)
+    (idx < board::NUM_MOTORS)
+        .then_some(idx)
+        .ok_or(Error::UnknownKey)
 }
 
 /// The single place that maps a raw key string onto subsystem's setter.
@@ -122,7 +124,6 @@ async fn dispatch(
     }
 }
 
-
 #[allow(clippy::too_many_arguments)]
 pub async fn write(
     repo: &mut settings::Repo,
@@ -138,7 +139,17 @@ pub async fn write(
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
     }
-    dispatch(key, val.get(), motion, tmc, coord, wirefeed, toolsupply, homing).await?;
+    dispatch(
+        key,
+        val.get(),
+        motion,
+        tmc,
+        coord,
+        wirefeed,
+        toolsupply,
+        homing,
+    )
+    .await?;
     let _ = repo.set(key, val); // infallible: key present
     Ok(())
 }
@@ -159,8 +170,10 @@ pub async fn apply_all(
             .await
             .is_err()
         {
-            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", false));
-            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).str_val("settings.msg", key));
+            let _ = line_tx
+                .try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", false));
+            let _ = line_tx
+                .try_send(pstate::Line::new(pstate::PsType::Init).str_val("settings.msg", key));
             return false;
         }
     }

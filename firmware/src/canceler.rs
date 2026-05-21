@@ -36,7 +36,8 @@ impl Canceler {
     /// Bump the generation and (re)arm the drain window.
     pub fn cancel(&self) {
         self.gen.fetch_add(1, atomic::Ordering::Relaxed);
-        self.ticks_left.store(CANCEL_TICKS, atomic::Ordering::Relaxed);
+        self.ticks_left
+            .store(CANCEL_TICKS, atomic::Ordering::Relaxed);
     }
 
     /// Age the drain window by one tick. Call once per orchestrator tick.

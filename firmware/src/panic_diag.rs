@@ -44,7 +44,9 @@ fn panic(info: &panic::PanicInfo) -> ! {
         PANIC_REPORT
             .file_len
             .store(file.len() as u32, atomic::Ordering::Relaxed);
-        PANIC_REPORT.line.store(loc.line(), atomic::Ordering::Relaxed);
+        PANIC_REPORT
+            .line
+            .store(loc.line(), atomic::Ordering::Relaxed);
     }
     PANIC_REPORT.magic.store(MAGIC, atomic::Ordering::SeqCst);
     loop {

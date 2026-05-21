@@ -81,11 +81,14 @@ impl<B: Bus> Device<B> {
             }
         }
         if self.init_ok {
-            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", true));
+            let _ =
+                line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", true));
         } else {
-            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", false));
-            let _ = line_tx
-                .try_send(pstate::Line::new(pstate::PsType::Init).str_val("pulser.msg", "I2C read failed"));
+            let _ =
+                line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", false));
+            let _ = line_tx.try_send(
+                pstate::Line::new(pstate::PsType::Init).str_val("pulser.msg", "I2C read failed"),
+            );
         }
         self.init_ok
     }

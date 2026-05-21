@@ -27,8 +27,8 @@ use embassy_futures::join;
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::channel;
 use embassy_sync::mutex;
-use model::command;
 use model::comm;
+use model::command;
 use model::coordstate;
 use model::pstate;
 
@@ -65,23 +65,28 @@ async fn main(spawner: embassy_executor::Spawner) {
     // Motion alone is ~32 KiB), so spawning main panics ("task arena is full")
     // before any code runs. StaticCell puts them in plain .bss instead.
     static MOTION_CELL: static_cell::StaticCell<SharedMotion> = static_cell::StaticCell::new();
-    let motion: &'static SharedMotion = MOTION_CELL.init(mutex::Mutex::new(motion::Motion::new(motors)));
+    let motion: &'static SharedMotion =
+        MOTION_CELL.init(mutex::Mutex::new(motion::Motion::new(motors)));
     static TMC_CELL: static_cell::StaticCell<settings::SharedTmc> = static_cell::StaticCell::new();
     let tmc: &'static settings::SharedTmc = TMC_CELL.init(mutex::Mutex::new(board.motors.tmc));
     static PULSER_CELL: static_cell::StaticCell<SharedPulser> = static_cell::StaticCell::new();
     let pulser: &'static SharedPulser = PULSER_CELL.init(mutex::Mutex::new(board.pulser));
-    static CMD_QUEUE_CELL: static_cell::StaticCell<commands::CmdQueue> = static_cell::StaticCell::new();
+    static CMD_QUEUE_CELL: static_cell::StaticCell<commands::CmdQueue> =
+        static_cell::StaticCell::new();
     let cmd_queue: &'static commands::CmdQueue = CMD_QUEUE_CELL.init(channel::Channel::new());
     static COORD_CELL: static_cell::StaticCell<SharedCoord> = static_cell::StaticCell::new();
-    let coord: &'static SharedCoord = COORD_CELL.init(mutex::Mutex::new(coordstate::CoordState::new()));
+    let coord: &'static SharedCoord =
+        COORD_CELL.init(mutex::Mutex::new(coordstate::CoordState::new()));
     static PUMP_CELL: static_cell::StaticCell<SharedPump> = static_cell::StaticCell::new();
     let pump: &'static SharedPump = PUMP_CELL.init(mutex::Mutex::new(board::Pump::new(board.pump)));
     static WIREFEED_CELL: static_cell::StaticCell<SharedWirefeed> = static_cell::StaticCell::new();
     let wirefeed: &'static SharedWirefeed =
         WIREFEED_CELL.init(mutex::Mutex::new(wirefeed::Wirefeed::new(step[6])));
-    static TOOLSUPPLY_CELL: static_cell::StaticCell<SharedToolSupply> = static_cell::StaticCell::new();
-    let toolsupply: &'static SharedToolSupply =
-        TOOLSUPPLY_CELL.init(mutex::Mutex::new(board::ToolSupply::new(board.toolsupply_pwm)));
+    static TOOLSUPPLY_CELL: static_cell::StaticCell<SharedToolSupply> =
+        static_cell::StaticCell::new();
+    let toolsupply: &'static SharedToolSupply = TOOLSUPPLY_CELL.init(mutex::Mutex::new(
+        board::ToolSupply::new(board.toolsupply_pwm),
+    ));
     static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
     let homing: &'static SharedHoming =
         HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
@@ -102,12 +107,13 @@ async fn main(spawner: embassy_executor::Spawner) {
         line_tx,
     )
     .await;
-    let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("ok", pulser_ok && settings_ok));
+    let _ = line_tx
+        .try_send(pstate::Line::new(pstate::PsType::Init).bool("ok", pulser_ok && settings_ok));
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).end());
 
     join::join(
         tick_loop(
-            board.console,
+            board.serial,
             cmd_queue,
             motion,
             coord,
@@ -174,8 +180,11 @@ async fn tick_loop(
                 // flight. Signals stay live so `?` queries and a follow-up `!` work.
                 Some(comm::Parsed::Command(c)) if !canceler::CANCELER.active() => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
-                        let _ = line_tx
-                            .try_send(pstate::ErrorLine::new().msg(format_args!("queue full")).finish());
+                        let _ = line_tx.try_send(
+                            pstate::ErrorLine::new()
+                                .msg(format_args!("queue full"))
+                                .finish(),
+                        );
                     }
                 }
                 Some(comm::Parsed::CommandError(src, e)) if !canceler::CANCELER.active() => {

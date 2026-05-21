@@ -81,7 +81,10 @@ pub async fn exec(
                 let target = coord.lock().await.resolve_move(&spec, here);
                 // Only chain onto a still-running EDM move; a cancel drops it to
                 // Idle and breaks the chain even if cont_prev was set.
-                (target, cont_prev && m.mode() == model::motion::Mode::EdmMove)
+                (
+                    target,
+                    cont_prev && m.mode() == model::motion::Mode::EdmMove,
+                )
             };
             if chaining {
                 motion.lock().await.state().enqueue_edm(target, cont_next);
@@ -216,18 +219,21 @@ async fn exec_home(
     }
     let count = axes.x as u8 + axes.y as u8 + axes.z as u8;
     if count > 1 {
-        let _ = line_tx.try_send(pstate::ErrorLine::new().msg(format_args!("too many axes")).finish());
+        let _ = line_tx.try_send(
+            pstate::ErrorLine::new()
+                .msg(format_args!("too many axes"))
+                .finish(),
+        );
         return;
     }
 
     // count == 0 means home all in phase order; otherwise the single named axis.
-    let mut order = [model::settings::Axis::X, model::settings::Axis::Y, model::settings::Axis::Z];
-    order.sort_unstable_by(|a, b| {
-        homing
-            .axis(*a)
-            .phase
-            .total_cmp(&homing.axis(*b).phase)
-    });
+    let mut order = [
+        model::settings::Axis::X,
+        model::settings::Axis::Y,
+        model::settings::Axis::Z,
+    ];
+    order.sort_unstable_by(|a, b| homing.axis(*a).phase.total_cmp(&homing.axis(*b).phase));
     for axis in order {
         let named = match axis {
             model::settings::Axis::X => axes.x,
@@ -348,10 +354,16 @@ async fn dump_stat(
             .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized))
             .await;
         line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).int("pulser.poll_count", stat.poll_count as i32))
+            .send(
+                pstate::Line::new(pstate::PsType::Stat)
+                    .int("pulser.poll_count", stat.poll_count as i32),
+            )
             .await;
         line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_fail", stat.i2c_fail as i32))
+            .send(
+                pstate::Line::new(pstate::PsType::Stat)
+                    .int("pulser.i2c_fail", stat.i2c_fail as i32),
+            )
             .await;
         line_tx
             .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_pulse", stat.r_pulse))
@@ -386,7 +398,9 @@ async fn dump_stat(
         .send(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate))
         .await;
 
-    line_tx.send(pstate::Line::new(pstate::PsType::Stat).end()).await;
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Stat).end())
+        .await;
 }
 
 /// Send a `stat` float field, or `key:"error"` when the value is absent.
