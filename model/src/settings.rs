@@ -19,7 +19,7 @@ pub const N_MOTORS: usize = 7;
 pub const STG_KEY_CAP: usize = 20;
 /// Max number of key segments
 /// cf. `cs.w.pos.x` has 4 segs
-pub const STG_KEY_SEGS_CAP : usize = 5;
+pub const STG_KEY_SEGS_CAP: usize = 5;
 
 pub use crate::coords::{Axis, CoordSys};
 
