@@ -11,7 +11,7 @@
 
 use heapless::Vec;
 
-use crate::command::{self, Command, ParseError};
+use crate::command::{self, Command, FastSet, Outcome, ParseError};
 use crate::signal::{self, QuerySignal, Signal};
 
 /// Spec caps payload at 100 VCHAR; round up to a power of two.
@@ -108,6 +108,8 @@ fn classify(line: &[u8]) -> Frame<'_> {
 pub enum Parsed<'a> {
     CancelSignal,
     QuerySignal(QuerySignal),
+    /// Unqueued fast-set; dispatched immediately like a signal.
+    FastSet(FastSet),
     Command(Command),
     CommandError(&'a [u8], ParseError),
 }
@@ -137,7 +139,8 @@ impl Parser {
                 Signal::Query(q) => Parsed::QuerySignal(q),
             },
             Frame::Command(c) => match command::parse(c) {
-                Ok(cmd) => Parsed::Command(cmd),
+                Ok(Outcome::Command(cmd)) => Parsed::Command(cmd),
+                Ok(Outcome::FastSet(fs)) => Parsed::FastSet(fs),
                 Err(e) => Parsed::CommandError(c, e),
             },
         })

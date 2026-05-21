@@ -28,6 +28,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
+use model::command::FastSet;
 use model::comm::{Parsed, Parser};
 use model::coordstate::CoordState;
 use model::pstate::{ErrorLine, Line, PsType};
@@ -138,6 +139,7 @@ async fn main(spawner: Spawner) {
             motion,
             coord,
             pulser,
+            pump,
             wirefeed,
             line_tx,
         ),
@@ -155,6 +157,7 @@ async fn tick_loop(
     motion: &SharedMotion,
     coord: &SharedCoord,
     pulser: &SharedPulser,
+    pump: &SharedPump,
     wirefeed: &SharedWirefeed,
     line_tx: &LineTx,
 ) {
@@ -187,6 +190,11 @@ async fn tick_loop(
                 Some(Parsed::QuerySignal(q)) => {
                     signals::exec_query(q, &stats, cmd_queue, line_tx);
                 }
+                // Fast-set: applied immediately like a signal (unqueued), and
+                // stays live during the cancel window for the same reason.
+                Some(Parsed::FastSet(fs)) => match fs {
+                    FastSet::PumpEn(on) => pump.lock().await.set_override(on),
+                },
                 // While the cancel window is open, blackhole incoming commands so a
                 // single `!` drains the queue instead of racing host bytes still in
                 // flight. Signals stay live so `?` queries and a follow-up `!` work.

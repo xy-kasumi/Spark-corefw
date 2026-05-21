@@ -8,22 +8,47 @@ use embassy_time::{Duration, Timer};
 
 pub struct Pump {
     gpio: Output<'static>,
+    /// Last M8/M9 commanded state.
+    commanded: bool,
+    /// `fset ov.pump_en` override: while set, forces the pump on regardless of
+    /// `commanded`. The GPIO follows `commanded || override_on`.
+    override_on: bool,
 }
 
 impl Pump {
     pub fn new(gpio: Output<'static>) -> Self {
-        Self { gpio }
+        Self {
+            gpio,
+            commanded: false,
+            override_on: false,
+        }
     }
 
-    /// Drive the pump on or off, then wait for it to settle: 1 s after starting,
-    /// 100 ms after stopping (blocking).
+    /// M8/M9: set the commanded state, then wait for the pump to settle: 1 s
+    /// after starting, 100 ms after stopping (blocking).
     pub async fn set_enable(&mut self, enable: bool) {
+        self.commanded = enable;
+        self.apply();
         if enable {
-            self.gpio.set_high();
             Timer::after(Duration::from_millis(1000)).await;
         } else {
-            self.gpio.set_low();
             Timer::after(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// `fset ov.pump_en`: force the pump on (true) or hand control back to
+    /// M8/M9 (false). Applied immediately with no settle delay, so it is safe
+    /// to call from the tick loop.
+    pub fn set_override(&mut self, on: bool) {
+        self.override_on = on;
+        self.apply();
+    }
+
+    fn apply(&mut self) {
+        if self.commanded || self.override_on {
+            self.gpio.set_high();
+        } else {
+            self.gpio.set_low();
         }
     }
 }

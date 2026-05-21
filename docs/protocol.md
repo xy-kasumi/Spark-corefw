@@ -115,13 +115,18 @@ set m.6.microstep 32
 #### "get": Get Settings
 Get all setting entries. See settings.md for list of settings.
 
+#### "fset": Fast Set
+Set something quickly (not queued).
+
+Only available config:
+```
+fset ov.pump_en true ; true enables pump, false respects M8/M9. default: false
+```
+
+
 #### "stat": Dump Status
 Dump software & hardware internal status useful for debugging the firmware or hardware.
 Unlike "?" signal which responds immediately, stat can take time to query peripherals, run self-check etc.
-
-#### "test": Execute Hardware Tests
-Execute potentially unsafe operation to test the hardware.
-See main.c for details.
 
 #### G-Code
 Commands starting with "G" or "M". See gcode.md for details.
