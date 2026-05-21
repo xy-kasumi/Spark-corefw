@@ -183,6 +183,7 @@ fn parse_select(p: &mut Cursor, code: i32) -> Option<Parsed> {
 
 fn parse_move(p: &mut Cursor) -> Option<MoveSpec> {
     let mut spec = MoveSpec::default();
+    let mut seen_axis = false;
     loop {
         if p.eof_or_only_ws() {
             break;
@@ -199,8 +200,10 @@ fn parse_move(p: &mut Cursor) -> Option<MoveSpec> {
             b'C' => spec.c = Some(value / 360.0),
             _ => return None,
         }
+        seen_axis = true;
     }
-    Some(spec)
+    // A move needs at least one axis; bare `G0`/`G1`/`G38.3` is a form error.
+    seen_axis.then_some(spec)
 }
 
 struct Cursor<'a> {
@@ -285,12 +288,21 @@ impl<'a> Cursor<'a> {
         if !self.eof() && matches!(self.buf[self.pos], b'-' | b'+') {
             self.pos += 1;
         }
+        let int_start = self.pos;
         // Read all chars that could be part of a float (digits + at most one dot).
-        // We don't validate here — let parse() reject malformed (e.g. "10..5", "10.5.2").
+        // We don't validate the shape here — let parse() reject malformed runs of
+        // digits/dots (e.g. "10..5", "10.5.2").
         while !self.eof() && (self.buf[self.pos].is_ascii_digit() || self.buf[self.pos] == b'.') {
             self.pos += 1;
         }
         if self.pos == start || (self.pos == start + 1 && matches!(self.buf[start], b'-' | b'+')) {
+            return None;
+        }
+        // Reject a leading zero in the integer part (`05`). `0`, `0.5`, `.5` are fine.
+        if self.buf[int_start] == b'0'
+            && int_start + 1 < self.pos
+            && self.buf[int_start + 1].is_ascii_digit()
+        {
             return None;
         }
         str::from_utf8(&self.buf[start..self.pos])
@@ -302,199 +314,247 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! The typed parser rejects unknown M-codes, so only M3/M4 are accepted
-    //! (a generic parser accepting any M number would also take M5/M999).
+    //! Organized by the claim each test defends, not by example:
+    //!   1. dispatch table — every command maps to its `Parsed` variant;
+    //!   2. form rejections — near-misses one mutation away from valid;
+    //!   3. properties — invariants over the whole input space (proptest).
+    //!
+    //! Concrete cases snapshot the full `Debug` of `parse(line)` (rejections render
+    //! as `None`); run with `UPDATE_EXPECT=1` to regenerate the expected strings.
+
+    extern crate std;
+
+    use expect_test::expect;
+    use proptest::prelude::*;
 
     use super::*;
 
+    fn check(line: &str, expected: expect_test::Expect) {
+        expected.assert_eq(&std::format!("{:?}", parse(line.as_bytes())));
+    }
+
+    // --- 1. Dispatch table: each command maps to its variant. ---
+
     #[test]
-    fn basic_m3_command() {
-        assert_eq!(
-            parse(b"M3").unwrap(),
-            Parsed::Pulser(PulserSpec {
-                tool_negative: true,
-                pulse_us: None,
-                current_a: None,
-                duty_pct: None,
-            })
+    fn dispatch_moves() {
+        check(
+            "G0 X12.3",
+            expect![["Some(Rapid(MoveSpec { x: Some(12.3), y: None, z: None, c: None }))"]],
+        );
+        check(
+            "G1 X10 Y20",
+            expect![["Some(Feed(MoveSpec { x: Some(10.0), y: Some(20.0), z: None, c: None }))"]],
+        );
+        check(
+            "G38.3 X10 Y3.5",
+            expect![["Some(Probe(MoveSpec { x: Some(10.0), y: Some(3.5), z: None, c: None }))"]],
         );
     }
 
     #[test]
-    fn m3_with_all_parameters() {
-        let Parsed::Pulser(c) = parse(b"M3 P750 Q1.5 R30").unwrap() else {
-            panic!("expected Pulser");
-        };
-        assert!(c.tool_negative);
-        assert_eq!(c.pulse_us, Some(750.0));
-        assert_eq!(c.current_a, Some(1.5));
-        assert_eq!(c.duty_pct, Some(30.0));
+    fn dispatch_home() {
+        check("G28", expect!["Some(Home(All))"]);
+        check("G28 X", expect!["Some(Home(One(X)))"]);
     }
 
     #[test]
-    fn m4_with_partial_parameters() {
-        // Tool-positive; P omitted stays None (executor defaults it), Q/R given.
-        let Parsed::Pulser(c) = parse(b"M4 Q2.0 R25").unwrap() else {
-            panic!("expected Pulser");
-        };
-        assert!(!c.tool_negative);
-        assert_eq!(c.pulse_us, None);
-        assert_eq!(c.current_a, Some(2.0));
-        assert_eq!(c.duty_pct, Some(25.0));
+    fn dispatch_coord_select() {
+        check("G53", expect!["Some(SelectCoordSys(Machine))"]);
+        check("G54", expect!["Some(SelectCoordSys(Offset(G)))"]);
+        check("G55", expect!["Some(SelectCoordSys(Offset(W)))"]);
+        check("G56", expect!["Some(SelectCoordSys(Offset(Ts)))"]);
     }
 
     #[test]
-    fn m3_mixed_parameters() {
-        let Parsed::Pulser(c) = parse(b"M3 P1000 R50").unwrap() else {
-            panic!("expected Pulser");
-        };
-        assert_eq!(c.pulse_us, Some(1000.0));
-        assert_eq!(c.current_a, None);
-        assert_eq!(c.duty_pct, Some(50.0));
-    }
-
-    #[test]
-    fn m3_bare_param_fails() {
-        assert!(parse(b"M3 P").is_none());
-    }
-
-    #[test]
-    fn m3_unknown_param_fails() {
-        assert!(parse(b"M3 P500 S100").is_none());
-    }
-
-    #[test]
-    fn basic_g0_command() {
-        let cmd = parse(b"G0").unwrap();
-        assert_eq!(cmd, Parsed::Rapid(MoveSpec::default()));
-    }
-
-    #[test]
-    fn g1_with_coordinates() {
-        let Parsed::Feed(s) = parse(b"G1 X10.5 Y-20.3 Z5").unwrap() else {
-            panic!("expected Linear");
-        };
-        assert_eq!(s.x, Some(10.5));
-        assert_eq!(s.y, Some(-20.3));
-        assert_eq!(s.z, Some(5.0));
-    }
-
-    #[test]
-    fn g0_with_c_axis() {
-        // C parser stores c in degrees; our parser converts to turns at parse time.
-        let Parsed::Rapid(s) = parse(b"G0 X10 Y20 C45.5").unwrap() else {
-            panic!("expected Rapid");
-        };
-        assert_eq!(s.x, Some(10.0));
-        assert_eq!(s.y, Some(20.0));
-        assert_eq!(s.c, Some(45.5 / 360.0));
-    }
-
-    #[test]
-    fn g1_with_all_axes() {
-        // C: c=90 (degrees). Rust: c=0.25 (turns).
-        let Parsed::Feed(s) = parse(b"G1 X1.5 Y2.5 Z3.5 C90").unwrap() else {
-            panic!("expected Linear");
-        };
-        assert_eq!(s.x, Some(1.5));
-        assert_eq!(s.y, Some(2.5));
-        assert_eq!(s.z, Some(3.5));
-        assert_eq!(s.c, Some(0.25));
-    }
-
-    #[test]
-    fn g38_3_command() {
-        let Parsed::Probe(s) = parse(b"G38.3").unwrap() else {
-            panic!("expected Probe");
-        };
-        assert_eq!(s, MoveSpec::default());
-    }
-
-    #[test]
-    fn g38_3_with_target() {
-        let Parsed::Probe(s) = parse(b"G38.3 Z-5").unwrap() else {
-            panic!("expected Probe");
-        };
-        assert_eq!(s.z, Some(-5.0));
-    }
-
-    #[test]
-    fn g38_2_unsupported() {
-        // Only G38.3 is handled; G38.2 and bare G38 are unknown.
-        assert_eq!(parse(b"G38.2"), None);
-        assert_eq!(parse(b"G38"), None);
-    }
-
-    #[test]
-    fn g28_axis_only() {
-        assert_eq!(
-            parse(b"G28 X").unwrap(),
-            Parsed::Home(HomeSpec::One(coords::Axis::X))
+    fn dispatch_pulser() {
+        // M3 = tool-negative, all params default (left None for the executor).
+        check(
+            "M3",
+            expect![[
+                "Some(Pulser(PulserSpec { tool_negative: true, pulse_us: None, current_a: None, duty_pct: None }))"
+            ]],
+        );
+        // M4 = tool-positive; P/Q/R map to pulse_us/current_a/duty_pct.
+        check(
+            "M4 P1000 Q0.8",
+            expect![[
+                "Some(Pulser(PulserSpec { tool_negative: false, pulse_us: Some(1000.0), current_a: Some(0.8), duty_pct: None }))"
+            ]],
         );
     }
 
     #[test]
-    fn g28_c_rejected() {
-        // C is not homeable (spec lists X/Y/Z only).
-        assert!(parse(b"G28 C").is_none());
+    fn dispatch_pump() {
+        check("M8", expect!["Some(PumpOn)"]);
+        check("M9", expect!["Some(PumpOff)"]);
     }
 
     #[test]
-    fn g28_home_all() {
-        assert_eq!(parse(b"G28").unwrap(), Parsed::Home(HomeSpec::All));
+    fn dispatch_wirefeed() {
+        check("M10 R120", expect!["Some(WirefeedStart(120.0))"]);
+        check("M11", expect!["Some(WirefeedStop)"]);
+    }
+
+    #[test]
+    fn dispatch_tool_supply() {
+        check("M60", expect!["Some(ToolSupplyOpen)"]);
+        check("M61", expect!["Some(ToolSupplyClose)"]);
+    }
+
+    #[test]
+    fn pulser_omitted_params_stay_none() {
+        // A different subset/order from dispatch_pulser: P omitted stays None.
+        check(
+            "M3 R30 Q2.0",
+            expect![[
+                "Some(Pulser(PulserSpec { tool_negative: true, pulse_us: None, current_a: Some(2.0), duty_pct: Some(30.0) }))"
+            ]],
+        );
+    }
+
+    // --- 2. Form rejections: errors decidable from the line alone. ---
+
+    #[test]
+    fn rejects_bare_move() {
+        // A move needs at least one axis (spec: "G0 ; error").
+        check("G0", expect!["None"]);
+        check("G1", expect!["None"]);
+        check("G38.3", expect!["None"]);
+    }
+
+    #[test]
+    fn rejects_lowercase() {
+        check("g0 X10", expect!["None"]); // command
+        check("G0 x10", expect!["None"]); // parameter
+    }
+
+    #[test]
+    fn requires_whitespace_between_tokens() {
+        check("G0X1Y2", expect!["None"]);
+    }
+
+    #[test]
+    fn subcode_must_match_exactly() {
+        // Only G38.3 is handled; a different subcode or a bare G38 is unknown.
+        check("G38.2", expect!["None"]);
+        check("G38", expect!["None"]);
+    }
+
+    #[test]
+    fn rejects_malformed_subcode() {
+        check("G38.", expect!["None"]);
+    }
+
+    #[test]
+    fn rejects_unknown_param() {
+        check("G0 S5", expect!["None"]);
+        check("M3 P500 S100", expect!["None"]);
+    }
+
+    #[test]
+    fn rejects_bare_param() {
+        check("G0 X", expect!["None"]);
+        check("M3 P", expect!["None"]);
+    }
+
+    #[test]
+    fn no_param_command_rejects_args() {
+        check("M8 X1", expect!["None"]);
+    }
+
+    #[test]
+    fn m10_requires_r() {
+        check("M10", expect!["None"]); // R is required
+        check("M10 P5", expect!["None"]); // wrong letter
+    }
+
+    #[test]
+    fn g28_at_most_one_axis() {
+        check("G28 X Y", expect!["None"]);
     }
 
     #[test]
     fn g28_rejects_value() {
-        assert!(parse(b"G28 X10").is_none());
+        check("G28 X10", expect!["None"]);
     }
 
     #[test]
-    fn g28_rejects_two_axes() {
-        assert!(parse(b"G28 X Y").is_none());
+    fn g28_rejects_non_homeable_axis() {
+        check("G28 C", expect!["None"]);
     }
 
     #[test]
-    fn empty_string() {
-        assert_eq!(parse(b""), None);
+    fn rejects_leading_zero() {
+        // `05` is not a valid number (spec: "## Numbers").
+        check("G0 X05", expect!["None"]);
     }
 
     #[test]
-    fn whitespace_only() {
-        assert_eq!(parse(b"   "), None);
+    fn rejects_malformed_number() {
+        check("G0 X10.5.2", expect!["None"]);
     }
 
     #[test]
-    fn extra_whitespace_success() {
-        let Parsed::Rapid(s) = parse(b"G0   X10.5    Y20").unwrap() else {
-            panic!("expected Rapid");
-        };
-        assert_eq!(s.x, Some(10.5));
-        assert_eq!(s.y, Some(20.0));
+    fn rejects_garbage_after_command() {
+        check("G0abc X10", expect!["None"]);
     }
 
     #[test]
-    fn lowercase_command_fails() {
-        assert!(parse(b"g0 X10").is_none());
+    fn rejects_empty_and_whitespace() {
+        check("", expect!["None"]);
+        check("   ", expect!["None"]);
     }
 
-    #[test]
-    fn lowercase_parameter_fails() {
-        assert!(parse(b"G0 x10").is_none());
+    // --- 3. Properties over the whole input space. ---
+
+    // Build a move command from a non-empty axis subset, rendering it with a
+    // shuffled order and varied inter-token spacing alongside the spec it must
+    // parse back to. This one property subsumes order-independence, whitespace
+    // insensitivity, value round-tripping, and the C degrees->turns conversion.
+    prop_compose! {
+        fn move_case()(
+            pairs in prop::sample::subsequence(std::vec![b'X', b'Y', b'Z', b'C'], 1..=4)
+                .prop_flat_map(|letters| {
+                    let n = letters.len();
+                    (Just(letters), prop::collection::vec(-1000.0f32..1000.0, n))
+                })
+                .prop_map(|(letters, values)| {
+                    letters.into_iter().zip(values).collect::<std::vec::Vec<(u8, f32)>>()
+                })
+                .prop_shuffle(),
+            gaps in prop::collection::vec(1usize..=3, 4),
+        ) -> (std::string::String, MoveSpec) {
+            let mut line = std::string::String::from("G0");
+            let mut spec = MoveSpec::default();
+            for (i, (letter, value)) in pairs.iter().enumerate() {
+                for _ in 0..gaps[i] {
+                    line.push(' ');
+                }
+                line.push(*letter as char);
+                line.push_str(&std::format!("{value}"));
+                match letter {
+                    b'X' => spec.x = Some(*value),
+                    b'Y' => spec.y = Some(*value),
+                    b'Z' => spec.z = Some(*value),
+                    b'C' => spec.c = Some(value / 360.0),
+                    _ => unreachable!(),
+                }
+            }
+            (line, spec)
+        }
     }
 
-    #[test]
-    fn garbled_command_fails() {
-        assert!(parse(b"G0abc X10").is_none());
-    }
+    proptest! {
+        /// The parser must never panic, whatever bytes the host sends.
+        #[test]
+        fn never_panics_on_arbitrary_bytes(bytes in prop::collection::vec(any::<u8>(), 0..32)) {
+            let _ = parse(&bytes);
+        }
 
-    #[test]
-    fn garbled_number_fails() {
-        assert!(parse(b"G0 X10.5.2").is_none());
-    }
-
-    #[test]
-    fn no_whitespace_between_params_fails() {
-        assert!(parse(b"G0X1Y2").is_none());
+        /// Axis order and inter-token spacing don't change the parsed move.
+        #[test]
+        fn move_recovers_axes_regardless_of_order_and_spacing((line, spec) in move_case()) {
+            prop_assert_eq!(parse(line.as_bytes()), Some(Parsed::Rapid(spec)));
+        }
     }
 }

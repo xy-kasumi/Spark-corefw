@@ -9,11 +9,11 @@ The spark machine has following mandatory component
 * work
   * optional: A, B rotaty axes
 * grinder
-  * controlled by M-code; no coordinate value
+  * controlled by M-code; no coordinate value (TBD)
 
-Each of these components has its origin.
-With the machine origin (which is determined by axis limit sensing),
-there are 4 origins.
+X, Y, Z has origin (axis limit switch).
+C does not have origin, thus not homaeble (whtaever bootup rotation become "origin").
+A, B is undecided. (not yet supported)
 
 We have 4 coordinate systems based on these origins:
 * Machine coordinate system (default on boot; G53)
@@ -28,7 +28,7 @@ We have 4 coordinate systems based on these origins:
 We do not provide "tool center point control".
 Management of current tool shape is G-code programs' responsibility.
 
-### Standard configuration
+### Standard Configuration
 For now, we have only one configuration of axes and we call it "standard".
 G-code, the firmware, and the software should be flexible enough to allow different configurations in future.
 
@@ -36,33 +36,28 @@ G-code, the firmware, and the software should be flexible enough to allow differ
 ![Origins in standard config](gcode-std-origins.png)
 
 
-## Syntax Difference from RS-274/NGC
-Core G-code syntax resembles that of [Marlin](https://marlinfw.org/meta/gcode/).
-We don't support multiple G or M codes in single line, and treat `;` as the beginning of comment in the line.
+## Overall Syntax
+* No comment allowed
+  * Host must strip them (to save bandwidth & ease error reporting)
+  * But we do use `; ...` to mean comment in docs
+* No lowercase allowed (unlike RS274/NGC)
+  * Error: `g0 x0`
+  * To keep design wiggle room for wire protocol design
+* No "line" vs "block" distinction; coordinate change is sequence of commands
+  * Error: `G54 G0 Y10`
+  * Good: `G54` (change coord sys) then `G0 Y10` (move)
+    * Coord change affects all following commands until further coordinate system change
 
-### Coordinate Systems
-Codes "G53", "G54", "G55", "G56" works by changing coordinate systems of the blocks that follows.
+## Numbers
+Float numbers are decimal. Both signs (+/-) are allowed. Exponents are not allowed.
 
-Core does not support syntax like `G54 G0 Y10`. Instead, valid example would be:
-```
-G54
-G0 Y10
-```
+* Valid: `+1.32`, `-0.04`, `.500`
+* Invalid: `05`, `1e3`, `inf`, `1+0.5`
 
-`G54` changes coordinate system to "grinder coordinate system".
-Thus, `G0 Y10` is interpreted in grinder coordinates.
-All following commands are interpreted in the grinder coordinates,
-until further coordinate system change.
+For translational axes, they mean mm.
+For rotational axes, they mean degree.
+Rotations mean same thing if they're equal under modulo 360.
 
-### Comments
-`;` is just a comment initiator. No distinction between line and "block".
-In the following G-code, ` G1 X1` part after `;` is just a comment.
-```
-G0 X0 ; G1 X1
-```
-
-Although comments is allowed in G-code notations, core firmware does NOT handle it.
-Sender must not send comments or empty lines.
 
 ## Supported G-codes
 
@@ -102,6 +97,7 @@ G28  ; home all-axis according to the settings
 G28 X  ; home X-axis
 
 G28 X Y  ; error
+G28 X10  ; error
 ```
 
 Coordinates of homed axes will be set to origin value configured by
