@@ -152,7 +152,7 @@ mod repo_tests {
     use super::*;
 
     #[test]
-    fn value_parse() {
+    fn value_is_finite() {
         assert_eq!(Value::parse("3.14").map(|v| v.get()), Some(3.14));
         assert!(Value::parse("NaN").is_none());
         assert!(Value::parse("inf").is_none());
