@@ -7,7 +7,7 @@
 //! rapid primitive; its position re-anchor lives in the firmware controller.
 
 use crate::coords;
-use crate::path_buffer;
+use crate::path;
 
 /// EDM control thresholds and per-tick step sizes (mirror C `motion_tick_handler`).
 const EDM_OPEN_RATE_THRESH: u8 = 200;
@@ -48,7 +48,7 @@ pub enum Mode {
 
 pub struct MotionState<const N: usize> {
     mode: Mode,
-    path: path_buffer::PathBuffer<N>,
+    path: path::PathBuffer<N>,
     feed_mm_per_s: f32,
     /// EDM move only: stop when the path end is reached. False while more
     /// segments may still be chained (continuation).
@@ -62,7 +62,7 @@ impl<const N: usize> MotionState<N> {
     pub const fn new(start: coords::PosPhys) -> Self {
         Self {
             mode: Mode::Idle,
-            path: path_buffer::PathBuffer::new(start, start),
+            path: path::PathBuffer::new(start, start),
             feed_mm_per_s: 0.0,
             edm_stop_at_target: true,
             distance_max: 0.0,
@@ -72,7 +72,7 @@ impl<const N: usize> MotionState<N> {
     /// Begin a rapid move from the current path-buffer position to `target`.
     pub fn start_rapid(&mut self, target: coords::PosPhys, feed_mm_per_s: f32) {
         let here = self.path.position();
-        self.path = path_buffer::PathBuffer::new(here, target);
+        self.path = path::PathBuffer::new(here, target);
         self.feed_mm_per_s = feed_mm_per_s;
         self.distance_max = 0.0;
         self.mode = Mode::Rapid;
@@ -82,7 +82,7 @@ impl<const N: usize> MotionState<N> {
     /// or path end.
     pub fn start_probe(&mut self, target: coords::PosPhys, feed_mm_per_s: f32) {
         let here = self.path.position();
-        self.path = path_buffer::PathBuffer::new(here, target);
+        self.path = path::PathBuffer::new(here, target);
         self.feed_mm_per_s = feed_mm_per_s;
         self.distance_max = 0.0;
         self.mode = Mode::Probing;
@@ -92,7 +92,7 @@ impl<const N: usize> MotionState<N> {
     /// does not stop at the path end — a following segment is expected.
     pub fn start_edm(&mut self, target: coords::PosPhys, has_cont: bool) {
         let here = self.path.position();
-        self.path = path_buffer::PathBuffer::new(here, target);
+        self.path = path::PathBuffer::new(here, target);
         self.feed_mm_per_s = 0.0;
         self.edm_stop_at_target = !has_cont;
         self.distance_max = 0.0;
@@ -117,7 +117,7 @@ impl<const N: usize> MotionState<N> {
     /// Reset the controller to hold at `here` (degenerate path, Idle). Used for
     /// cancel and for the homing position re-anchor.
     pub fn set_position(&mut self, here: coords::PosPhys) {
-        self.path = path_buffer::PathBuffer::new(here, here);
+        self.path = path::PathBuffer::new(here, here);
         self.feed_mm_per_s = 0.0;
         self.mode = Mode::Idle;
     }
@@ -128,7 +128,7 @@ impl<const N: usize> MotionState<N> {
     }
 
     /// Advance the controller one tick.
-    pub fn tick(&mut self, input: MotionInputs) -> Result<MotionOutputs, path_buffer::MoveError> {
+    pub fn tick(&mut self, input: MotionInputs) -> Result<MotionOutputs, path::MoveError> {
         match self.mode {
             Mode::Rapid => {
                 self.path.move_by(self.feed_mm_per_s * input.dt)?;

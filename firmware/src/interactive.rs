@@ -20,7 +20,7 @@ use crate::drivers::serial;
 /// `line_len` is the framer's pre-feed line length (the single source of truth,
 /// so no parallel buffer is kept here). `tx_idle` must be true only when no
 /// protocol line is in flight, so echo bytes can't interleave one on the wire.
-pub fn echo(b: u8, line_len: usize, tx_idle: bool, serial: &serial::Serial) {
+pub fn echo(b: u8, line_len: usize, tx_idle: bool, serial: &serial::Device) {
     if !tx_idle {
         return;
     }

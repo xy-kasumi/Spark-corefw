@@ -100,12 +100,12 @@ fn parse_reply<E>(buf: &[u8; 8], expected_reg: u8) -> Result<u32, Error<E>> {
 
 // --- Driver ------------------------------------------------------------------
 
-pub struct Tmc2209<T: TmcTransport> {
+pub struct Device<T: TmcTransport> {
     transport: T,
     pub name: &'static str,
 }
 
-impl<T: TmcTransport> Tmc2209<T> {
+impl<T: TmcTransport> Device<T> {
     pub fn new(transport: T, name: &'static str) -> Self {
         Self { transport, name }
     }

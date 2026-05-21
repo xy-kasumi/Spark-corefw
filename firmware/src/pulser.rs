@@ -8,7 +8,7 @@
 
 use model::pstate;
 
-use crate::drivers::pulser::{self, PulserBus};
+use crate::drivers::pulser::{self, Bus};
 use crate::line_tx;
 
 /// EWMA coefficient for eff_duty: ~1 s time constant at 1 ms polling.
@@ -21,7 +21,7 @@ const WRITE_RETRIES: u32 = 5;
 /// of the config registers. `None` config fields mean that register read failed.
 /// EDM rates are normalized to [0, 1]. Built under the pulser lock so the caller
 /// can format and emit lines after releasing it.
-pub struct PulserStat {
+pub struct Stat {
     pub init_ok: bool,
     pub energized: bool,
     pub poll_count: u32,
@@ -35,8 +35,8 @@ pub struct PulserStat {
     pub max_duty_pct: Option<f32>,
 }
 
-pub struct Pulser<B: PulserBus> {
-    dev: pulser::PulserDevice<B>,
+pub struct Device<B: Bus> {
+    dev: pulser::Device<B>,
     init_ok: bool,
     energized: bool,
     /// Discard the first checkpoint after energize — it holds stale pre-energize data.
@@ -50,8 +50,8 @@ pub struct Pulser<B: PulserBus> {
     num_i2c_fail: u32,
 }
 
-impl<B: PulserBus> Pulser<B> {
-    pub fn new(dev: pulser::PulserDevice<B>) -> Self {
+impl<B: Bus> Device<B> {
+    pub fn new(dev: pulser::Device<B>) -> Self {
         Self {
             dev,
             init_ok: false,
@@ -206,9 +206,9 @@ impl<B: PulserBus> Pulser<B> {
     /// Gather a [`PulserStat`] snapshot for the `stat` command. Reads the config
     /// registers fresh (the board, not this struct, holds them). Must finish
     /// before the caller emits lines, so no `line_tx` here — see [`PulserStat`].
-    pub async fn read_stat(&mut self) -> PulserStat {
+    pub async fn read_stat(&mut self) -> Stat {
         if !self.init_ok {
-            return PulserStat {
+            return Stat {
                 init_ok: false,
                 energized: false,
                 poll_count: self.poll_count,
@@ -242,7 +242,7 @@ impl<B: PulserBus> Pulser<B> {
             .await
             .ok()
             .map(|v| v as f32);
-        PulserStat {
+        Stat {
             init_ok: true,
             energized: self.energized,
             poll_count: self.poll_count,

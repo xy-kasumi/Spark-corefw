@@ -12,10 +12,7 @@ use crate::settings;
 pub enum Command {
     Gcode(gcode::Command),
     /// `set` - Set single (key, val)
-    Set(
-        heapless::String<{ settings::STG_KEY_CAP }>,
-        settings::SettingsVal,
-    ),
+    Set(heapless::String<{ settings::STG_KEY_CAP }>, settings::Value),
     /// `get` - dump all settings as one `stg` p-state.
     Get,
     /// `stat` - dump per-module debug status as one `stat` p-state.
@@ -82,9 +79,9 @@ fn parse_set(rest: &str) -> Result<Command, ParseError> {
     if !tail.trim_start_matches(is_ws).is_empty() {
         return Err(ParseError::Syntax);
     }
-    let key =
-        heapless::String::<{ settings::STG_KEY_CAP }>::try_from(key).map_err(|_| ParseError::Syntax)?;
-    let value = settings::SettingsVal::parse(value_str).ok_or(ParseError::Syntax)?;
+    let key = heapless::String::<{ settings::STG_KEY_CAP }>::try_from(key)
+        .map_err(|_| ParseError::Syntax)?;
+    let value = settings::Value::parse(value_str).ok_or(ParseError::Syntax)?;
     Ok(Command::Set(key, value))
 }
 

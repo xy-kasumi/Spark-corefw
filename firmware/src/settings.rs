@@ -41,7 +41,7 @@ async fn dispatch(
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     let mut parts: [&str; settings::STG_KEY_SEGS_CAP] = [""; settings::STG_KEY_SEGS_CAP];
     let mut n = 0;
@@ -127,13 +127,13 @@ async fn dispatch(
 pub async fn write(
     repo: &mut settings::Repo,
     key: &str,
-    val: settings::SettingsVal,
+    val: settings::Value,
     motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
@@ -151,7 +151,7 @@ pub async fn apply_all(
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
 ) -> bool {
     for (key, v) in repo.iter() {

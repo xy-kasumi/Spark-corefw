@@ -14,8 +14,8 @@ use core::cell;
 use embassy_stm32::gpio;
 use embassy_stm32::interrupt::typelevel::Interrupt;
 use embassy_stm32::time;
+use embassy_stm32::timer;
 use embassy_stm32::timer::low_level;
-use embassy_stm32::timer::CoreInstance;
 use embassy_sync::blocking_mutex;
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::mutex;
@@ -37,7 +37,7 @@ enum State {
     ReceiveSynced, // edge seen; phase counter active
 }
 
-struct EngineInner<T: CoreInstance, const N: usize> {
+struct EngineInner<T: timer::CoreInstance, const N: usize> {
     state: State,
     phase: u8,      // 0..3, sub-bit position within the 90µs bit cell
     bit_pos: usize, // global bit index into the frame (0..buffer_size*10)
@@ -48,7 +48,7 @@ struct EngineInner<T: CoreInstance, const N: usize> {
     pins: [Option<gpio::Flex<'static>>; N],
 }
 
-impl<T: CoreInstance, const N: usize> EngineInner<T, N> {
+impl<T: timer::CoreInstance, const N: usize> EngineInner<T, N> {
     const fn new() -> Self {
         Self {
             state: State::Idle,
@@ -88,13 +88,13 @@ fn store_rx_bit(buf: &mut [u8], pos: usize, level: gpio::Level) {
     }
 }
 
-pub struct SoftUart<T: CoreInstance, const N: usize> {
+pub struct Uart<T: timer::CoreInstance, const N: usize> {
     inner: blocking_mutex::Mutex<raw::CriticalSectionRawMutex, cell::RefCell<EngineInner<T, N>>>,
     signal: signal::Signal<raw::CriticalSectionRawMutex, ()>,
     bus: mutex::Mutex<raw::CriticalSectionRawMutex, ()>,
 }
 
-impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
+impl<T: timer::CoreInstance, const N: usize> Uart<T, N> {
     pub const fn new() -> Self {
         Self {
             inner: blocking_mutex::Mutex::new(cell::RefCell::new(EngineInner::new())),
@@ -282,19 +282,19 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
     }
 }
 
-pub struct SoftUartHandle<T: CoreInstance + 'static, const N: usize> {
-    engine: &'static SoftUart<T, N>,
+pub struct SoftUartHandle<T: timer::CoreInstance + 'static, const N: usize> {
+    engine: &'static Uart<T, N>,
     pin_idx: usize,
 }
 
-impl<T: CoreInstance, const N: usize> Clone for SoftUartHandle<T, N> {
+impl<T: timer::CoreInstance, const N: usize> Clone for SoftUartHandle<T, N> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<T: CoreInstance, const N: usize> Copy for SoftUartHandle<T, N> {}
+impl<T: timer::CoreInstance, const N: usize> Copy for SoftUartHandle<T, N> {}
 
-impl<T: CoreInstance, const N: usize> SoftUartHandle<T, N> {
+impl<T: timer::CoreInstance, const N: usize> SoftUartHandle<T, N> {
     pub async fn write(&self, data: &[u8]) -> Result<(), Error> {
         self.engine.transact_write(self.pin_idx, data).await
     }

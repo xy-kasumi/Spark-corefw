@@ -3,7 +3,7 @@
 
 //! Single digital output pin.
 
-pub trait DigitalOutput {
+pub trait Pin {
     /// Drive the output high (`true`) or low (`false`).
     fn set(&mut self, high: bool);
 }

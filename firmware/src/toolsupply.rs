@@ -6,14 +6,14 @@
 
 use model::gcode;
 
-use crate::drivers::pwm_output::PwmOutput;
+use crate::drivers::pwm_out::Pin;
 
 /// Servo carrier period (50 Hz). Pulse widths are fractions of this.
 const PERIOD_MS: f32 = 20.0;
 const DEFAULT_OPEN_MS: f32 = 1.6;
 const DEFAULT_CLOSED_MS: f32 = 1.3;
 
-pub struct ToolSupply<P: PwmOutput> {
+pub struct ToolSupply<P: Pin> {
     pwm: P,
     open_ms: f32,
     closed_ms: f32,
@@ -21,7 +21,7 @@ pub struct ToolSupply<P: PwmOutput> {
     current_state: gcode::ToolSupplyState,
 }
 
-impl<P: PwmOutput> ToolSupply<P> {
+impl<P: Pin> ToolSupply<P> {
     pub fn new(mut pwm: P) -> Self {
         pwm.init(PERIOD_MS);
         Self {

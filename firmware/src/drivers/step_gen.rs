@@ -11,58 +11,58 @@ use core::cell;
 use embassy_stm32::gpio;
 use embassy_stm32::interrupt::typelevel::Interrupt;
 use embassy_stm32::time;
+use embassy_stm32::timer;
 use embassy_stm32::timer::low_level;
-use embassy_stm32::timer::CoreInstance;
 use embassy_sync::blocking_mutex;
 use embassy_sync::blocking_mutex::raw;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum StepState {
+enum State {
     Idle,
     PulseHigh,
     PulseLow,
 }
 
-struct MotorState {
+struct Motor {
     target: i32,
     current: i32,
-    step_state: StepState,
+    step_state: State,
     // Cached last write to dir_pin; lets us skip GPIO writes on unchanged direction.
     direction: bool,
     step_pin: Option<gpio::Output<'static>>,
     dir_pin: Option<gpio::Output<'static>>,
 }
 
-const fn motor_state_init() -> MotorState {
-    MotorState {
+const fn motor_init() -> Motor {
+    Motor {
         target: 0,
         current: 0,
-        step_state: StepState::Idle,
+        step_state: State::Idle,
         direction: false,
         step_pin: None,
         dir_pin: None,
     }
 }
 
-struct EngineInner<T: CoreInstance, const N: usize> {
+struct EngineInner<T: timer::CoreInstance, const N: usize> {
     timer: Option<low_level::Timer<'static, T>>,
-    motors: [MotorState; N],
+    motors: [Motor; N],
 }
 
-impl<T: CoreInstance, const N: usize> EngineInner<T, N> {
+impl<T: timer::CoreInstance, const N: usize> EngineInner<T, N> {
     const fn new() -> Self {
         Self {
             timer: None,
-            motors: [const { motor_state_init() }; N],
+            motors: [const { motor_init() }; N],
         }
     }
 }
 
-pub struct StepGen<T: CoreInstance, const N: usize> {
+pub struct Gen<T: timer::CoreInstance, const N: usize> {
     inner: blocking_mutex::Mutex<raw::CriticalSectionRawMutex, cell::RefCell<EngineInner<T, N>>>,
 }
 
-impl<T: CoreInstance, const N: usize> StepGen<T, N> {
+impl<T: timer::CoreInstance, const N: usize> Gen<T, N> {
     pub const fn new() -> Self {
         Self {
             inner: blocking_mutex::Mutex::new(cell::RefCell::new(EngineInner::new())),
@@ -114,7 +114,7 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
     }
 }
 
-impl MotorState {
+impl Motor {
     fn write_step(&mut self, level: gpio::Level) {
         if let Some(p) = self.step_pin.as_mut() {
             p.set_level(level);
@@ -128,7 +128,7 @@ impl MotorState {
 
     fn process(&mut self) {
         match self.step_state {
-            StepState::Idle => {
+            State::Idle => {
                 if self.current != self.target {
                     let dir = self.target > self.current;
                     if dir != self.direction {
@@ -136,34 +136,34 @@ impl MotorState {
                         self.write_dir(gpio::Level::from(dir));
                     }
                     self.write_step(gpio::Level::High);
-                    self.step_state = StepState::PulseHigh;
+                    self.step_state = State::PulseHigh;
                 }
             }
-            StepState::PulseHigh => {
+            State::PulseHigh => {
                 self.write_step(gpio::Level::Low);
-                self.step_state = StepState::PulseLow;
+                self.step_state = State::PulseLow;
                 self.current += if self.direction { 1 } else { -1 };
             }
-            StepState::PulseLow => {
-                self.step_state = StepState::Idle;
+            State::PulseLow => {
+                self.step_state = State::Idle;
             }
         }
     }
 }
 
-pub struct StepGenHandle<T: CoreInstance + 'static, const N: usize> {
-    engine: &'static StepGen<T, N>,
+pub struct StepGenHandle<T: timer::CoreInstance + 'static, const N: usize> {
+    engine: &'static Gen<T, N>,
     idx: usize,
 }
 
-impl<T: CoreInstance, const N: usize> Clone for StepGenHandle<T, N> {
+impl<T: timer::CoreInstance, const N: usize> Clone for StepGenHandle<T, N> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<T: CoreInstance, const N: usize> Copy for StepGenHandle<T, N> {}
+impl<T: timer::CoreInstance, const N: usize> Copy for StepGenHandle<T, N> {}
 
-impl<T: CoreInstance, const N: usize> StepGenHandle<T, N> {
+impl<T: timer::CoreInstance, const N: usize> StepGenHandle<T, N> {
     pub fn set_target(&self, target: i32) {
         self.engine.inner.lock(|cell| {
             cell.borrow_mut().motors[self.idx].target = target;

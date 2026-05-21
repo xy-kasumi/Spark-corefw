@@ -10,14 +10,14 @@ use crate::board;
 
 /// Steps-per-mm for linear axes; steps-per-turn for C.
 #[derive(Clone, Copy, Debug)]
-pub struct MotorAxisConfig {
+pub struct AxisConfig {
     pub steps_per_mm_x: f32,
     pub steps_per_mm_y: f32,
     pub steps_per_mm_z: f32,
     pub steps_per_turn_c: f32,
 }
 
-impl Default for MotorAxisConfig {
+impl Default for AxisConfig {
     fn default() -> Self {
         Self {
             steps_per_mm_x: 200.0,
@@ -33,7 +33,7 @@ pub struct Motors {
     pub y: board::MotorStepping,
     pub z: board::MotorStepping,
     pub c: board::MotorStepping,
-    pub cal: MotorAxisConfig,
+    pub cal: AxisConfig,
     /// Per-axis homing offset in steps (x/y/z), added on the raw step counter so
     /// the homed position reads as the configured origin. C has no home offset.
     pub home_offset: [i32; 3],

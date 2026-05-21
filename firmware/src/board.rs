@@ -22,14 +22,14 @@ use embassy_stm32::i2c;
 use embassy_stm32::interrupt;
 use embassy_stm32::mode;
 use embassy_stm32::time;
+use embassy_stm32::timer;
 use embassy_stm32::timer::low_level;
 use embassy_stm32::timer::simple_pwm;
-use embassy_stm32::timer::CoreInstance;
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 
-use crate::drivers::digital_output::DigitalOutput;
-use crate::drivers::pulser::{self, PulserBus};
-use crate::drivers::pwm_output::PwmOutput;
+use crate::drivers::digital_out;
+use crate::drivers::pulser::{self, Bus};
+use crate::drivers::pwm_out;
 use crate::drivers::serial;
 use crate::drivers::soft_uart;
 use crate::drivers::step_gen;
@@ -43,11 +43,11 @@ type StepGenTim = peripherals::TIM6;
 
 pub type TmcBus = soft_uart::SoftUartHandle<SoftUartTim, NUM_MOTORS>;
 pub type MotorStepping = step_gen::StepGenHandle<StepGenTim, NUM_MOTORS>;
-pub type MotorConfig = tmc2209::Tmc2209<TmcBus>;
+pub type MotorConfig = tmc2209::Device<TmcBus>;
 
 /// Concrete I2C bus backing the pulser. Pin/peripheral choice is local to `init`.
 pub type PulserBusImpl = i2c::I2c<'static, mode::Async>;
-pub type Pulser = crate::pulser::Pulser<PulserBusImpl>;
+pub type Pulser = crate::pulser::Device<PulserBusImpl>;
 
 /// Pump gate output (PA3, active-high).
 pub type Pump = crate::pump::Pump<gpio::Output<'static>>;
@@ -58,7 +58,7 @@ bind_interrupts!(struct Irqs {
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
 });
 
-impl PulserBus for PulserBusImpl {
+impl Bus for PulserBusImpl {
     type Error = i2c::Error;
     async fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error> {
         i2c::I2c::write(self, addr, data).await
@@ -68,13 +68,13 @@ impl PulserBus for PulserBusImpl {
     }
 }
 
-impl DigitalOutput for gpio::Output<'static> {
+impl digital_out::Pin for gpio::Output<'static> {
     fn set(&mut self, high: bool) {
         self.set_level(high.into());
     }
 }
 
-impl PwmOutput for ToolSupplyPwm {
+impl pwm_out::Pin for ToolSupplyPwm {
     fn init(&mut self, period_ms: f32) {
         self.set_frequency(time::Hertz((1000.0 / period_ms) as u32));
         self.ch1().enable();
@@ -86,8 +86,8 @@ impl PwmOutput for ToolSupplyPwm {
     }
 }
 
-static SOFT_UART: soft_uart::SoftUart<SoftUartTim, NUM_MOTORS> = soft_uart::SoftUart::new();
-static STEP_GEN: step_gen::StepGen<StepGenTim, NUM_MOTORS> = step_gen::StepGen::new();
+static SOFT_UART: soft_uart::Uart<SoftUartTim, NUM_MOTORS> = soft_uart::Uart::new();
+static STEP_GEN: step_gen::Gen<StepGenTim, NUM_MOTORS> = step_gen::Gen::new();
 
 #[interrupt]
 fn TIM7() {
@@ -99,7 +99,7 @@ fn TIM6_DAC() {
     STEP_GEN.tick();
 }
 
-impl<T: CoreInstance, const N: usize> TmcTransport for soft_uart::SoftUartHandle<T, N> {
+impl<T: timer::CoreInstance, const N: usize> TmcTransport for soft_uart::SoftUartHandle<T, N> {
     type Error = soft_uart::Error;
     async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
         soft_uart::SoftUartHandle::write(self, data).await
@@ -124,7 +124,7 @@ pub type ToolSupplyPwm = simple_pwm::SimplePwm<'static, peripherals::TIM1>;
 pub type ToolSupply = crate::toolsupply::ToolSupply<ToolSupplyPwm>;
 
 pub struct Board {
-    pub console: &'static serial::Serial,
+    pub console: &'static serial::Device,
     pub motors: Motors,
     pub pulser: Pulser,
     /// Pump gate (PA3, active-high).
@@ -138,7 +138,7 @@ pub fn init(spawner: &embassy_executor::Spawner, console_baud: u32) -> Board {
     let mut cfg = usart::Config::default();
     cfg.baudrate = console_baud;
     let uart = usart::Uart::new(p.USART2, p.PD6, p.PD5, Irqs, p.DMA1_CH0, p.DMA1_CH1, cfg).unwrap();
-    let console = serial::Serial::init(spawner, uart);
+    let console = serial::Device::init(spawner, uart);
 
     let motors = init_motors(
         p.TIM7,
@@ -163,7 +163,7 @@ pub fn init(spawner: &embassy_executor::Spawner, console_baud: u32) -> Board {
         time::Hertz(400_000),
         Default::default(),
     );
-    let pulser = Pulser::new(pulser::PulserDevice::new(i2c));
+    let pulser = Pulser::new(pulser::Device::new(i2c));
 
     // Pump gate on PA3 (active-high), starts off.
     let pump = gpio::Output::new(p.PA3, gpio::Level::Low, gpio::Speed::Low);
@@ -259,7 +259,7 @@ fn init_motors(
     );
 
     let tmc: [MotorConfig; NUM_MOTORS] =
-        core::array::from_fn(|i| tmc2209::Tmc2209::new(uart_handles[i], MOTOR_NAMES[i]));
+        core::array::from_fn(|i| tmc2209::Device::new(uart_handles[i], MOTOR_NAMES[i]));
 
     Motors {
         tmc,

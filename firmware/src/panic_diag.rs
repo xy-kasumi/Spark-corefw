@@ -19,7 +19,7 @@ use core::sync::atomic;
 pub const MAGIC: u32 = 0x5041_4e31;
 
 #[repr(C)]
-pub struct PanicReport {
+pub struct Report {
     pub magic: atomic::AtomicU32,
     pub line: atomic::AtomicU32,
     pub file_ptr: atomic::AtomicU32,
@@ -27,7 +27,7 @@ pub struct PanicReport {
 }
 
 #[no_mangle]
-pub static PANIC_REPORT: PanicReport = PanicReport {
+pub static PANIC_REPORT: Report = Report {
     magic: atomic::AtomicU32::new(0),
     line: atomic::AtomicU32::new(0),
     file_ptr: atomic::AtomicU32::new(0),

@@ -3,9 +3,9 @@
 
 //! Coolant/dielectric pump: a single active-high GPIO with settle delays.
 
-use crate::drivers::digital_output::DigitalOutput;
+use crate::drivers::digital_out::Pin;
 
-pub struct Pump<D: DigitalOutput> {
+pub struct Pump<D: Pin> {
     pin_en: D,
     /// Last M8/M9 commanded state.
     commanded: bool,
@@ -14,7 +14,7 @@ pub struct Pump<D: DigitalOutput> {
     override_on: bool,
 }
 
-impl<D: DigitalOutput> Pump<D> {
+impl<D: Pin> Pump<D> {
     pub fn new(pin_en: D) -> Self {
         Self {
             pin_en,

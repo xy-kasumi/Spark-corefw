@@ -11,7 +11,7 @@
 
 /// Minimal async I2C transport. `board` injects a concrete bus (e.g. embassy's
 /// `I2c`); method shapes mirror `embassy_stm32::i2c::I2c::write`/`write_read`.
-pub trait PulserBus {
+pub trait Bus {
     type Error;
     async fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error>;
     async fn write_read(&mut self, addr: u8, tx: &[u8], rx: &mut [u8]) -> Result<(), Self::Error>;
@@ -30,11 +30,11 @@ pub const REG_PULSE_DUR: u8 = 0x04; // RW: pulse duration in 10us units (5-100)
 pub const REG_MAX_DUTY: u8 = 0x05; // RW: max duty factor in percent (1-95)
 pub const REG_CKP_PS: u8 = 0x10; // R (special): rate of pulse & short
 
-pub struct PulserDevice<B: PulserBus> {
+pub struct Device<B: Bus> {
     bus: B,
 }
 
-impl<B: PulserBus> PulserDevice<B> {
+impl<B: Bus> Device<B> {
     pub fn new(bus: B) -> Self {
         Self { bus }
     }

@@ -15,12 +15,12 @@ pub const RX_CAP: usize = 64;
 
 const RX_DMA_CAP: usize = 64;
 
-pub struct Serial {
+pub struct Device {
     tx_pipe: pipe::Pipe<raw::CriticalSectionRawMutex, TX_CAP>,
     rx_pipe: pipe::Pipe<raw::CriticalSectionRawMutex, RX_CAP>,
 }
 
-impl Serial {
+impl Device {
     /// Setup serial by spawning tasks. Only one init() call in the program allowed.
     pub fn init(
         spawner: &embassy_executor::Spawner,
@@ -31,8 +31,8 @@ impl Serial {
             cortex_m::singleton!(: [u8; RX_DMA_CAP] = [0; RX_DMA_CAP]).unwrap();
         let rx_ring = rx.into_ring_buffered(rx_buf);
 
-        static CELL: static_cell::StaticCell<Serial> = static_cell::StaticCell::new();
-        let me = CELL.init(Serial {
+        static CELL: static_cell::StaticCell<Device> = static_cell::StaticCell::new();
+        let me = CELL.init(Device {
             tx_pipe: pipe::Pipe::new(),
             rx_pipe: pipe::Pipe::new(),
         });
@@ -65,7 +65,7 @@ impl Serial {
 }
 
 #[embassy_executor::task]
-async fn pump_tx(serial: &'static Serial, mut tx: usart::UartTx<'static, mode::Async>) {
+async fn pump_tx(serial: &'static Device, mut tx: usart::UartTx<'static, mode::Async>) {
     let mut buf = [0u8; 32];
     loop {
         let n = serial.tx_pipe.read(&mut buf).await;
@@ -74,7 +74,7 @@ async fn pump_tx(serial: &'static Serial, mut tx: usart::UartTx<'static, mode::A
 }
 
 #[embassy_executor::task]
-async fn pump_rx(serial: &'static Serial, mut rx: usart::RingBufferedUartRx<'static>) {
+async fn pump_rx(serial: &'static Device, mut rx: usart::RingBufferedUartRx<'static>) {
     let mut buf = [0u8; 32];
     loop {
         // RX errors (overrun, framing) restart background DMA on next read().

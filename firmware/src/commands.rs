@@ -56,7 +56,7 @@ pub async fn exec(
     pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut gcode::PulserConfig,
@@ -202,7 +202,7 @@ async fn exec_home(
     axes: gcode::HomeAxes,
     motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
     line_tx: &line_tx::LineTx,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) {
     // Snapshot once; homing params don't change mid-G28.
     let homing = *homing.lock().await;

@@ -11,7 +11,7 @@
 use model::settings;
 
 #[derive(Clone, Copy, Debug)]
-pub struct AxisHoming {
+pub struct Axis {
     /// Home position's coordinate.
     pub origin: f32,
     /// Sequential homing phase; same-phase axes home together.
@@ -22,7 +22,7 @@ pub struct AxisHoming {
     pub travel: f32,
 }
 
-impl Default for AxisHoming {
+impl Default for Axis {
     fn default() -> Self {
         Self {
             origin: 0.0,
@@ -34,11 +34,11 @@ impl Default for AxisHoming {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct HomingConfig {
-    axes: [AxisHoming; 3],
+pub struct Config {
+    axes: [Axis; 3],
 }
 
-impl HomingConfig {
+impl Config {
     /// Apply one `a.<axis>.home.<prop>` value. `Err` on an unknown property
     /// (the dispatcher turns that into an unknown-key error).
     pub fn set(&mut self, axis: settings::Axis, prop: &str, val: f32) -> Result<(), ()> {
@@ -53,7 +53,7 @@ impl HomingConfig {
         Ok(())
     }
 
-    pub fn axis(&self, axis: settings::Axis) -> AxisHoming {
+    pub fn axis(&self, axis: settings::Axis) -> Axis {
         self.axes[axis.idx()]
     }
 }

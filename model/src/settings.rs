@@ -26,9 +26,9 @@ const STG_CAP: usize = 64;
 
 /// Valid settings value (finite).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SettingsVal(f32);
+pub struct Value(f32);
 
-impl SettingsVal {
+impl Value {
     /// Parse a decimal float, rejecting NaN/inf (per `docs/settings.md`).
     pub fn parse(s: &str) -> Option<Self> {
         let v: f32 = s.parse().ok()?;
@@ -103,7 +103,7 @@ impl Repo {
 
     /// Commit a value. Errors if the key is absent — the repo's key set is
     /// fixed at [`defaults`](Self::defaults).
-    pub fn set(&mut self, key: &str, v: SettingsVal) -> Result<(), Unknown> {
+    pub fn set(&mut self, key: &str, v: Value) -> Result<(), Unknown> {
         let slot = self
             .map
             .iter_mut()
@@ -152,11 +152,11 @@ mod repo_tests {
     use super::*;
 
     #[test]
-    fn settingsval_rejects_nonfinite() {
-        assert_eq!(SettingsVal::parse("3.14").map(|v| v.get()), Some(3.14));
-        assert!(SettingsVal::parse("NaN").is_none());
-        assert!(SettingsVal::parse("inf").is_none());
-        assert!(SettingsVal::parse("-inf").is_none());
-        assert!(SettingsVal::parse("abc").is_none());
+    fn value_parse() {
+        assert_eq!(Value::parse("3.14").map(|v| v.get()), Some(3.14));
+        assert!(Value::parse("NaN").is_none());
+        assert!(Value::parse("inf").is_none());
+        assert!(Value::parse("-inf").is_none());
+        assert!(Value::parse("abc").is_none());
     }
 }

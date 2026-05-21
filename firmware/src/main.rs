@@ -44,7 +44,7 @@ type SharedCoord = mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>;
 type SharedPump = mutex::Mutex<raw::NoopRawMutex, board::Pump>;
 type SharedWirefeed = mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>;
 type SharedToolSupply = mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>;
-type SharedHoming = mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>;
+type SharedHoming = mutex::Mutex<raw::NoopRawMutex, homing::Config>;
 
 #[embassy_executor::main]
 async fn main(spawner: embassy_executor::Spawner) {
@@ -56,7 +56,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         y: step[1],
         z: step[2],
         c: step[3],
-        cal: motor::MotorAxisConfig::default(),
+        cal: motor::AxisConfig::default(),
         home_offset: [0; 3],
     };
 
@@ -84,7 +84,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         TOOLSUPPLY_CELL.init(mutex::Mutex::new(board::ToolSupply::new(board.toolsupply_pwm)));
     static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
     let homing: &'static SharedHoming =
-        HOMING_CELL.init(mutex::Mutex::new(homing::HomingConfig::default()));
+        HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
     let line_tx = line_tx::LineTx::init();
 
     // init phase
@@ -125,7 +125,7 @@ async fn main(spawner: embassy_executor::Spawner) {
 
 /// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
 async fn tick_loop(
-    serial: &serial::Serial,
+    serial: &serial::Device,
     cmd_queue: &commands::CmdQueue,
     motion: &SharedMotion,
     coord: &SharedCoord,

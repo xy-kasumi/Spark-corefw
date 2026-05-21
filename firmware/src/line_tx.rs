@@ -51,7 +51,7 @@ impl LineTx {
     /// Push as many queued lines as `serial`'s TX ring will accept this tick.
     /// `state` is the consumer's resume cursor (not queue state); `&mut`
     /// keeps the single-drainer invariant a compile-time fact.
-    pub fn drain(&self, serial: &serial::Serial, state: &mut DrainState) {
+    pub fn drain(&self, serial: &serial::Device, state: &mut DrainState) {
         loop {
             if state.line.is_none() {
                 match self.chan.try_receive().ok() {
