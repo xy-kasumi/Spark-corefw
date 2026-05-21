@@ -156,16 +156,15 @@ pub async fn exec(
             )
             .await
             {
-                let _ = line_tx.try_send(
-                    pstate::ErrorLine::new()
-                        .msg(format_args!(
-                            "setting failed: {}={} ({:?})",
-                            key.as_str(),
-                            val.get(),
-                            e
-                        ))
+                let line = match e {
+                    settings::Error::UnknownKey => pstate::ErrorLine::new()
+                        .msg(format_args!("unknown key {}", key.as_str()))
                         .finish(),
-                );
+                    settings::Error::ApplyFailed => pstate::ErrorLine::new()
+                        .msg(format_args!("failed to set {} {}", key.as_str(), val.get()))
+                        .finish(),
+                };
+                let _ = line_tx.try_send(line);
             }
         }
         Command::Get => {

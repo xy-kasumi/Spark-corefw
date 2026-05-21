@@ -187,11 +187,11 @@ async fn tick_loop(
                         );
                     }
                 }
-                Some(comm::Parsed::CommandError(src, e)) if !canceler::CANCELER.active() => {
+                Some(comm::Parsed::CommandError(src)) if !canceler::CANCELER.active() => {
                     let _ = line_tx.try_send(
                         pstate::ErrorLine::new()
                             .source(src)
-                            .msg(format_args!("{:?}", e))
+                            .msg(format_args!("syntax error"))
                             .finish(),
                     );
                 }

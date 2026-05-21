@@ -109,7 +109,7 @@ pub enum Parsed<'a> {
     /// Unqueued fast-set; dispatched immediately like a signal.
     FastSet(command::FastSet),
     Command(command::Command),
-    CommandError(&'a [u8], command::ParseError),
+    CommandError(&'a [u8]),
 }
 
 pub struct Parser {
@@ -137,9 +137,9 @@ impl Parser {
                 signal::Signal::Query(q) => Parsed::QuerySignal(q),
             },
             Frame::Command(c) => match command::parse(c) {
-                Ok(command::Outcome::Command(cmd)) => Parsed::Command(cmd),
-                Ok(command::Outcome::FastSet(fs)) => Parsed::FastSet(fs),
-                Err(e) => Parsed::CommandError(c, e),
+                Some(command::Outcome::Command(cmd)) => Parsed::Command(cmd),
+                Some(command::Outcome::FastSet(fs)) => Parsed::FastSet(fs),
+                None => Parsed::CommandError(c),
             },
         })
     }

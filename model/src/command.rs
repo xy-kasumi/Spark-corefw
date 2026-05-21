@@ -35,86 +35,75 @@ pub enum Outcome {
     FastSet(FastSet),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ParseError {
-    Empty,
-    UnknownCommand,
-    Gcode(gcode::ParseError),
-    Syntax,
-}
-
-pub fn parse(bytes: &[u8]) -> Result<Outcome, ParseError> {
+pub fn parse(bytes: &[u8]) -> Option<Outcome> {
     if bytes.is_empty() {
-        return Err(ParseError::Empty);
+        return None;
     }
     match bytes[0] {
-        b'G' | b'M' => gcode::parse(bytes)
-            .map(|c| Outcome::Command(Command::Gcode(c)))
-            .map_err(ParseError::Gcode),
+        b'G' | b'M' => gcode::parse(bytes).map(|c| Outcome::Command(Command::Gcode(c))),
         _ => parse_text(bytes),
     }
 }
 
-fn parse_text(bytes: &[u8]) -> Result<Outcome, ParseError> {
-    let s = core::str::from_utf8(bytes).map_err(|_| ParseError::UnknownCommand)?;
+fn parse_text(bytes: &[u8]) -> Option<Outcome> {
+    let s = core::str::from_utf8(bytes).ok()?;
     let (word, rest) = split_word(s);
     match word {
         "set" => parse_set(rest).map(Outcome::Command),
         "get" => parse_get(rest).map(Outcome::Command),
         "stat" => parse_stat(rest).map(Outcome::Command),
         "fset" => parse_fset(rest).map(Outcome::FastSet),
-        _ => Err(ParseError::UnknownCommand),
+        _ => None,
     }
 }
 
-fn parse_set(rest: &str) -> Result<Command, ParseError> {
+fn parse_set(rest: &str) -> Option<Command> {
     let (key, rest) = split_word(rest);
     if key.is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
     let (value_str, tail) = split_word(rest);
     if value_str.is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
     if !tail.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    let key = heapless::String::<{ settings::STG_KEY_CAP }>::try_from(key)
-        .map_err(|_| ParseError::Syntax)?;
-    let value = settings::Value::parse(value_str).ok_or(ParseError::Syntax)?;
-    Ok(Command::Set(key, value))
+    let key = heapless::String::<{ settings::STG_KEY_CAP }>::try_from(key).ok()?;
+    let value = settings::Value::parse(value_str)?;
+    Some(Command::Set(key, value))
 }
 
-fn parse_get(rest: &str) -> Result<Command, ParseError> {
+fn parse_get(rest: &str) -> Option<Command> {
     if !rest.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    Ok(Command::Get)
+    Some(Command::Get)
 }
 
-fn parse_stat(rest: &str) -> Result<Command, ParseError> {
+fn parse_stat(rest: &str) -> Option<Command> {
     if !rest.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    Ok(Command::Stat)
+    Some(Command::Stat)
 }
 
-fn parse_fset(rest: &str) -> Result<FastSet, ParseError> {
+fn parse_fset(rest: &str) -> Option<FastSet> {
     let (key, rest) = split_word(rest);
     if key.is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
     let (value_str, tail) = split_word(rest);
     if value_str.is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
     if !tail.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    let value = parse_bool(value_str).ok_or(ParseError::Syntax)?;
+    let value = parse_bool(value_str)?;
     match key {
-        "ov.pump_en" => Ok(FastSet::PumpEn(value)),
-        _ => Err(ParseError::Syntax),
+        "ov.pump_en" => Some(FastSet::PumpEn(value)),
+        _ => None,
     }
 }
 
@@ -144,11 +133,11 @@ mod tests {
     fn fset_pump_en() {
         assert_eq!(
             parse(b"fset ov.pump_en true"),
-            Ok(Outcome::FastSet(FastSet::PumpEn(true)))
+            Some(Outcome::FastSet(FastSet::PumpEn(true)))
         );
         assert_eq!(
             parse(b"fset ov.pump_en false"),
-            Ok(Outcome::FastSet(FastSet::PumpEn(false)))
+            Some(Outcome::FastSet(FastSet::PumpEn(false)))
         );
     }
 }

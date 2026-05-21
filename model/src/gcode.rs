@@ -85,40 +85,30 @@ pub struct HomeAxes {
     pub c: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ParseError {
-    Empty,
-    UnknownCommand,
-    /// Any malformed-body failure (bad axis/number, missing or trailing param,
-    /// missing separator). The offending line is echoed back, so the category
-    /// alone is enough.
-    Syntax,
-}
-
-pub fn parse(line: &[u8]) -> Result<Command, ParseError> {
+pub fn parse(line: &[u8]) -> Option<Command> {
     let mut p = Cursor::new(line);
     p.skip_ws();
-    let (letter, code) = p.read_letter_int().ok_or(ParseError::Empty)?;
+    let (letter, code) = p.read_letter_int()?;
     let sub = p.read_subcode()?;
     match letter {
         b'G' => parse_gcode(&mut p, code, sub),
         b'M' => parse_mcode(&mut p, code, sub),
-        _ => Err(ParseError::UnknownCommand),
+        _ => None,
     }
 }
 
-fn parse_gcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, ParseError> {
+fn parse_gcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Option<Command> {
     match (code, sub) {
         (0, None) => parse_move(p).map(Command::Rapid),
         (1, None) => parse_move(p).map(Command::Linear),
         (28, None) => parse_home(p).map(Command::Home),
         (38, Some(3)) => parse_move(p).map(Command::Probe),
         (53..=56, None) => parse_select(p, code),
-        _ => Err(ParseError::UnknownCommand),
+        _ => None,
     }
 }
 
-fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, ParseError> {
+fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Option<Command> {
     match (code, sub) {
         (3, None) => parse_pulser(p, true).map(Command::Pulser),
         (4, None) => parse_pulser(p, false).map(Command::Pulser),
@@ -128,40 +118,36 @@ fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Result<Command, P
         (11, None) => no_params(p).map(|_| Command::WirefeedStop),
         (60, None) => no_params(p).map(|_| Command::ToolSupply(ToolSupplyState::Open)),
         (61, None) => no_params(p).map(|_| Command::ToolSupply(ToolSupplyState::Closed)),
-        _ => Err(ParseError::UnknownCommand),
+        _ => None,
     }
 }
 
 /// Reject any trailing parameter for M-codes that take none.
-fn no_params(p: &mut Cursor) -> Result<(), ParseError> {
-    if p.eof_or_only_ws() {
-        Ok(())
-    } else {
-        Err(ParseError::Syntax)
-    }
+fn no_params(p: &mut Cursor) -> Option<()> {
+    p.eof_or_only_ws().then_some(())
 }
 
 /// Parse the single required `R<float>` parameter (M10 feedrate, mm/min).
-fn parse_required_r(p: &mut Cursor) -> Result<f32, ParseError> {
+fn parse_required_r(p: &mut Cursor) -> Option<f32> {
     if p.eof_or_only_ws() {
-        return Err(ParseError::Syntax);
+        return None;
     }
     if !p.require_ws() {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    let letter = p.read_letter().ok_or(ParseError::Syntax)?;
+    let letter = p.read_letter()?;
     if letter != b'R' {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    let value = p.read_float().ok_or(ParseError::Syntax)?;
+    let value = p.read_float()?;
     no_params(p)?;
-    Ok(value)
+    Some(value)
 }
 
 /// Parse M3/M4 pulser parameters: optional `P`/`Q`/`R` floats in any order.
 /// Omitted parameters keep their [`PulserConfig::default`] value. A bare letter
 /// (no value) or an unrecognized letter is rejected.
-fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Result<PulserConfig, ParseError> {
+fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Option<PulserConfig> {
     let mut cfg = PulserConfig {
         tool_negative,
         ..Default::default()
@@ -171,76 +157,76 @@ fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Result<PulserConfig, Par
             break;
         }
         if !p.require_ws() {
-            return Err(ParseError::Syntax);
+            return None;
         }
-        let letter = p.read_letter().ok_or(ParseError::Syntax)?;
-        let value = p.read_float().ok_or(ParseError::Syntax)?;
+        let letter = p.read_letter()?;
+        let value = p.read_float()?;
         match letter {
             b'P' => cfg.pulse_us = value,
             b'Q' => cfg.current_a = value,
             b'R' => cfg.duty_pct = value,
-            _ => return Err(ParseError::Syntax),
+            _ => return None,
         }
     }
-    Ok(cfg)
+    Some(cfg)
 }
 
 /// Parse a `G28` axis list: bare uppercase axis letters separated by whitespace,
 /// with no values (a value after a letter is rejected).
-fn parse_home(p: &mut Cursor) -> Result<HomeAxes, ParseError> {
+fn parse_home(p: &mut Cursor) -> Option<HomeAxes> {
     let mut axes = HomeAxes::default();
     loop {
         if p.eof_or_only_ws() {
             break;
         }
         if !p.require_ws() {
-            return Err(ParseError::Syntax);
+            return None;
         }
-        let letter = p.read_letter().ok_or(ParseError::Syntax)?;
+        let letter = p.read_letter()?;
         match letter {
             b'X' => axes.x = true,
             b'Y' => axes.y = true,
             b'Z' => axes.z = true,
             b'C' => axes.c = true,
-            _ => return Err(ParseError::Syntax),
+            _ => return None,
         }
         // Bare letters only: a digit (value) following an axis is invalid.
         if !p.eof_or_only_ws() && !p.at_ws() {
-            return Err(ParseError::Syntax);
+            return None;
         }
     }
-    Ok(axes)
+    Some(axes)
 }
 
 /// Parse a coordinate-system select (G53-G56). Takes no parameters.
-fn parse_select(p: &mut Cursor, code: i32) -> Result<Command, ParseError> {
+fn parse_select(p: &mut Cursor, code: i32) -> Option<Command> {
     if !p.eof_or_only_ws() {
-        return Err(ParseError::Syntax);
+        return None;
     }
-    let cs = coords::ActiveCoordSys::from_gcode(code).ok_or(ParseError::UnknownCommand)?;
-    Ok(Command::SelectCoordSys(cs))
+    let cs = coords::ActiveCoordSys::from_gcode(code)?;
+    Some(Command::SelectCoordSys(cs))
 }
 
-fn parse_move(p: &mut Cursor) -> Result<MoveSpec, ParseError> {
+fn parse_move(p: &mut Cursor) -> Option<MoveSpec> {
     let mut spec = MoveSpec::default();
     loop {
         if p.eof_or_only_ws() {
             break;
         }
         if !p.require_ws() {
-            return Err(ParseError::Syntax);
+            return None;
         }
-        let letter = p.read_letter().ok_or(ParseError::Syntax)?;
-        let value = p.read_float().ok_or(ParseError::Syntax)?;
+        let letter = p.read_letter()?;
+        let value = p.read_float()?;
         match letter {
             b'X' => spec.x = Some(value),
             b'Y' => spec.y = Some(value),
             b'Z' => spec.z = Some(value),
             b'C' => spec.c = Some(value / 360.0),
-            _ => return Err(ParseError::Syntax),
+            _ => return None,
         }
     }
-    Ok(spec)
+    Some(spec)
 }
 
 struct Cursor<'a> {
@@ -299,14 +285,15 @@ impl<'a> Cursor<'a> {
         !self.eof() && matches!(self.buf[self.pos], b' ' | b'\t')
     }
 
-    /// Read an optional `.N` sub-code attached to the command number. `None` when
-    /// no dot follows; `Err(BadNumber)` for a dot with no digits.
-    fn read_subcode(&mut self) -> Result<Option<i32>, ParseError> {
+    /// Read an optional `.N` sub-code attached to the command number. Outer
+    /// `None` signals a parse failure (a dot with no digits); inner `None` means
+    /// no dot follows.
+    fn read_subcode(&mut self) -> Option<Option<i32>> {
         if self.eof() || self.buf[self.pos] != b'.' {
-            return Ok(None);
+            return Some(None);
         }
         self.pos += 1;
-        self.read_int().map(Some).ok_or(ParseError::Syntax)
+        self.read_int().map(Some)
     }
 
     fn read_int(&mut self) -> Option<i32> {
@@ -396,12 +383,12 @@ mod tests {
 
     #[test]
     fn m3_bare_param_fails() {
-        assert!(parse(b"M3 P").is_err());
+        assert!(parse(b"M3 P").is_none());
     }
 
     #[test]
     fn m3_unknown_param_fails() {
-        assert!(parse(b"M3 P500 S100").is_err());
+        assert!(parse(b"M3 P500 S100").is_none());
     }
 
     #[test]
@@ -462,8 +449,8 @@ mod tests {
     #[test]
     fn g38_2_unsupported() {
         // Only G38.3 is handled; G38.2 and bare G38 are unknown.
-        assert_eq!(parse(b"G38.2"), Err(ParseError::UnknownCommand));
-        assert_eq!(parse(b"G38"), Err(ParseError::UnknownCommand));
+        assert_eq!(parse(b"G38.2"), None);
+        assert_eq!(parse(b"G38"), None);
     }
 
     #[test]
@@ -495,17 +482,17 @@ mod tests {
 
     #[test]
     fn g28_rejects_value() {
-        assert!(parse(b"G28 X10").is_err());
+        assert!(parse(b"G28 X10").is_none());
     }
 
     #[test]
     fn empty_string() {
-        assert_eq!(parse(b""), Err(ParseError::Empty));
+        assert_eq!(parse(b""), None);
     }
 
     #[test]
     fn whitespace_only() {
-        assert_eq!(parse(b"   "), Err(ParseError::Empty));
+        assert_eq!(parse(b"   "), None);
     }
 
     #[test]
@@ -519,26 +506,26 @@ mod tests {
 
     #[test]
     fn lowercase_command_fails() {
-        assert!(parse(b"g0 X10").is_err());
+        assert!(parse(b"g0 X10").is_none());
     }
 
     #[test]
     fn lowercase_parameter_fails() {
-        assert!(parse(b"G0 x10").is_err());
+        assert!(parse(b"G0 x10").is_none());
     }
 
     #[test]
     fn garbled_command_fails() {
-        assert!(parse(b"G0abc X10").is_err());
+        assert!(parse(b"G0abc X10").is_none());
     }
 
     #[test]
     fn garbled_number_fails() {
-        assert!(parse(b"G0 X10.5.2").is_err());
+        assert!(parse(b"G0 X10.5.2").is_none());
     }
 
     #[test]
     fn no_whitespace_between_params_fails() {
-        assert!(parse(b"G0X1Y2").is_err());
+        assert!(parse(b"G0X1Y2").is_none());
     }
 }
