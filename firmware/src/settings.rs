@@ -15,10 +15,9 @@ use model::gcode::ToolSupplyState;
 use model::pstate::{Line, PsType};
 use model::settings::{self, SettingId, Settings};
 
-use crate::board::{MotorConfig, MotorStepping, NUM_MOTORS};
+use crate::board::{MotorConfig, MotorStepping, ToolSupply, NUM_MOTORS};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
-use crate::toolsupply::ToolSupply;
 use crate::wirefeed::Wirefeed;
 
 pub type SharedTmc = Mutex<NoopRawMutex, [MotorConfig; NUM_MOTORS]>;

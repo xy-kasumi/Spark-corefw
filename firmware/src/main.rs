@@ -35,17 +35,15 @@ use model::pstate::{ErrorLine, Line, PsType};
 use model::settings::Settings as SettingsCache;
 use static_cell::StaticCell;
 
-use crate::board::Pulser;
+use crate::board::{Pulser, Pump, ToolSupply};
 use crate::canceler::CANCELER;
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
 use crate::line_tx::{DrainState, LineTx};
 use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
-use crate::pump::Pump;
 use crate::settings::SharedTmc;
 use crate::signals::MachineStats;
-use crate::toolsupply::ToolSupply;
 use crate::wirefeed::Wirefeed;
 
 /// Orchestrator loop tick rate. Slower-cadence work counts ticks; nothing else schedules its own timer.

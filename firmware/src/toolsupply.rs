@@ -4,27 +4,25 @@
 //! Tool supply: a 50 Hz servo whose pulse width selects open vs. closed. Moves
 //! are ramped over ~1 s so the servo travels smoothly.
 
-use embassy_stm32::peripherals::TIM1;
-use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::simple_pwm::SimplePwm;
 use embassy_time::{Duration, Timer};
 use model::gcode::ToolSupplyState;
 
-/// Servo carrier period (50 Hz). Pulse widths are fractions of this.
-const PERIOD_US: u16 = 20_000;
+use crate::drivers::pwm_output::PwmOutput;
 
-pub struct ToolSupply {
-    pwm: SimplePwm<'static, TIM1>,
+/// Servo carrier period (50 Hz). Pulse widths are fractions of this.
+const PERIOD_MS: f32 = 20.0;
+
+pub struct ToolSupply<P: PwmOutput> {
+    pwm: P,
     open_ms: f32,
     closed_ms: f32,
     current_ms: f32,
     current_state: ToolSupplyState,
 }
 
-impl ToolSupply {
-    pub fn new(mut pwm: SimplePwm<'static, TIM1>, open_ms: f32, closed_ms: f32) -> Self {
-        pwm.set_frequency(Hertz(50));
-        pwm.ch1().enable();
+impl<P: PwmOutput> ToolSupply<P> {
+    pub fn new(mut pwm: P, open_ms: f32, closed_ms: f32) -> Self {
+        pwm.init(PERIOD_MS);
         Self {
             pwm,
             open_ms,
@@ -40,8 +38,7 @@ impl ToolSupply {
     }
 
     fn set_servo(&mut self, on_ms: f32) {
-        let on_us = (on_ms * 1000.0) as u16;
-        self.pwm.ch1().set_duty_cycle_fraction(on_us, PERIOD_US);
+        self.pwm.set(on_ms / PERIOD_MS);
     }
 
     fn target_ms(&self, state: ToolSupplyState) -> f32 {

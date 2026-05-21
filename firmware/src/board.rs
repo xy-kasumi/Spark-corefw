@@ -33,7 +33,9 @@ use embassy_stm32::timer::CoreInstance;
 use embassy_stm32::usart::{Config as UartConfig, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 
+use crate::drivers::digital_output::DigitalOutput;
 use crate::drivers::pulser::{PulserBus, PulserDevice};
+use crate::drivers::pwm_output::PwmOutput;
 use crate::drivers::serial::Serial;
 use crate::drivers::soft_uart::{self, SoftUart, SoftUartHandle};
 use crate::drivers::step_gen::{StepGen, StepGenHandle};
@@ -53,6 +55,9 @@ pub type MotorConfig = Tmc2209<TmcBus>;
 pub type PulserBusImpl = I2c<'static, Async>;
 pub type Pulser = crate::pulser::Pulser<PulserBusImpl>;
 
+/// Pump gate output (PA3, active-high).
+pub type Pump = crate::pump::Pump<Output<'static>>;
+
 bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
@@ -66,6 +71,24 @@ impl PulserBus for PulserBusImpl {
     }
     async fn write_read(&mut self, addr: u8, tx: &[u8], rx: &mut [u8]) -> Result<(), Self::Error> {
         I2c::write_read(self, addr, tx, rx).await
+    }
+}
+
+impl DigitalOutput for Output<'static> {
+    fn set(&mut self, high: bool) {
+        self.set_level(high.into());
+    }
+}
+
+impl PwmOutput for ToolSupplyPwm {
+    fn init(&mut self, period_ms: f32) {
+        self.set_frequency(Hertz((1000.0 / period_ms) as u32));
+        self.ch1().enable();
+    }
+    fn set(&mut self, duty: f32) {
+        let mut ch = self.ch1();
+        let max = ch.max_duty_cycle();
+        ch.set_duty_cycle((duty * max as f32) as u16);
     }
 }
 
@@ -99,6 +122,7 @@ pub struct Motors {
 
 /// Tool supply servo PWM (TIM1 channel 1 on PE9).
 pub type ToolSupplyPwm = SimplePwm<'static, TIM1>;
+pub type ToolSupply = crate::toolsupply::ToolSupply<ToolSupplyPwm>;
 
 pub struct Board {
     pub console: &'static Serial,

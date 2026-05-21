@@ -3,11 +3,12 @@
 
 //! Coolant/dielectric pump: a single active-high GPIO with settle delays.
 
-use embassy_stm32::gpio::Output;
 use embassy_time::{Duration, Timer};
 
-pub struct Pump {
-    gpio: Output<'static>,
+use crate::drivers::digital_output::DigitalOutput;
+
+pub struct Pump<D: DigitalOutput> {
+    pin_en: D,
     /// Last M8/M9 commanded state.
     commanded: bool,
     /// `fset ov.pump_en` override: while set, forces the pump on regardless of
@@ -15,10 +16,10 @@ pub struct Pump {
     override_on: bool,
 }
 
-impl Pump {
-    pub fn new(gpio: Output<'static>) -> Self {
+impl<D: DigitalOutput> Pump<D> {
+    pub fn new(pin_en: D) -> Self {
         Self {
-            gpio,
+            pin_en,
             commanded: false,
             override_on: false,
         }
@@ -54,10 +55,6 @@ impl Pump {
     }
 
     fn apply(&mut self) {
-        if self.commanded || self.override_on {
-            self.gpio.set_high();
-        } else {
-            self.gpio.set_low();
-        }
+        self.pin_en.set(self.commanded || self.override_on);
     }
 }

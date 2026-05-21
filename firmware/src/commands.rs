@@ -21,14 +21,12 @@ use model::settings::{self, Axis, Settings};
 
 pub use model::command::Command;
 
-use crate::board::{MotorStepping, Pulser, MOTOR_NAMES, NUM_MOTORS};
+use crate::board::{MotorStepping, Pulser, Pump, ToolSupply, MOTOR_NAMES, NUM_MOTORS};
 use crate::canceler::CANCELER;
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
-use crate::pump::Pump;
 use crate::settings::{apply_one, SharedTmc};
-use crate::toolsupply::ToolSupply;
 use crate::wirefeed::Wirefeed;
 
 pub const CMD_QUEUE_CAP: usize = 64;
