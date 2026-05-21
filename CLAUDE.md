@@ -7,7 +7,7 @@ Written in Rust on embassy, targeting the BTT Octopus Pro (STM32H723).
 * `model/` — portable, host-testable compute (G-code parser, motion, coordinates, protocol).
 * `firmware/` — on-device binary: embassy app and hardware drivers.
 
-User-visible mental models & specs are located at /spec/*.md. You should check consistency with them when making
+User-visible mental models & specs are located at /docs/*.md. You should check consistency with them when making
 decisions that can affect external behavior or design extensibility.
 
 ## Safety Guidelines

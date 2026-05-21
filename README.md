@@ -10,9 +10,9 @@ Written in Rust on [embassy](https://embassy.dev/), targeting the BTT Octopus
 Pro (STM32H723).
 
 See
-* [spec/gcode.md](spec/gcode.md) Supported G-code
-* [spec/settings.md](spec/settings.md) Supported settings
-* [spec/protocol.md](spec/protocol.md) Serial communication protocol
+* [docs/gcode.md](docs/gcode.md) Supported G-code
+* [docs/settings.md](docs/settings.md) Supported settings
+* [docs/protocol.md](docs/protocol.md) Serial communication protocol
 
 ## Layout
 * `model/` — portable compute (G-code parser, motion, coordinates, protocol).

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Validated typed cache of (key, value) pairs the host can set/get over the
-//! wire. Wire format is dotted paths to f32 (per `spec/settings.md`); storage
+//! wire. Wire format is dotted paths to f32 (per `docs/settings.md`); storage
 //! is a typed aggregate so refactors stay compile-checked.
 //!
 //! Per-key range validation and the side effects of changing a setting
