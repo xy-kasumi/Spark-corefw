@@ -5,16 +5,17 @@
 //! this module turns them into an [`Outcome`]: either a queued [`Command`] or
 //! an immediate [`FastSet`]. Sits in `model` so it can be host-fuzzed without
 //! firmware deps.
-use heapless::String;
-
 use crate::gcode;
-use crate::settings::{SettingsVal, STG_KEY_CAP};
+use crate::settings;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Gcode(gcode::Command),
     /// `set` - Set single (key, val)
-    Set(String<STG_KEY_CAP>, SettingsVal),
+    Set(
+        heapless::String<{ settings::STG_KEY_CAP }>,
+        settings::SettingsVal,
+    ),
     /// `get` - dump all settings as one `stg` p-state.
     Get,
     /// `stat` - dump per-module debug status as one `stat` p-state.
@@ -81,8 +82,9 @@ fn parse_set(rest: &str) -> Result<Command, ParseError> {
     if !tail.trim_start_matches(is_ws).is_empty() {
         return Err(ParseError::Syntax);
     }
-    let key = String::<STG_KEY_CAP>::try_from(key).map_err(|_| ParseError::Syntax)?;
-    let value = SettingsVal::parse(value_str).ok_or(ParseError::Syntax)?;
+    let key =
+        heapless::String::<{ settings::STG_KEY_CAP }>::try_from(key).map_err(|_| ParseError::Syntax)?;
+    let value = settings::SettingsVal::parse(value_str).ok_or(ParseError::Syntax)?;
     Ok(Command::Set(key, value))
 }
 

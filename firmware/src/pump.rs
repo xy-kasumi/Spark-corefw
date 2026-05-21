@@ -3,8 +3,6 @@
 
 //! Coolant/dielectric pump: a single active-high GPIO with settle delays.
 
-use embassy_time::{Duration, Timer};
-
 use crate::drivers::digital_output::DigitalOutput;
 
 pub struct Pump<D: DigitalOutput> {
@@ -31,9 +29,9 @@ impl<D: DigitalOutput> Pump<D> {
         self.commanded = enable;
         self.apply();
         if enable {
-            Timer::after(Duration::from_millis(1000)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(1000)).await;
         } else {
-            Timer::after(Duration::from_millis(100)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
         }
     }
 

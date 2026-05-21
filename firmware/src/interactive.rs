@@ -10,7 +10,7 @@
 //! machine sender emits no backspaces, and the newline echo collapses to an
 //! empty line the framer discards.
 
-use crate::drivers::serial::Serial;
+use crate::drivers::serial;
 
 /// Emit terminal echo for one inbound byte, mirroring the C transport:
 /// - LF -> `\r\n`, so the user's Enter shows as a proper line break.
@@ -20,7 +20,7 @@ use crate::drivers::serial::Serial;
 /// `line_len` is the framer's pre-feed line length (the single source of truth,
 /// so no parallel buffer is kept here). `tx_idle` must be true only when no
 /// protocol line is in flight, so echo bytes can't interleave one on the wire.
-pub fn echo(b: u8, line_len: usize, tx_idle: bool, serial: &Serial) {
+pub fn echo(b: u8, line_len: usize, tx_idle: bool, serial: &serial::Serial) {
     if !tx_idle {
         return;
     }

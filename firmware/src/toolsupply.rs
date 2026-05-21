@@ -4,8 +4,7 @@
 //! Tool supply: a 50 Hz servo whose pulse width selects open vs. closed. Moves
 //! are ramped over ~1 s so the servo travels smoothly.
 
-use embassy_time::{Duration, Timer};
-use model::gcode::ToolSupplyState;
+use model::gcode;
 
 use crate::drivers::pwm_output::PwmOutput;
 
@@ -19,7 +18,7 @@ pub struct ToolSupply<P: PwmOutput> {
     open_ms: f32,
     closed_ms: f32,
     current_ms: f32,
-    current_state: ToolSupplyState,
+    current_state: gcode::ToolSupplyState,
 }
 
 impl<P: PwmOutput> ToolSupply<P> {
@@ -30,7 +29,7 @@ impl<P: PwmOutput> ToolSupply<P> {
             open_ms: DEFAULT_OPEN_MS,
             closed_ms: DEFAULT_CLOSED_MS,
             current_ms: DEFAULT_CLOSED_MS,
-            current_state: ToolSupplyState::Closed,
+            current_state: gcode::ToolSupplyState::Closed,
         }
     }
 
@@ -43,32 +42,32 @@ impl<P: PwmOutput> ToolSupply<P> {
         self.pwm.set(on_ms / PERIOD_MS);
     }
 
-    fn target_ms(&self, state: ToolSupplyState) -> f32 {
+    fn target_ms(&self, state: gcode::ToolSupplyState) -> f32 {
         match state {
-            ToolSupplyState::Open => self.open_ms,
-            ToolSupplyState::Closed => self.closed_ms,
+            gcode::ToolSupplyState::Open => self.open_ms,
+            gcode::ToolSupplyState::Closed => self.closed_ms,
         }
     }
 
     /// Ramp the servo to `target` over 100 steps of 10 ms each (blocking, ~1 s).
-    pub async fn set_state(&mut self, target: ToolSupplyState) {
+    pub async fn set_state(&mut self, target: gcode::ToolSupplyState) {
         const NUM_CYCLES: u16 = 100;
         let src = self.current_ms;
         let dst = self.target_ms(target);
         for cycle in 1..=NUM_CYCLES {
             let t = cycle as f32 / NUM_CYCLES as f32;
             self.set_servo(src + t * (dst - src));
-            Timer::after(Duration::from_millis(10)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
         }
         self.current_ms = dst;
         self.current_state = target;
     }
 
     /// Update one state's pulse width, then re-apply the active state (moves the servo).
-    pub async fn configure(&mut self, state: ToolSupplyState, on_ms: f32) {
+    pub async fn configure(&mut self, state: gcode::ToolSupplyState, on_ms: f32) {
         match state {
-            ToolSupplyState::Open => self.open_ms = on_ms,
-            ToolSupplyState::Closed => self.closed_ms = on_ms,
+            gcode::ToolSupplyState::Open => self.open_ms = on_ms,
+            gcode::ToolSupplyState::Closed => self.closed_ms = on_ms,
         }
         self.set_state(self.current_state).await;
     }

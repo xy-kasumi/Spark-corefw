@@ -10,7 +10,7 @@
 //! command that finished normally from one a cancel landed on, since its
 //! lookahead is already pulled out of the queue and the drain can't reach it.
 
-use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
+use core::sync::atomic;
 
 /// Drain window length, in orchestrator ticks (1 kHz). Long enough to outlast
 /// host-side and on-wire buffering that a single `!` can't otherwise reach; a
@@ -21,35 +21,35 @@ const CANCEL_TICKS: u16 = 500;
 /// Single-writer for the window (only the RX phase calls [`cancel`](Self::cancel)
 /// and [`tick`](Self::tick)), so the load/modify/store in `tick` needs no RMW.
 pub struct Canceler {
-    gen: AtomicU32,
-    ticks_left: AtomicU16,
+    gen: atomic::AtomicU32,
+    ticks_left: atomic::AtomicU16,
 }
 
 impl Canceler {
     pub const fn new() -> Self {
         Self {
-            gen: AtomicU32::new(0),
-            ticks_left: AtomicU16::new(0),
+            gen: atomic::AtomicU32::new(0),
+            ticks_left: atomic::AtomicU16::new(0),
         }
     }
 
     /// Bump the generation and (re)arm the drain window.
     pub fn cancel(&self) {
-        self.gen.fetch_add(1, Ordering::Relaxed);
-        self.ticks_left.store(CANCEL_TICKS, Ordering::Relaxed);
+        self.gen.fetch_add(1, atomic::Ordering::Relaxed);
+        self.ticks_left.store(CANCEL_TICKS, atomic::Ordering::Relaxed);
     }
 
     /// Age the drain window by one tick. Call once per orchestrator tick.
     pub fn tick(&self) {
-        let left = self.ticks_left.load(Ordering::Relaxed);
+        let left = self.ticks_left.load(atomic::Ordering::Relaxed);
         if left > 0 {
-            self.ticks_left.store(left - 1, Ordering::Relaxed);
+            self.ticks_left.store(left - 1, atomic::Ordering::Relaxed);
         }
     }
 
     /// True while the drain window is open: incoming commands should be discarded.
     pub fn active(&self) -> bool {
-        self.ticks_left.load(Ordering::Relaxed) > 0
+        self.ticks_left.load(atomic::Ordering::Relaxed) > 0
     }
 
     /// Snapshot the cancel generation. Pair with [`CancelWatch::cancelled`] to
@@ -57,7 +57,7 @@ impl Canceler {
     pub fn watch(&'static self) -> CancelWatch {
         CancelWatch {
             canceler: self,
-            gen: self.gen.load(Ordering::Relaxed),
+            gen: self.gen.load(atomic::Ordering::Relaxed),
         }
     }
 }
@@ -72,7 +72,7 @@ pub struct CancelWatch {
 impl CancelWatch {
     /// True if a cancel has fired since this watch was taken.
     pub fn cancelled(&self) -> bool {
-        self.canceler.gen.load(Ordering::Relaxed) != self.gen
+        self.canceler.gen.load(atomic::Ordering::Relaxed) != self.gen
     }
 }
 

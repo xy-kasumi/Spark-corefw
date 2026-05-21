@@ -6,8 +6,6 @@
 //! Generic over any half-duplex byte transport (write, write-then-read).
 #![allow(dead_code)]
 
-use embassy_time::{Duration, Timer};
-
 // --- Transport ---------------------------------------------------------------
 
 pub trait TmcTransport {
@@ -120,7 +118,7 @@ impl<T: TmcTransport> Tmc2209<T> {
             .await
             .map_err(Error::Transport)?;
         let v = parse_reply::<T::Error>(&reply, addr)?;
-        Timer::after(Duration::from_millis(SETTLE_MS)).await;
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(SETTLE_MS)).await;
         Ok(v)
     }
 
@@ -130,7 +128,7 @@ impl<T: TmcTransport> Tmc2209<T> {
         let before = self.read_reg(REG_IFCNT).await? as u8;
         let req = encode_write(addr, val);
         self.transport.write(&req).await.map_err(Error::Transport)?;
-        Timer::after(Duration::from_millis(SETTLE_MS)).await;
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(SETTLE_MS)).await;
         let after = self.read_reg(REG_IFCNT).await? as u8;
         if after == before.wrapping_add(1) {
             Ok(())

@@ -3,14 +3,14 @@
 
 //! Wire feed: integrates a feedrate into motor6's step target, one step per tick.
 
-use crate::board::MotorStepping;
+use crate::board;
 
 /// 1 ms tick period (the orchestrator ticks at 1 kHz).
 const TICK_PERIOD_S: f32 = 0.001;
 const DEFAULT_UNITSTEPS: f32 = 200.0;
 
 pub struct Wirefeed {
-    step: MotorStepping,
+    step: board::MotorStepping,
     unitsteps: f32,
     feeding: bool,
     pos_mm: f32,
@@ -19,7 +19,7 @@ pub struct Wirefeed {
 }
 
 impl Wirefeed {
-    pub fn new(step: MotorStepping) -> Self {
+    pub fn new(step: board::MotorStepping) -> Self {
         Self {
             step,
             unitsteps: DEFAULT_UNITSTEPS,

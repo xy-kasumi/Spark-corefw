@@ -9,8 +9,6 @@
 
 use core::fmt::Write;
 
-use heapless::Vec;
-
 /// Spec caps the payload at 100 VCHAR; round up to a power of two.
 pub const LINE_CAP: usize = 128;
 
@@ -40,14 +38,14 @@ impl PsType {
 }
 
 pub struct Line {
-    buf: Vec<u8, LINE_CAP>,
+    buf: heapless::Vec<u8, LINE_CAP>,
     overflowed: bool,
 }
 
 impl Line {
     pub fn new(ps: PsType) -> Self {
         let mut me = Self {
-            buf: Vec::new(),
+            buf: heapless::Vec::new(),
             overflowed: false,
         };
         me.append(ps.tag());

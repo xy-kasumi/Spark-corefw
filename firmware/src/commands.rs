@@ -6,38 +6,34 @@
 //! for the executor's callers.
 
 use core::fmt::Write;
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic;
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Timer};
-use heapless::String;
-use model::coordstate::CoordState;
-use model::gcode::{Command as GCmd, HomeAxes, PulserConfig};
-use model::motion::Mode;
-use model::pstate::{ErrorLine, Line, PsType};
-use model::settings::{Axis, Repo};
+use embassy_sync::blocking_mutex::raw;
+use embassy_sync::channel;
+use embassy_sync::mutex;
+use model::coordstate;
+use model::gcode;
+use model::pstate;
 
 pub use model::command::Command;
 
-use crate::board::{Pulser, Pump, ToolSupply, MOTOR_NAMES, NUM_MOTORS};
-use crate::canceler::CANCELER;
-use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
-use crate::homing::HomingConfig;
-use crate::line_tx::LineTx;
-use crate::motion::Motion;
-use crate::settings::{write, SharedTmc};
-use crate::wirefeed::Wirefeed;
+use crate::board;
+use crate::canceler;
+use crate::drivers::tmc2209;
+use crate::homing;
+use crate::line_tx;
+use crate::motion;
+use crate::settings;
+use crate::wirefeed;
 
 pub const CMD_QUEUE_CAP: usize = 64;
 
-pub type CmdQueue = Channel<NoopRawMutex, Command, CMD_QUEUE_CAP>;
+pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
 
 /// Commands popped from [`CmdQueue`] but not yet finished — covers the running
 /// command and the one in the executor's peek buffer.
 /// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field.
-pub static OUTSTANDING: AtomicUsize = AtomicUsize::new(0);
+pub static OUTSTANDING: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
 /// Rapid feed, also used for homing moves (matches C `VELOCITY_MM_PER_S`).
 const RAPID_SPEED_MM_PER_S: f32 = 10.0;
@@ -46,27 +42,27 @@ const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
 /// True if `cmd` is a G1 move — the only command that chains via the path buffer.
 pub fn is_g1(cmd: &Command) -> bool {
-    matches!(cmd, Command::Gcode(GCmd::Linear(_)))
+    matches!(cmd, Command::Gcode(gcode::Command::Linear(_)))
 }
 
 pub async fn exec(
     cmd: Command,
     cont_prev: bool,
     cont_next: bool,
-    motion: &Mutex<NoopRawMutex, Motion>,
-    tmc: &SharedTmc,
-    pulser: &Mutex<NoopRawMutex, Pulser>,
-    coord: &Mutex<NoopRawMutex, CoordState>,
-    pump: &Mutex<NoopRawMutex, Pump>,
-    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
-    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
-    homing: &Mutex<NoopRawMutex, HomingConfig>,
-    line_tx: &LineTx,
-    repo: &mut Repo,
-    pulser_cfg: &mut PulserConfig,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    tmc: &settings::SharedTmc,
+    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
+    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
+    pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>,
+    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
+    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    line_tx: &line_tx::LineTx,
+    repo: &mut model::settings::Repo,
+    pulser_cfg: &mut gcode::PulserConfig,
 ) {
     match cmd {
-        Command::Gcode(GCmd::Rapid(spec)) => {
+        Command::Gcode(gcode::Command::Rapid(spec)) => {
             {
                 // Lock order motion -> coord (matches signals.rs) to avoid deadlock.
                 let mut m = motion.lock().await;
@@ -78,14 +74,14 @@ pub async fn exec(
             // would overwrite this still-running move (matches C G0 handler).
             wait_move_end(motion, pulser, cont_next).await;
         }
-        Command::Gcode(GCmd::Linear(spec)) => {
+        Command::Gcode(gcode::Command::Linear(spec)) => {
             let (target, chaining) = {
                 let m = motion.lock().await;
                 let here = m.current_position();
                 let target = coord.lock().await.resolve_move(&spec, here);
                 // Only chain onto a still-running EDM move; a cancel drops it to
                 // Idle and breaks the chain even if cont_prev was set.
-                (target, cont_prev && m.mode() == Mode::EdmMove)
+                (target, cont_prev && m.mode() == model::motion::Mode::EdmMove)
             };
             if chaining {
                 motion.lock().await.state().enqueue_edm(target, cont_next);
@@ -104,7 +100,7 @@ pub async fn exec(
             }
             wait_move_end(motion, pulser, cont_next).await;
         }
-        Command::Gcode(GCmd::Probe(spec)) => {
+        Command::Gcode(gcode::Command::Probe(spec)) => {
             let target = {
                 let m = motion.lock().await;
                 let here = m.current_position();
@@ -127,38 +123,38 @@ pub async fn exec(
                 .start_probe(target, PROBE_SPEED_MM_PER_S);
             wait_move_end(motion, pulser, false).await;
         }
-        Command::Gcode(GCmd::Home(axes)) => {
+        Command::Gcode(gcode::Command::Home(axes)) => {
             exec_home(axes, motion, line_tx, homing).await;
         }
-        Command::Gcode(GCmd::SelectCoordSys(a)) => {
+        Command::Gcode(gcode::Command::SelectCoordSys(a)) => {
             coord.lock().await.select(a);
         }
-        Command::Gcode(GCmd::Pump(enable)) => {
+        Command::Gcode(gcode::Command::Pump(enable)) => {
             pump.lock().await.set_enable(enable).await;
         }
-        Command::Gcode(GCmd::WirefeedStart(rate)) => {
+        Command::Gcode(gcode::Command::WirefeedStart(rate)) => {
             wirefeed.lock().await.start(rate);
             // Wait 2 s for wire tension to stabilize (matches C M10 handler).
-            Timer::after(Duration::from_millis(2000)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
-        Command::Gcode(GCmd::WirefeedStop) => {
+        Command::Gcode(gcode::Command::WirefeedStop) => {
             wirefeed.lock().await.stop();
         }
-        Command::Gcode(GCmd::ToolSupply(state)) => {
+        Command::Gcode(gcode::Command::ToolSupply(state)) => {
             toolsupply.lock().await.set_state(state).await;
         }
-        Command::Gcode(GCmd::Pulser(cfg)) => {
+        Command::Gcode(gcode::Command::Pulser(cfg)) => {
             // Modal: M3/M4 only update the config the next G1/G38.3 energizes with.
             *pulser_cfg = cfg;
         }
         Command::Set(key, val) => {
-            if let Err(e) = write(
+            if let Err(e) = settings::write(
                 repo, &key, val, motion, tmc, coord, wirefeed, toolsupply, homing,
             )
             .await
             {
                 let _ = line_tx.try_send(
-                    ErrorLine::new()
+                    pstate::ErrorLine::new()
                         .msg(format_args!(
                             "setting failed: {}={} ({:?})",
                             key.as_str(),
@@ -183,17 +179,17 @@ pub async fn exec(
 /// With `cont_next`, return once the path can accept the next chained segment
 /// (pulser stays energized); otherwise wait for full stop and de-energize.
 async fn wait_move_end(
-    motion: &Mutex<NoopRawMutex, Motion>,
-    pulser: &Mutex<NoopRawMutex, Pulser>,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
     cont_next: bool,
 ) {
     if cont_next {
         while !motion.lock().await.can_enqueue() {
-            Timer::after(Duration::from_millis(1)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
     } else {
-        while motion.lock().await.mode() != Mode::Idle {
-            Timer::after(Duration::from_millis(1)).await;
+        while motion.lock().await.mode() != model::motion::Mode::Idle {
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         pulser.lock().await.deenergize().await;
     }
@@ -203,16 +199,16 @@ async fn wait_move_end(
 /// into the hard stop, then re-anchoring the axis to its configured origin. Stall
 /// sensing is dead on this board, so the move always stops at target.
 async fn exec_home(
-    axes: HomeAxes,
-    motion: &Mutex<NoopRawMutex, Motion>,
-    line_tx: &LineTx,
-    homing: &Mutex<NoopRawMutex, HomingConfig>,
+    axes: gcode::HomeAxes,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    line_tx: &line_tx::LineTx,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
 ) {
     // Snapshot once; homing params don't change mid-G28.
     let homing = *homing.lock().await;
     if axes.c {
         let _ = line_tx.try_send(
-            ErrorLine::new()
+            pstate::ErrorLine::new()
                 .msg(format_args!("C homing not supported"))
                 .finish(),
         );
@@ -220,12 +216,12 @@ async fn exec_home(
     }
     let count = axes.x as u8 + axes.y as u8 + axes.z as u8;
     if count > 1 {
-        let _ = line_tx.try_send(ErrorLine::new().msg(format_args!("too many axes")).finish());
+        let _ = line_tx.try_send(pstate::ErrorLine::new().msg(format_args!("too many axes")).finish());
         return;
     }
 
     // count == 0 means home all in phase order; otherwise the single named axis.
-    let mut order = [Axis::X, Axis::Y, Axis::Z];
+    let mut order = [model::settings::Axis::X, model::settings::Axis::Y, model::settings::Axis::Z];
     order.sort_unstable_by(|a, b| {
         homing
             .axis(*a)
@@ -234,28 +230,28 @@ async fn exec_home(
     });
     for axis in order {
         let named = match axis {
-            Axis::X => axes.x,
-            Axis::Y => axes.y,
-            Axis::Z => axes.z,
+            model::settings::Axis::X => axes.x,
+            model::settings::Axis::Y => axes.y,
+            model::settings::Axis::Z => axes.z,
         };
         if count == 1 && !named {
             continue;
         }
 
         let cfg = homing.axis(axis);
-        let watch = CANCELER.watch();
+        let watch = canceler::CANCELER.watch();
         {
             let mut m = motion.lock().await;
             let mut target = m.current_position();
             match axis {
-                Axis::X => target.x += cfg.side * cfg.travel,
-                Axis::Y => target.y += cfg.side * cfg.travel,
-                Axis::Z => target.z += cfg.side * cfg.travel,
+                model::settings::Axis::X => target.x += cfg.side * cfg.travel,
+                model::settings::Axis::Y => target.y += cfg.side * cfg.travel,
+                model::settings::Axis::Z => target.z += cfg.side * cfg.travel,
             }
             m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
         }
-        while motion.lock().await.mode() != Mode::Idle {
-            Timer::after(Duration::from_millis(1)).await;
+        while motion.lock().await.mode() != model::motion::Mode::Idle {
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         if watch.cancelled() {
             break; // cancelled mid-home: do not re-anchor to a bogus origin
@@ -265,14 +261,18 @@ async fn exec_home(
 }
 
 /// Emit one logical `stg` p-state framed by `stg <` / `stg >`, one kv line per setting.
-async fn dump_settings(line_tx: &LineTx, repo: &Repo) {
-    line_tx.send(Line::new(PsType::Settings).begin()).await;
+async fn dump_settings(line_tx: &line_tx::LineTx, repo: &model::settings::Repo) {
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Settings).begin())
+        .await;
     for (key, value) in repo.iter() {
         line_tx
-            .send(Line::new(PsType::Settings).float(key, value))
+            .send(pstate::Line::new(pstate::PsType::Settings).float(key, value))
             .await;
     }
-    line_tx.send(Line::new(PsType::Settings).end()).await;
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Settings).end())
+        .await;
 }
 
 /// Emit one `stat` p-state framed by `stat <` / `stat >`, one kv line per per-module field.
@@ -280,50 +280,52 @@ async fn dump_settings(line_tx: &LineTx, repo: &Repo) {
 /// Slow: each TMC register read awaits a UART roundtrip + 10 ms settle, so polling all 7
 /// drivers across 4 registers takes several hundred ms.
 async fn dump_stat(
-    line_tx: &LineTx,
-    motion: &Mutex<NoopRawMutex, Motion>,
-    tmc: &SharedTmc,
-    pulser: &Mutex<NoopRawMutex, Pulser>,
-    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
+    line_tx: &line_tx::LineTx,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    tmc: &settings::SharedTmc,
+    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
+    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
 ) {
-    line_tx.send(Line::new(PsType::Stat).begin()).await;
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Stat).begin())
+        .await;
 
     let (mode, steps) = {
         let m = motion.lock().await;
         (m.mode(), m.motor_step_counts())
     };
     let mode_name = match mode {
-        Mode::Idle => "idle",
-        Mode::Rapid => "rapid",
-        Mode::EdmMove => "edm",
-        Mode::Probing => "probe",
+        model::motion::Mode::Idle => "idle",
+        model::motion::Mode::Rapid => "rapid",
+        model::motion::Mode::EdmMove => "edm",
+        model::motion::Mode::Probing => "probe",
     };
     line_tx
-        .send(Line::new(PsType::Stat).str_val("motion.mode", mode_name))
+        .send(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name))
         .await;
     for (i, &steps_i) in steps.iter().enumerate() {
-        let mut key: String<32> = String::new();
-        let _ = write!(&mut key, "motor.{}.current_steps", MOTOR_NAMES[i]);
+        let mut key: heapless::String<32> = heapless::String::new();
+        let _ = write!(&mut key, "motor.{}.current_steps", board::MOTOR_NAMES[i]);
         line_tx
-            .send(Line::new(PsType::Stat).int(&key, steps_i))
+            .send(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i))
             .await;
     }
 
     const REGS: &[(&str, u8)] = &[
-        ("GCONF", REG_GCONF),
-        ("IOIN", REG_IOIN),
-        ("SG_RESULT", REG_SG_RESULT),
-        ("CHOPCONF", REG_CHOPCONF),
+        ("GCONF", tmc2209::REG_GCONF),
+        ("IOIN", tmc2209::REG_IOIN),
+        ("SG_RESULT", tmc2209::REG_SG_RESULT),
+        ("CHOPCONF", tmc2209::REG_CHOPCONF),
     ];
     {
         let mut t = tmc.lock().await;
-        for i in 0..NUM_MOTORS {
+        for i in 0..board::NUM_MOTORS {
             for (name, addr) in REGS {
-                let mut key: String<32> = String::new();
-                let _ = write!(&mut key, "motor.{}.driver.{}", MOTOR_NAMES[i], name);
+                let mut key: heapless::String<32> = heapless::String::new();
+                let _ = write!(&mut key, "motor.{}.driver.{}", board::MOTOR_NAMES[i], name);
                 let line = match t[i].read_reg(*addr).await {
-                    Ok(v) => Line::new(PsType::Stat).hex32(&key, v),
-                    Err(_) => Line::new(PsType::Stat).str_val(&key, "error"),
+                    Ok(v) => pstate::Line::new(pstate::PsType::Stat).hex32(&key, v),
+                    Err(_) => pstate::Line::new(pstate::PsType::Stat).str_val(&key, "error"),
                 };
                 line_tx.send(line).await;
             }
@@ -339,30 +341,30 @@ async fn dump_stat(
     };
     if !stat.init_ok {
         line_tx
-            .send(Line::new(PsType::Stat).str_val("pulser.status", "init failed"))
+            .send(pstate::Line::new(pstate::PsType::Stat).str_val("pulser.status", "init failed"))
             .await;
     } else {
         line_tx
-            .send(Line::new(PsType::Stat).bool("pulser.energized", stat.energized))
+            .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized))
             .await;
         line_tx
-            .send(Line::new(PsType::Stat).int("pulser.poll_count", stat.poll_count as i32))
+            .send(pstate::Line::new(pstate::PsType::Stat).int("pulser.poll_count", stat.poll_count as i32))
             .await;
         line_tx
-            .send(Line::new(PsType::Stat).int("pulser.i2c_fail", stat.i2c_fail as i32))
+            .send(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_fail", stat.i2c_fail as i32))
             .await;
         line_tx
-            .send(Line::new(PsType::Stat).float("pulser.edm.r_pulse", stat.r_pulse))
+            .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_pulse", stat.r_pulse))
             .await;
         line_tx
-            .send(Line::new(PsType::Stat).float("pulser.edm.r_short", stat.r_short))
+            .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_short", stat.r_short))
             .await;
         line_tx
-            .send(Line::new(PsType::Stat).float("pulser.edm.r_open", stat.r_open))
+            .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_open", stat.r_open))
             .await;
         let temp = match stat.temp_c {
-            Some(v) => Line::new(PsType::Stat).int("pulser.temp_c", v as i32),
-            None => Line::new(PsType::Stat).str_val("pulser.temp_c", "error"),
+            Some(v) => pstate::Line::new(pstate::PsType::Stat).int("pulser.temp_c", v as i32),
+            None => pstate::Line::new(pstate::PsType::Stat).str_val("pulser.temp_c", "error"),
         };
         line_tx.send(temp).await;
         send_stat_f32(line_tx, "pulser.pulse_current_a", stat.pulse_current_a).await;
@@ -375,23 +377,23 @@ async fn dump_stat(
         (w.feeding(), w.pos_mm(), w.rate())
     };
     line_tx
-        .send(Line::new(PsType::Stat).bool("wirefeed.feeding", feeding))
+        .send(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding))
         .await;
     line_tx
-        .send(Line::new(PsType::Stat).float("wirefeed.pos", pos))
+        .send(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.pos", pos))
         .await;
     line_tx
-        .send(Line::new(PsType::Stat).float("wirefeed.rate", rate))
+        .send(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate))
         .await;
 
-    line_tx.send(Line::new(PsType::Stat).end()).await;
+    line_tx.send(pstate::Line::new(pstate::PsType::Stat).end()).await;
 }
 
 /// Send a `stat` float field, or `key:"error"` when the value is absent.
-async fn send_stat_f32(line_tx: &LineTx, key: &str, value: Option<f32>) {
+async fn send_stat_f32(line_tx: &line_tx::LineTx, key: &str, value: Option<f32>) {
     let line = match value {
-        Some(v) => Line::new(PsType::Stat).float(key, v),
-        None => Line::new(PsType::Stat).str_val(key, "error"),
+        Some(v) => pstate::Line::new(pstate::PsType::Stat).float(key, v),
+        None => pstate::Line::new(pstate::PsType::Stat).str_val(key, "error"),
     };
     line_tx.send(line).await;
 }

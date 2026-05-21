@@ -9,7 +9,7 @@
 
 use core::str;
 
-use crate::coords::ActiveCoordSys;
+use crate::coords;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
@@ -22,7 +22,7 @@ pub enum Command {
     /// G38.3: probe toward target, stop on contact, no error if not reached.
     Probe(MoveSpec),
     /// G53-G56: select the active (modal) coordinate system.
-    SelectCoordSys(ActiveCoordSys),
+    SelectCoordSys(coords::ActiveCoordSys),
     /// M8/M9: enable (true) or disable (false) the pump.
     Pump(bool),
     /// M10: start wire feeding at the given feedrate in mm/min.
@@ -217,7 +217,7 @@ fn parse_select(p: &mut Cursor, code: i32) -> Result<Command, ParseError> {
     if !p.eof_or_only_ws() {
         return Err(ParseError::Syntax);
     }
-    let cs = ActiveCoordSys::from_gcode(code).ok_or(ParseError::UnknownCommand)?;
+    let cs = coords::ActiveCoordSys::from_gcode(code).ok_or(ParseError::UnknownCommand)?;
     Ok(Command::SelectCoordSys(cs))
 }
 

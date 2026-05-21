@@ -6,15 +6,15 @@
 //!
 //! Per-motor 3-state machine (Idle → PulseHigh → PulseLow → Idle), 30µs per phase.
 //! One step = 90µs → ~11.1k steps/sec max.
-use core::cell::RefCell;
+use core::cell;
 
-use embassy_stm32::gpio::{Level, Output};
+use embassy_stm32::gpio;
 use embassy_stm32::interrupt::typelevel::Interrupt;
-use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::low_level::Timer as LlTimer;
+use embassy_stm32::time;
+use embassy_stm32::timer::low_level;
 use embassy_stm32::timer::CoreInstance;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
+use embassy_sync::blocking_mutex;
+use embassy_sync::blocking_mutex::raw;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StepState {
@@ -29,8 +29,8 @@ struct MotorState {
     step_state: StepState,
     // Cached last write to dir_pin; lets us skip GPIO writes on unchanged direction.
     direction: bool,
-    step_pin: Option<Output<'static>>,
-    dir_pin: Option<Output<'static>>,
+    step_pin: Option<gpio::Output<'static>>,
+    dir_pin: Option<gpio::Output<'static>>,
 }
 
 const fn motor_state_init() -> MotorState {
@@ -45,7 +45,7 @@ const fn motor_state_init() -> MotorState {
 }
 
 struct EngineInner<T: CoreInstance, const N: usize> {
-    timer: Option<LlTimer<'static, T>>,
+    timer: Option<low_level::Timer<'static, T>>,
     motors: [MotorState; N],
 }
 
@@ -59,13 +59,13 @@ impl<T: CoreInstance, const N: usize> EngineInner<T, N> {
 }
 
 pub struct StepGen<T: CoreInstance, const N: usize> {
-    inner: BlockingMutex<CriticalSectionRawMutex, RefCell<EngineInner<T, N>>>,
+    inner: blocking_mutex::Mutex<raw::CriticalSectionRawMutex, cell::RefCell<EngineInner<T, N>>>,
 }
 
 impl<T: CoreInstance, const N: usize> StepGen<T, N> {
     pub const fn new() -> Self {
         Self {
-            inner: BlockingMutex::new(RefCell::new(EngineInner::new())),
+            inner: blocking_mutex::Mutex::new(cell::RefCell::new(EngineInner::new())),
         }
     }
 
@@ -74,10 +74,10 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
     pub fn init(
         &'static self,
         tim: T,
-        pins: [(Output<'static>, Output<'static>); N],
+        pins: [(gpio::Output<'static>, gpio::Output<'static>); N],
     ) -> [StepGenHandle<T, N>; N] {
-        let timer = LlTimer::new(tim);
-        timer.set_frequency(Hertz(33_333));
+        let timer = low_level::Timer::new(tim);
+        timer.set_frequency(time::Hertz(33_333));
         timer.enable_update_interrupt(true);
         timer.start();
 
@@ -115,12 +115,12 @@ impl<T: CoreInstance, const N: usize> StepGen<T, N> {
 }
 
 impl MotorState {
-    fn write_step(&mut self, level: Level) {
+    fn write_step(&mut self, level: gpio::Level) {
         if let Some(p) = self.step_pin.as_mut() {
             p.set_level(level);
         }
     }
-    fn write_dir(&mut self, level: Level) {
+    fn write_dir(&mut self, level: gpio::Level) {
         if let Some(p) = self.dir_pin.as_mut() {
             p.set_level(level);
         }
@@ -133,14 +133,14 @@ impl MotorState {
                     let dir = self.target > self.current;
                     if dir != self.direction {
                         self.direction = dir;
-                        self.write_dir(Level::from(dir));
+                        self.write_dir(gpio::Level::from(dir));
                     }
-                    self.write_step(Level::High);
+                    self.write_step(gpio::Level::High);
                     self.step_state = StepState::PulseHigh;
                 }
             }
             StepState::PulseHigh => {
-                self.write_step(Level::Low);
+                self.write_step(gpio::Level::Low);
                 self.step_state = StepState::PulseLow;
                 self.current += if self.direction { 1 } else { -1 };
             }

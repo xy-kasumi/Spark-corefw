@@ -5,12 +5,10 @@
 //!
 //! Pipe sizes are picked relative to the 1 ms tick x 115200 baud (~12 B) x "just-in-case" jitter buffer (x5).
 
-use embassy_executor::Spawner;
 use embassy_stm32::mode;
-use embassy_stm32::usart::{RingBufferedUartRx, Uart, UartTx};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::pipe::Pipe;
-use static_cell::StaticCell;
+use embassy_stm32::usart;
+use embassy_sync::blocking_mutex::raw;
+use embassy_sync::pipe;
 
 pub const TX_CAP: usize = 64;
 pub const RX_CAP: usize = 64;
@@ -18,22 +16,25 @@ pub const RX_CAP: usize = 64;
 const RX_DMA_CAP: usize = 64;
 
 pub struct Serial {
-    tx_pipe: Pipe<CriticalSectionRawMutex, TX_CAP>,
-    rx_pipe: Pipe<CriticalSectionRawMutex, RX_CAP>,
+    tx_pipe: pipe::Pipe<raw::CriticalSectionRawMutex, TX_CAP>,
+    rx_pipe: pipe::Pipe<raw::CriticalSectionRawMutex, RX_CAP>,
 }
 
 impl Serial {
     /// Setup serial by spawning tasks. Only one init() call in the program allowed.
-    pub fn init(spawner: &Spawner, uart: Uart<'static, mode::Async>) -> &'static Self {
+    pub fn init(
+        spawner: &embassy_executor::Spawner,
+        uart: usart::Uart<'static, mode::Async>,
+    ) -> &'static Self {
         let (tx, rx) = uart.split();
         let rx_buf: &'static mut [u8; RX_DMA_CAP] =
             cortex_m::singleton!(: [u8; RX_DMA_CAP] = [0; RX_DMA_CAP]).unwrap();
         let rx_ring = rx.into_ring_buffered(rx_buf);
 
-        static CELL: StaticCell<Serial> = StaticCell::new();
+        static CELL: static_cell::StaticCell<Serial> = static_cell::StaticCell::new();
         let me = CELL.init(Serial {
-            tx_pipe: Pipe::new(),
-            rx_pipe: Pipe::new(),
+            tx_pipe: pipe::Pipe::new(),
+            rx_pipe: pipe::Pipe::new(),
         });
         spawner.must_spawn(pump_tx(me, tx));
         spawner.must_spawn(pump_rx(me, rx_ring));
@@ -64,7 +65,7 @@ impl Serial {
 }
 
 #[embassy_executor::task]
-async fn pump_tx(serial: &'static Serial, mut tx: UartTx<'static, mode::Async>) {
+async fn pump_tx(serial: &'static Serial, mut tx: usart::UartTx<'static, mode::Async>) {
     let mut buf = [0u8; 32];
     loop {
         let n = serial.tx_pipe.read(&mut buf).await;
@@ -73,7 +74,7 @@ async fn pump_tx(serial: &'static Serial, mut tx: UartTx<'static, mode::Async>) 
 }
 
 #[embassy_executor::task]
-async fn pump_rx(serial: &'static Serial, mut rx: RingBufferedUartRx<'static>) {
+async fn pump_rx(serial: &'static Serial, mut rx: usart::RingBufferedUartRx<'static>) {
     let mut buf = [0u8; 32];
     loop {
         // RX errors (overrun, framing) restart background DMA on next read().

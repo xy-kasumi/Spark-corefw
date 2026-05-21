@@ -6,14 +6,10 @@
 //! orchestrator calls [`Pulser::tick`] on its 1 ms cadence.
 #![allow(dead_code)]
 
-use embassy_time::{Duration, Timer};
-use model::pstate::{Line, PsType};
+use model::pstate;
 
-use crate::drivers::pulser::{
-    PulserBus, PulserDevice, REG_CKP_PS, REG_MAX_DUTY, REG_POLARITY, REG_PULSE_CURRENT,
-    REG_PULSE_DUR, REG_TEMPERATURE,
-};
-use crate::line_tx::LineTx;
+use crate::drivers::pulser::{self, PulserBus};
+use crate::line_tx;
 
 /// EWMA coefficient for eff_duty: ~1 s time constant at 1 ms polling.
 const EFF_DUTY_ALPHA: f32 = 0.001;
@@ -40,7 +36,7 @@ pub struct PulserStat {
 }
 
 pub struct Pulser<B: PulserBus> {
-    dev: PulserDevice<B>,
+    dev: pulser::PulserDevice<B>,
     init_ok: bool,
     energized: bool,
     /// Discard the first checkpoint after energize — it holds stale pre-energize data.
@@ -55,7 +51,7 @@ pub struct Pulser<B: PulserBus> {
 }
 
 impl<B: PulserBus> Pulser<B> {
-    pub fn new(dev: PulserDevice<B>) -> Self {
+    pub fn new(dev: pulser::PulserDevice<B>) -> Self {
         Self {
             dev,
             init_ok: false,
@@ -74,8 +70,8 @@ impl<B: PulserBus> Pulser<B> {
     /// Verify communication by reading the temperature register, emitting the
     /// `pulser.ok` line (and `pulser.msg` on failure) into the caller's open
     /// `init` p-state group. The caller owns the group's `begin`/`end`.
-    pub async fn init(&mut self, line_tx: &LineTx) -> bool {
-        match self.dev.read_register(REG_TEMPERATURE).await {
+    pub async fn init(&mut self, line_tx: &line_tx::LineTx) -> bool {
+        match self.dev.read_register(pulser::REG_TEMPERATURE).await {
             Ok(temp) => {
                 self.last_temp = temp;
                 self.init_ok = true;
@@ -85,11 +81,11 @@ impl<B: PulserBus> Pulser<B> {
             }
         }
         if self.init_ok {
-            let _ = line_tx.try_send(Line::new(PsType::Init).bool("pulser.ok", true));
+            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", true));
         } else {
-            let _ = line_tx.try_send(Line::new(PsType::Init).bool("pulser.ok", false));
-            let _ =
-                line_tx.try_send(Line::new(PsType::Init).str_val("pulser.msg", "I2C read failed"));
+            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", false));
+            let _ = line_tx
+                .try_send(pstate::Line::new(pstate::PsType::Init).str_val("pulser.msg", "I2C read failed"));
         }
         self.init_ok
     }
@@ -108,11 +104,12 @@ impl<B: PulserBus> Pulser<B> {
         let polarity = if negative { 2 } else { 1 };
 
         // Polarity last, so all parameters are set before the hardware activates.
-        self.write_with_retry(REG_PULSE_CURRENT, pulse_current_100ma)
+        self.write_with_retry(pulser::REG_PULSE_CURRENT, pulse_current_100ma)
             .await;
-        self.write_with_retry(REG_PULSE_DUR, pulse_dur_10us).await;
-        self.write_with_retry(REG_MAX_DUTY, duty).await;
-        self.write_with_retry(REG_POLARITY, polarity).await;
+        self.write_with_retry(pulser::REG_PULSE_DUR, pulse_dur_10us)
+            .await;
+        self.write_with_retry(pulser::REG_MAX_DUTY, duty).await;
+        self.write_with_retry(pulser::REG_POLARITY, polarity).await;
 
         self.energized = true;
         self.first_after_energize = true;
@@ -125,14 +122,14 @@ impl<B: PulserBus> Pulser<B> {
         self.last_r_short = 0;
         self.last_r_open = 255; // all-open when not energized
         self.eff_duty = 0.0;
-        self.write_with_retry(REG_POLARITY, 0).await;
+        self.write_with_retry(pulser::REG_POLARITY, 0).await;
     }
 
     /// One polling step: refresh temperature, and when energized refresh the
     /// pulse/short/open rates and smoothed effective duty. Driven by the
     /// orchestrator at ~1 ms.
     pub async fn tick(&mut self) {
-        let temp = match self.dev.read_register(REG_TEMPERATURE).await {
+        let temp = match self.dev.read_register(pulser::REG_TEMPERATURE).await {
             Ok(v) => v,
             Err(_) => {
                 self.num_i2c_fail += 1;
@@ -147,7 +144,7 @@ impl<B: PulserBus> Pulser<B> {
             return;
         }
 
-        let val_ps = match self.dev.read_register(REG_CKP_PS).await {
+        let val_ps = match self.dev.read_register(pulser::REG_CKP_PS).await {
             Ok(v) => v,
             Err(_) => {
                 self.num_i2c_fail += 1;
@@ -226,22 +223,22 @@ impl<B: PulserBus> Pulser<B> {
             };
         }
         // Config registers are held by the board, not cached — read them back.
-        let temp_c = self.dev.read_register(REG_TEMPERATURE).await.ok();
+        let temp_c = self.dev.read_register(pulser::REG_TEMPERATURE).await.ok();
         let pulse_current_a = self
             .dev
-            .read_register(REG_PULSE_CURRENT)
+            .read_register(pulser::REG_PULSE_CURRENT)
             .await
             .ok()
             .map(|v| v as f32 * 0.1);
         let pulse_dur_us = self
             .dev
-            .read_register(REG_PULSE_DUR)
+            .read_register(pulser::REG_PULSE_DUR)
             .await
             .ok()
             .map(|v| v as f32 * 10.0);
         let max_duty_pct = self
             .dev
-            .read_register(REG_MAX_DUTY)
+            .read_register(pulser::REG_MAX_DUTY)
             .await
             .ok()
             .map(|v| v as f32);
@@ -268,7 +265,7 @@ impl<B: PulserBus> Pulser<B> {
                 return;
             }
             self.num_i2c_fail += 1;
-            Timer::after(Duration::from_millis(1)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         self.init_ok = false;
     }

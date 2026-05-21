@@ -4,48 +4,52 @@
 //! Query-signal executor. It just converts snapshot to text. Must finish within << tick duration (1ms).
 
 use core::fmt::Write;
-use core::sync::atomic::Ordering;
+use core::sync::atomic;
 
-use heapless::String;
-use model::coords::{ActiveCoordSys, PosPhys};
-use model::pstate::{Line, PsType};
-use model::signal::QuerySignal;
+use model::coords;
+use model::pstate;
+use model::signal;
 
-use crate::commands::{CmdQueue, CMD_QUEUE_CAP, OUTSTANDING};
-use crate::line_tx::LineTx;
-use crate::motion::EdmState;
+use crate::commands;
+use crate::line_tx;
+use crate::motion;
 
 /// Snapshot of machine (enough to answer [`QuerySignal`])
 #[derive(Clone, Copy)]
 pub struct MachineStats {
-    pub pos: PosPhys,
-    pub edm: EdmState,
-    pub active: ActiveCoordSys,
-    pub offset: PosPhys,
+    pub pos: coords::PosPhys,
+    pub edm: motion::EdmState,
+    pub active: coords::ActiveCoordSys,
+    pub offset: coords::PosPhys,
     pub eff_duty: f32,
     pub open_rate: u8,
     pub short_rate: u8,
     pub temp: u8,
 }
 
-pub fn exec_query(sig: QuerySignal, stats: &MachineStats, cmd_queue: &CmdQueue, line_tx: &LineTx) {
+pub fn exec_query(
+    sig: signal::QuerySignal,
+    stats: &MachineStats,
+    cmd_queue: &commands::CmdQueue,
+    line_tx: &line_tx::LineTx,
+) {
     match sig {
-        QuerySignal::Queue => {
-            let num = cmd_queue.len() + OUTSTANDING.load(Ordering::Relaxed);
-            let line = Line::new(PsType::Queue)
+        signal::QuerySignal::Queue => {
+            let num = cmd_queue.len() + commands::OUTSTANDING.load(atomic::Ordering::Relaxed);
+            let line = pstate::Line::new(pstate::PsType::Queue)
                 .begin()
-                .int("cap", CMD_QUEUE_CAP as i32)
+                .int("cap", commands::CMD_QUEUE_CAP as i32)
                 .int("num", num as i32)
                 .end();
             let _ = line_tx.try_send(line);
         }
-        QuerySignal::Pos => {
+        signal::QuerySignal::Pos => {
             let pos = stats.pos;
             let active = stats.active;
             let off = stats.offset;
 
             // Line 1: machine coordinates, always with the `m.` prefix.
-            let line1 = Line::new(PsType::Pos)
+            let line1 = pstate::Line::new(pstate::PsType::Pos)
                 .begin()
                 .str_val("sys", active.sys_name())
                 .float("m.x", pos.x)
@@ -60,7 +64,7 @@ pub fn exec_query(sig: QuerySignal, stats: &MachineStats, cmd_queue: &CmdQueue, 
                 let cs = pos.with_offset_removed(off);
                 let p = active.pos_prefix();
                 let _ = line_tx.try_send(
-                    Line::new(PsType::Pos)
+                    pstate::Line::new(pstate::PsType::Pos)
                         .float(&key(p, 'x'), cs.x)
                         .float(&key(p, 'y'), cs.y)
                         .float(&key(p, 'z'), cs.z)
@@ -69,17 +73,17 @@ pub fn exec_query(sig: QuerySignal, stats: &MachineStats, cmd_queue: &CmdQueue, 
                 );
             }
         }
-        QuerySignal::Edm => {
+        signal::QuerySignal::Edm => {
             // Motion and pulser fields come from the same tick snapshot (as in C).
             let edm = stats.edm;
             let eff_duty = stats.eff_duty;
             let r_open = stats.open_rate as f32 / 255.0;
             let r_short = stats.short_rate as f32 / 255.0;
             let temp = stats.temp;
-            let _ = line_tx.try_send(Line::new(PsType::Edm).begin());
+            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).begin());
             if edm.has_edm_data {
                 let _ = line_tx.try_send(
-                    Line::new(PsType::Edm)
+                    pstate::Line::new(pstate::PsType::Edm)
                         .float("eff_duty", eff_duty)
                         .float("open", r_open)
                         .float("short", r_short)
@@ -88,24 +92,24 @@ pub fn exec_query(sig: QuerySignal, stats: &MachineStats, cmd_queue: &CmdQueue, 
             }
             if edm.is_moving {
                 let _ = line_tx.try_send(
-                    Line::new(PsType::Edm)
+                    pstate::Line::new(pstate::PsType::Edm)
                         .float("pb_f", edm.forward_buffer)
                         .float("pb_b", edm.backward_buffer)
                         .float("dist", edm.distance)
                         .float("dist_max", edm.distance_max),
                 );
             }
-            let _ = line_tx.try_send(Line::new(PsType::Edm).end());
+            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).end());
         }
-        QuerySignal::Unknown => {
+        signal::QuerySignal::Unknown => {
             // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.
         }
     }
 }
 
 /// Build a `?pos` axis key like `w.x` from a system prefix and axis letter.
-fn key(prefix: &str, axis: char) -> String<8> {
-    let mut k = String::new();
+fn key(prefix: &str, axis: char) -> heapless::String<8> {
+    let mut k = heapless::String::new();
     let _ = write!(k, "{}.{}", prefix, axis);
     k
 }

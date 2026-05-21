@@ -9,10 +9,8 @@
 //! (`signal::parse`, `command::parse`) so callers see a single [`Parsed`]
 //! enum per completed line.
 
-use heapless::Vec;
-
-use crate::command::{self, Command, FastSet, Outcome, ParseError};
-use crate::signal::{self, QuerySignal, Signal};
+use crate::command;
+use crate::signal;
 
 /// Spec caps payload at 100 VCHAR; round up to a power of two.
 pub const LINE_CAP: usize = 128;
@@ -32,14 +30,14 @@ enum State {
 }
 
 pub struct Framer {
-    buf: Vec<u8, LINE_CAP>,
+    buf: heapless::Vec<u8, LINE_CAP>,
     state: State,
 }
 
 impl Framer {
     pub const fn new() -> Self {
         Self {
-            buf: Vec::new(),
+            buf: heapless::Vec::new(),
             state: State::Building,
         }
     }
@@ -107,11 +105,11 @@ fn classify(line: &[u8]) -> Frame<'_> {
 
 pub enum Parsed<'a> {
     CancelSignal,
-    QuerySignal(QuerySignal),
+    QuerySignal(signal::QuerySignal),
     /// Unqueued fast-set; dispatched immediately like a signal.
-    FastSet(FastSet),
-    Command(Command),
-    CommandError(&'a [u8], ParseError),
+    FastSet(command::FastSet),
+    Command(command::Command),
+    CommandError(&'a [u8], command::ParseError),
 }
 
 pub struct Parser {
@@ -135,12 +133,12 @@ impl Parser {
         let frame = self.framer.feed(b)?;
         Some(match frame {
             Frame::Signal(s) => match signal::parse(s) {
-                Signal::Cancel => Parsed::CancelSignal,
-                Signal::Query(q) => Parsed::QuerySignal(q),
+                signal::Signal::Cancel => Parsed::CancelSignal,
+                signal::Signal::Query(q) => Parsed::QuerySignal(q),
             },
             Frame::Command(c) => match command::parse(c) {
-                Ok(Outcome::Command(cmd)) => Parsed::Command(cmd),
-                Ok(Outcome::FastSet(fs)) => Parsed::FastSet(fs),
+                Ok(command::Outcome::Command(cmd)) => Parsed::Command(cmd),
+                Ok(command::Outcome::FastSet(fs)) => Parsed::FastSet(fs),
                 Err(e) => Parsed::CommandError(c, e),
             },
         })

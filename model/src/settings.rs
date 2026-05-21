@@ -10,8 +10,6 @@
 
 use core::fmt::Write;
 
-use heapless::String;
-
 pub const N_MOTORS: usize = 7;
 
 /// Settings key max length.
@@ -53,17 +51,17 @@ pub struct Unknown;
 /// Iteration is insertion order (see [`Repo::defaults`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Repo {
-    map: heapless::LinearMap<String<STG_KEY_CAP>, f32, STG_CAP>,
+    map: heapless::LinearMap<heapless::String<STG_KEY_CAP>, f32, STG_CAP>,
 }
 
 impl Repo {
     /// The one place that lists every key and its default; key order falls out
     /// of this function's loop structure.
     pub fn defaults() -> Self {
-        let mut map = heapless::LinearMap::<String<STG_KEY_CAP>, f32, STG_CAP>::new();
+        let mut map = heapless::LinearMap::<heapless::String<STG_KEY_CAP>, f32, STG_CAP>::new();
         {
             let mut ins = |args: core::fmt::Arguments, v: f32| {
-                let mut k = String::<STG_KEY_CAP>::new();
+                let mut k = heapless::String::<STG_KEY_CAP>::new();
                 k.write_fmt(args).expect("key fits PATH_CAP");
                 map.insert(k, v).expect("CAP fits all keys");
             };

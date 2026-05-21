@@ -20,6 +20,10 @@ Run from the repo root.
 
 # Code Style
 - Run `cargo fmt --all --manifest-path Cargo.toml` when you're done editing.
+- Imports: `use` the parent module, qualify items at the call site (`use model::gcode;` then `gcode::Command`) — not the bare type. This keeps each name's origin visible at use and avoids `as` aliases.
+  - Exceptions, imported directly: traits (needed in scope for method resolution) and macros.
+  - Crate-root types take no `use` — write the 2-segment path inline (`heapless::String`, `embassy_time::Duration`).
+  - A path used as a const-generic arg needs braces: `String<{ settings::STG_KEY_CAP }>`.
 
 # Build, Test
 - you can `build.sh` or `test.sh`

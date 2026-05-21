@@ -4,11 +4,11 @@
 //! Motion controller: owns the model-side MotionState plus the motor outputs,
 //! and is ticked from the orchestrator on a 1 ms cadence.
 
-use model::coords::PosPhys;
-use model::motion::{Mode, MotionInputs, MotionState};
-use model::settings::Axis;
+use model::coords;
+use model::motion;
+use model::settings;
 
-use crate::motor::Motors;
+use crate::motor;
 
 /// Per-tick pulser feedback fed into the motion model (EDM advance/retract and
 /// probe contact). Snapshotted by the orchestrator before ticking motion.
@@ -35,28 +35,28 @@ pub struct EdmState {
 }
 
 pub struct Motion {
-    state: MotionState<PB_CAPACITY>,
-    motors: Motors,
+    state: motion::MotionState<PB_CAPACITY>,
+    motors: motor::Motors,
 }
 
 impl Motion {
-    pub fn new(motors: Motors) -> Self {
+    pub fn new(motors: motor::Motors) -> Self {
         let start = motors.current();
         Self {
-            state: MotionState::new(start),
+            state: motion::MotionState::new(start),
             motors,
         }
     }
 
-    pub fn current_position(&self) -> PosPhys {
+    pub fn current_position(&self) -> coords::PosPhys {
         self.motors.current()
     }
 
-    pub fn state(&mut self) -> &mut MotionState<PB_CAPACITY> {
+    pub fn state(&mut self) -> &mut motion::MotionState<PB_CAPACITY> {
         &mut self.state
     }
 
-    pub fn mode(&self) -> Mode {
+    pub fn mode(&self) -> motion::Mode {
         self.state.mode()
     }
 
@@ -65,8 +65,8 @@ impl Motion {
     pub fn edm_state(&self) -> EdmState {
         let mode = self.state.mode();
         EdmState {
-            has_edm_data: mode == Mode::EdmMove,
-            is_moving: mode != Mode::Idle,
+            has_edm_data: mode == motion::Mode::EdmMove,
+            is_moving: mode != motion::Mode::Idle,
             forward_buffer: self.state.forward_buffer(),
             backward_buffer: self.state.backward_buffer(),
             distance: self.state.distance(),
@@ -82,7 +82,7 @@ impl Motion {
     /// Re-anchor `axis` to `origin_mm` after a homing move: update the motor
     /// offset so the position reads `origin_mm`, then reset the controller to
     /// that new position. Mirrors C `update_homing_offset` + `pos[axis]=origin`.
-    pub fn finish_home(&mut self, axis: Axis, origin_mm: f32) {
+    pub fn finish_home(&mut self, axis: settings::Axis, origin_mm: f32) {
         self.motors.reanchor(axis, origin_mm);
         let here = self.motors.current();
         self.state.set_position(here);
@@ -100,7 +100,7 @@ impl Motion {
 
     /// Advance the controller and apply the resulting target to motors.
     pub fn tick(&mut self, dt_s: f32, fb: PulserFeedback) {
-        let input = MotionInputs {
+        let input = motion::MotionInputs {
             dt: dt_s,
             open_rate: fb.open_rate,
             short_rate: fb.short_rate,

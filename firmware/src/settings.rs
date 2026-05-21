@@ -6,20 +6,20 @@
 //! per-key names; subsystems themselves stay settings-agnostic. [`write`] is the
 //! single path that validates, applies, and commits a value to the repo.
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
-use model::coordstate::CoordState;
-use model::gcode::ToolSupplyState;
-use model::pstate::{Line, PsType};
-use model::settings::{Axis, CoordSys, Repo, SettingsVal, STG_KEY_SEGS_CAP};
+use embassy_sync::blocking_mutex::raw;
+use embassy_sync::mutex;
+use model::coordstate;
+use model::gcode;
+use model::pstate;
+use model::settings;
 
-use crate::board::{MotorConfig, ToolSupply, NUM_MOTORS};
-use crate::homing::HomingConfig;
-use crate::line_tx::LineTx;
-use crate::motion::Motion;
-use crate::wirefeed::Wirefeed;
+use crate::board;
+use crate::homing;
+use crate::line_tx;
+use crate::motion;
+use crate::wirefeed;
 
-pub type SharedTmc = Mutex<NoopRawMutex, [MotorConfig; NUM_MOTORS]>;
+pub type SharedTmc = mutex::Mutex<raw::NoopRawMutex, [board::MotorConfig; board::NUM_MOTORS]>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -29,21 +29,21 @@ pub enum Error {
 
 fn motor_idx(s: &str) -> Result<usize, Error> {
     let idx: usize = s.parse().map_err(|_| Error::UnknownKey)?;
-    (idx < NUM_MOTORS).then_some(idx).ok_or(Error::UnknownKey)
+    (idx < board::NUM_MOTORS).then_some(idx).ok_or(Error::UnknownKey)
 }
 
 /// The single place that maps a raw key string onto subsystem's setter.
 async fn dispatch(
     key: &str,
     val: f32,
-    motion: &Mutex<NoopRawMutex, Motion>,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
     tmc: &SharedTmc,
-    coord: &Mutex<NoopRawMutex, CoordState>,
-    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
-    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
-    homing: &Mutex<NoopRawMutex, HomingConfig>,
+    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
+    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
+    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
 ) -> Result<(), Error> {
-    let mut parts: [&str; STG_KEY_SEGS_CAP] = [""; STG_KEY_SEGS_CAP];
+    let mut parts: [&str; settings::STG_KEY_SEGS_CAP] = [""; settings::STG_KEY_SEGS_CAP];
     let mut n = 0;
     for seg in key.split('.') {
         if n == parts.len() {
@@ -89,13 +89,13 @@ async fn dispatch(
             Ok(())
         }
         ["cs", c, "pos", a] => {
-            let cs = CoordSys::parse(c).ok_or(Error::UnknownKey)?;
-            let axis = Axis::parse(a).ok_or(Error::UnknownKey)?;
+            let cs = settings::CoordSys::parse(c).ok_or(Error::UnknownKey)?;
+            let axis = settings::Axis::parse(a).ok_or(Error::UnknownKey)?;
             coord.lock().await.set_offset(cs, axis, val);
             Ok(())
         }
         ["a", a, "home", prop] => {
-            let axis = Axis::parse(a).ok_or(Error::UnknownKey)?;
+            let axis = settings::Axis::parse(a).ok_or(Error::UnknownKey)?;
             homing
                 .lock()
                 .await
@@ -106,7 +106,7 @@ async fn dispatch(
             toolsupply
                 .lock()
                 .await
-                .configure(ToolSupplyState::Open, val)
+                .configure(gcode::ToolSupplyState::Open, val)
                 .await;
             Ok(())
         }
@@ -114,7 +114,7 @@ async fn dispatch(
             toolsupply
                 .lock()
                 .await
-                .configure(ToolSupplyState::Closed, val)
+                .configure(gcode::ToolSupplyState::Closed, val)
                 .await;
             Ok(())
         }
@@ -125,15 +125,15 @@ async fn dispatch(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn write(
-    repo: &mut Repo,
+    repo: &mut settings::Repo,
     key: &str,
-    val: SettingsVal,
-    motion: &Mutex<NoopRawMutex, Motion>,
+    val: settings::SettingsVal,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
     tmc: &SharedTmc,
-    coord: &Mutex<NoopRawMutex, CoordState>,
-    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
-    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
-    homing: &Mutex<NoopRawMutex, HomingConfig>,
+    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
+    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
+    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
 ) -> Result<(), Error> {
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
@@ -145,25 +145,25 @@ pub async fn write(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn apply_all(
-    repo: &Repo,
-    motion: &Mutex<NoopRawMutex, Motion>,
+    repo: &settings::Repo,
+    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
     tmc: &SharedTmc,
-    coord: &Mutex<NoopRawMutex, CoordState>,
-    wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
-    toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
-    homing: &Mutex<NoopRawMutex, HomingConfig>,
-    line_tx: &LineTx,
+    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
+    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
+    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
+    homing: &mutex::Mutex<raw::NoopRawMutex, homing::HomingConfig>,
+    line_tx: &line_tx::LineTx,
 ) -> bool {
     for (key, v) in repo.iter() {
         if dispatch(key, v, motion, tmc, coord, wirefeed, toolsupply, homing)
             .await
             .is_err()
         {
-            let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", false));
-            let _ = line_tx.try_send(Line::new(PsType::Init).str_val("settings.msg", key));
+            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", false));
+            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).str_val("settings.msg", key));
             return false;
         }
     }
-    let _ = line_tx.try_send(Line::new(PsType::Init).bool("settings.ok", true));
+    let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", true));
     true
 }

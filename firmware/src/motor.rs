@@ -3,10 +3,10 @@
 
 //! Per-axis motor abstraction. Converts mm/turn targets to microsteps and feeds step_gen.
 
-use model::coords::PosPhys;
-use model::settings::Axis;
+use model::coords;
+use model::settings;
 
-use crate::board::MotorStepping;
+use crate::board;
 
 /// Steps-per-mm for linear axes; steps-per-turn for C.
 #[derive(Clone, Copy, Debug)]
@@ -29,10 +29,10 @@ impl Default for MotorAxisConfig {
 }
 
 pub struct Motors {
-    pub x: MotorStepping,
-    pub y: MotorStepping,
-    pub z: MotorStepping,
-    pub c: MotorStepping,
+    pub x: board::MotorStepping,
+    pub y: board::MotorStepping,
+    pub z: board::MotorStepping,
+    pub c: board::MotorStepping,
     pub cal: MotorAxisConfig,
     /// Per-axis homing offset in steps (x/y/z), added on the raw step counter so
     /// the homed position reads as the configured origin. C has no home offset.
@@ -40,7 +40,7 @@ pub struct Motors {
 }
 
 impl Motors {
-    pub fn set_target(&self, pos: PosPhys) {
+    pub fn set_target(&self, pos: coords::PosPhys) {
         self.x
             .set_target((pos.x * self.cal.steps_per_mm_x) as i32 + self.home_offset[0]);
         self.y
@@ -51,8 +51,8 @@ impl Motors {
             .set_target((pos.c * self.cal.steps_per_turn_c) as i32);
     }
 
-    pub fn current(&self) -> PosPhys {
-        PosPhys {
+    pub fn current(&self) -> coords::PosPhys {
+        coords::PosPhys {
             x: (self.x.current() - self.home_offset[0]) as f32 / self.cal.steps_per_mm_x,
             y: (self.y.current() - self.home_offset[1]) as f32 / self.cal.steps_per_mm_y,
             z: (self.z.current() - self.home_offset[2]) as f32 / self.cal.steps_per_mm_z,
@@ -62,11 +62,11 @@ impl Motors {
 
     /// Re-anchor `axis` so its current physical reading becomes `origin_mm`, by
     /// setting the homing offset against the live raw step counter.
-    pub fn reanchor(&mut self, axis: Axis, origin_mm: f32) {
+    pub fn reanchor(&mut self, axis: settings::Axis, origin_mm: f32) {
         let (raw, spm) = match axis {
-            Axis::X => (self.x.current(), self.cal.steps_per_mm_x),
-            Axis::Y => (self.y.current(), self.cal.steps_per_mm_y),
-            Axis::Z => (self.z.current(), self.cal.steps_per_mm_z),
+            settings::Axis::X => (self.x.current(), self.cal.steps_per_mm_x),
+            settings::Axis::Y => (self.y.current(), self.cal.steps_per_mm_y),
+            settings::Axis::Z => (self.z.current(), self.cal.steps_per_mm_z),
         };
         self.home_offset[axis.idx()] = raw - (origin_mm * spm) as i32;
     }

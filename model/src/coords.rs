@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use core::f32::consts::PI;
+use core::f32::consts;
 
 /// Single physical coordinate (G-code coordinate specification).
 ///
@@ -50,7 +50,7 @@ impl PosPhys {
         let dy = other.y - self.y;
         let dz = other.z - self.z;
         let mut dc = shortest_turn_delta(self.c, other.c);
-        dc *= 2.0 * PI * 2.0;
+        dc *= 2.0 * consts::PI * 2.0;
         libm::sqrtf(dx * dx + dy * dy + dz * dz + dc * dc)
     }
 

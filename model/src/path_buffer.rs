@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::coords::PosPhys;
+use crate::coords;
 
 /// Positional resolution of EDM control in mm. Path positions are notch-aligned.
 pub const RESOLUTION_MM: f32 = 0.005;
@@ -22,18 +22,18 @@ pub enum MoveError {
 /// [`move_by`](Self::move_by). The cursor cannot escape the written path or the
 /// retraction limit.
 pub struct PathBuffer<const N: usize> {
-    pos_history: [PosPhys; N],
+    pos_history: [coords::PosPhys; N],
     ix_history: usize,
     num_history: usize,
 
     notches_retract: i32,
 
     curr_seg_d: f32,
-    curr_seg_src: PosPhys,
-    curr_seg_dst: PosPhys,
+    curr_seg_src: coords::PosPhys,
+    curr_seg_dst: coords::PosPhys,
 
     next_seg_avail: bool,
-    next_pos: PosPhys,
+    next_pos: coords::PosPhys,
 
     fraction: f32,
 
@@ -41,7 +41,7 @@ pub struct PathBuffer<const N: usize> {
 }
 
 impl<const N: usize> PathBuffer<N> {
-    pub const fn new(src: PosPhys, dst: PosPhys) -> Self {
+    pub const fn new(src: coords::PosPhys, dst: coords::PosPhys) -> Self {
         Self {
             pos_history: [src; N],
             ix_history: 0,
@@ -58,7 +58,7 @@ impl<const N: usize> PathBuffer<N> {
     }
 
     /// Current (notch-aligned) position.
-    pub fn position(&self) -> PosPhys {
+    pub fn position(&self) -> coords::PosPhys {
         let ix = (self.ix_history + N - self.notches_retract as usize) % N;
         self.pos_history[ix]
     }
@@ -85,7 +85,7 @@ impl<const N: usize> PathBuffer<N> {
 
     /// Append the next path segment endpoint. If called when not [`can_extend`](Self::can_extend),
     /// the previously queued endpoint is overwritten.
-    pub fn extend(&mut self, next: PosPhys) {
+    pub fn extend(&mut self, next: coords::PosPhys) {
         self.next_pos = next;
         self.next_seg_avail = true;
     }
@@ -159,7 +159,7 @@ impl<const N: usize> PathBuffer<N> {
         Ok(())
     }
 
-    fn push_history(&mut self, pos: PosPhys) {
+    fn push_history(&mut self, pos: coords::PosPhys) {
         self.ix_history = (self.ix_history + 1) % N;
         self.pos_history[self.ix_history] = pos;
         if self.num_history < N {
@@ -202,8 +202,8 @@ mod tests {
     /// History size matching the era of the C tests.
     const N: usize = 201;
 
-    fn p3(x: f32, y: f32, z: f32) -> PosPhys {
-        PosPhys { x, y, z, c: 0.0 }
+    fn p3(x: f32, y: f32, z: f32) -> coords::PosPhys {
+        coords::PosPhys { x, y, z, c: 0.0 }
     }
 
     fn within(a: f32, b: f32, tol: f32) -> bool {

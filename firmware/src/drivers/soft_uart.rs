@@ -9,18 +9,17 @@
 //! Frame = 1 START low + 8 data (LSB-first) + 1 STOP high.
 #![allow(dead_code)]
 
-use core::cell::RefCell;
+use core::cell;
 
-use embassy_stm32::gpio::{Flex, Level, Pull, Speed};
+use embassy_stm32::gpio;
 use embassy_stm32::interrupt::typelevel::Interrupt;
-use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::low_level::Timer as LlTimer;
+use embassy_stm32::time;
+use embassy_stm32::timer::low_level;
 use embassy_stm32::timer::CoreInstance;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
-use embassy_sync::mutex::Mutex as AsyncMutex;
-use embassy_sync::signal::Signal;
-use embassy_time::{with_timeout, Duration};
+use embassy_sync::blocking_mutex;
+use embassy_sync::blocking_mutex::raw;
+use embassy_sync::mutex;
+use embassy_sync::signal;
 
 pub const MAX_FRAME: usize = 8;
 
@@ -45,8 +44,8 @@ struct EngineInner<T: CoreInstance, const N: usize> {
     buffer: [u8; MAX_FRAME],
     buffer_size: usize,
     current_pin: usize,
-    timer: Option<LlTimer<'static, T>>,
-    pins: [Option<Flex<'static>>; N],
+    timer: Option<low_level::Timer<'static, T>>,
+    pins: [Option<gpio::Flex<'static>>; N],
 }
 
 impl<T: CoreInstance, const N: usize> EngineInner<T, N> {
@@ -64,56 +63,60 @@ impl<T: CoreInstance, const N: usize> EngineInner<T, N> {
     }
 }
 
-fn frame_bit_at(buf: &[u8], pos: usize) -> Option<Level> {
+fn frame_bit_at(buf: &[u8], pos: usize) -> Option<gpio::Level> {
     let byte_idx = pos / 10;
     if byte_idx >= buf.len() {
         return None;
     }
     Some(match pos % 10 {
-        0 => Level::Low,  // START
-        9 => Level::High, // STOP
+        0 => gpio::Level::Low,  // START
+        9 => gpio::Level::High, // STOP
         n => {
             if (buf[byte_idx] >> (n - 1)) & 1 != 0 {
-                Level::High
+                gpio::Level::High
             } else {
-                Level::Low
+                gpio::Level::Low
             }
         }
     })
 }
 
-fn store_rx_bit(buf: &mut [u8], pos: usize, level: Level) {
+fn store_rx_bit(buf: &mut [u8], pos: usize, level: gpio::Level) {
     let n = pos % 10;
-    if (1..=8).contains(&n) && level == Level::High {
+    if (1..=8).contains(&n) && level == gpio::Level::High {
         buf[pos / 10] |= 1 << (n - 1);
     }
 }
 
 pub struct SoftUart<T: CoreInstance, const N: usize> {
-    inner: BlockingMutex<CriticalSectionRawMutex, RefCell<EngineInner<T, N>>>,
-    signal: Signal<CriticalSectionRawMutex, ()>,
-    bus: AsyncMutex<CriticalSectionRawMutex, ()>,
+    inner: blocking_mutex::Mutex<raw::CriticalSectionRawMutex, cell::RefCell<EngineInner<T, N>>>,
+    signal: signal::Signal<raw::CriticalSectionRawMutex, ()>,
+    bus: mutex::Mutex<raw::CriticalSectionRawMutex, ()>,
 }
 
 impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
     pub const fn new() -> Self {
         Self {
-            inner: BlockingMutex::new(RefCell::new(EngineInner::new())),
-            signal: Signal::new(),
-            bus: AsyncMutex::new(()),
+            inner: blocking_mutex::Mutex::new(cell::RefCell::new(EngineInner::new())),
+            signal: signal::Signal::new(),
+            bus: mutex::Mutex::new(()),
         }
     }
 
     /// Create SoftUart using given timer.
     /// Configures timer to 30us, but caller is responsible for calling tick() from the timer's ISR.
-    pub fn init(&'static self, tim: T, mut pins: [Flex<'static>; N]) -> [SoftUartHandle<T, N>; N] {
+    pub fn init(
+        &'static self,
+        tim: T,
+        mut pins: [gpio::Flex<'static>; N],
+    ) -> [SoftUartHandle<T, N>; N] {
         for pin in pins.iter_mut() {
-            pin.set_as_input_output_pull(Speed::Low, Pull::Up);
+            pin.set_as_input_output_pull(gpio::Speed::Low, gpio::Pull::Up);
             pin.set_high();
         }
 
-        let timer = LlTimer::new(tim);
-        timer.set_frequency(Hertz(33_333)); // ≈30.0003µs
+        let timer = low_level::Timer::new(tim);
+        timer.set_frequency(time::Hertz(33_333)); // ≈30.0003µs
         timer.enable_update_interrupt(true);
         timer.start();
 
@@ -235,7 +238,9 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
             e.current_pin = pin_idx;
             e.state = State::Send;
         });
-        match with_timeout(Duration::from_millis(15), self.signal.wait()).await {
+        match embassy_time::with_timeout(embassy_time::Duration::from_millis(15), self.signal.wait())
+            .await
+        {
             Ok(()) => Ok(()),
             Err(_) => {
                 self.inner
@@ -258,7 +263,9 @@ impl<T: CoreInstance, const N: usize> SoftUart<T, N> {
             e.current_pin = pin_idx;
             e.state = State::Receive;
         });
-        match with_timeout(Duration::from_millis(15), self.signal.wait()).await {
+        match embassy_time::with_timeout(embassy_time::Duration::from_millis(15), self.signal.wait())
+            .await
+        {
             Ok(()) => {
                 self.inner.lock(|cell| {
                     let e = cell.borrow();

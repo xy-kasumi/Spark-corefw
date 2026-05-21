@@ -8,7 +8,7 @@
 //! Born with sane defaults so the module is always valid; the boot apply-all
 //! overrides them with the configured values.
 
-use model::settings::Axis;
+use model::settings;
 
 #[derive(Clone, Copy, Debug)]
 pub struct AxisHoming {
@@ -41,7 +41,7 @@ pub struct HomingConfig {
 impl HomingConfig {
     /// Apply one `a.<axis>.home.<prop>` value. `Err` on an unknown property
     /// (the dispatcher turns that into an unknown-key error).
-    pub fn set(&mut self, axis: Axis, prop: &str, val: f32) -> Result<(), ()> {
+    pub fn set(&mut self, axis: settings::Axis, prop: &str, val: f32) -> Result<(), ()> {
         let a = &mut self.axes[axis.idx()];
         match prop {
             "origin" => a.origin = val,
@@ -53,7 +53,7 @@ impl HomingConfig {
         Ok(())
     }
 
-    pub fn axis(&self, axis: Axis) -> AxisHoming {
+    pub fn axis(&self, axis: settings::Axis) -> AxisHoming {
         self.axes[axis.idx()]
     }
 }
