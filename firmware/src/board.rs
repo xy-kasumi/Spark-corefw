@@ -25,7 +25,6 @@ use crate::drivers::step_gen;
 use crate::drivers::tmc2209::{self, TmcTransport};
 
 pub const NUM_MOTORS: usize = 7;
-pub const MOTOR_NAMES: [&str; NUM_MOTORS] = ["m0", "m1", "m2", "m3", "m4", "m5", "m6"];
 
 type SoftUartTim = peripherals::TIM7;
 type StepGenTim = peripherals::TIM6;
@@ -122,7 +121,7 @@ pub fn init(spawner: &embassy_executor::Spawner, console_baud: u32) -> Board {
         out(p.PD4),
     ];
     let tmc: [MotorConfig; NUM_MOTORS] =
-        core::array::from_fn(|i| tmc2209::Device::new(uart_handles[i], MOTOR_NAMES[i]));
+        core::array::from_fn(|i| tmc2209::Device::new(uart_handles[i]));
     let motors = Motors {
         tmc,
         step: step_handles,

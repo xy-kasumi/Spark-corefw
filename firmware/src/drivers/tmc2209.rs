@@ -102,12 +102,11 @@ fn parse_reply<E>(buf: &[u8; 8], expected_reg: u8) -> Result<u32, Error<E>> {
 
 pub struct Device<T: TmcTransport> {
     transport: T,
-    pub name: &'static str,
 }
 
 impl<T: TmcTransport> Device<T> {
-    pub fn new(transport: T, name: &'static str) -> Self {
-        Self { transport, name }
+    pub fn new(transport: T) -> Self {
+        Self { transport }
     }
 
     pub async fn read_reg(&mut self, addr: u8) -> Result<u32, Error<T::Error>> {

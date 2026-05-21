@@ -311,7 +311,7 @@ async fn dump_stat(
         .await;
     for (i, &steps_i) in steps.iter().enumerate() {
         let mut key: heapless::String<32> = heapless::String::new();
-        let _ = write!(&mut key, "motor.{}.current_steps", board::MOTOR_NAMES[i]);
+        let _ = write!(&mut key, "motor.m{}.current_steps", i);
         line_tx
             .send(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i))
             .await;
@@ -328,7 +328,7 @@ async fn dump_stat(
         for i in 0..board::NUM_MOTORS {
             for (name, addr) in REGS {
                 let mut key: heapless::String<32> = heapless::String::new();
-                let _ = write!(&mut key, "motor.{}.driver.{}", board::MOTOR_NAMES[i], name);
+                let _ = write!(&mut key, "motor.m{}.driver.{}", i, name);
                 let line = match t[i].read_reg(*addr).await {
                     Ok(v) => pstate::Line::new(pstate::PsType::Stat).hex32(&key, v),
                     Err(_) => pstate::Line::new(pstate::PsType::Stat).str_val(&key, "error"),
