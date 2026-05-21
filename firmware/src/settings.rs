@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Apply layer: routes a `SettingId` + value into the right subsystem's configure method.

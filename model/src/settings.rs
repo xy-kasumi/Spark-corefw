@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Validated typed cache of (key, value) pairs the host can set/get over the

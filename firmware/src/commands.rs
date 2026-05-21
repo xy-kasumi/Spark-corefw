@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Host command pipeline: queue plumbing and command executor. The `Command`

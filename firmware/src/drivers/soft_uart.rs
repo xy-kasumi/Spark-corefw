@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 夕月霞
+// SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Bit-banged single-wire half-duplex 10000 baud UART, multiplexed across N GPIOs
