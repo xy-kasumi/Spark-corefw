@@ -8,6 +8,7 @@ mod board;
 mod canceler;
 mod commands;
 mod drivers;
+mod homing;
 mod interactive;
 mod line_tx;
 mod motion;
@@ -32,13 +33,14 @@ use model::command::FastSet;
 use model::comm::{Parsed, Parser};
 use model::coordstate::CoordState;
 use model::pstate::{ErrorLine, Line, PsType};
-use model::settings::Settings as SettingsCache;
+use model::settings::Repo;
 use static_cell::StaticCell;
 
 use crate::board::{Pulser, Pump, ToolSupply};
 use crate::canceler::CANCELER;
 use crate::commands::{CmdQueue, Command, OUTSTANDING};
 use crate::drivers::serial::Serial;
+use crate::homing::HomingConfig;
 use crate::line_tx::{DrainState, LineTx};
 use crate::motion::{Motion, PulserFeedback};
 use crate::motor::{MotorAxisConfig, Motors};
@@ -56,25 +58,19 @@ type SharedCoord = Mutex<NoopRawMutex, CoordState>;
 type SharedPump = Mutex<NoopRawMutex, Pump>;
 type SharedWirefeed = Mutex<NoopRawMutex, Wirefeed>;
 type SharedToolSupply = Mutex<NoopRawMutex, ToolSupply>;
+type SharedHoming = Mutex<NoopRawMutex, HomingConfig>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let board = board::init(&spawner, 115200);
     let step = board.motors.step;
 
-    // Seed Motion's calibration from defaults so apply_all is the sole writer of these numbers.
-    let init_settings = SettingsCache::defaults();
     let motors = Motors {
         x: step[0],
         y: step[1],
         z: step[2],
         c: step[3],
-        cal: MotorAxisConfig {
-            steps_per_mm_x: init_settings.motors[0].unitsteps,
-            steps_per_mm_y: init_settings.motors[1].unitsteps,
-            steps_per_mm_z: init_settings.motors[2].unitsteps,
-            steps_per_turn_c: init_settings.motors[3].unitsteps,
-        },
+        cal: MotorAxisConfig::default(),
         home_offset: [0; 3],
     };
 
@@ -95,16 +91,12 @@ async fn main(spawner: Spawner) {
     static PUMP_CELL: StaticCell<SharedPump> = StaticCell::new();
     let pump: &'static SharedPump = PUMP_CELL.init(Mutex::new(Pump::new(board.pump)));
     static WIREFEED_CELL: StaticCell<SharedWirefeed> = StaticCell::new();
-    let wirefeed: &'static SharedWirefeed = WIREFEED_CELL.init(Mutex::new(Wirefeed::new(
-        step[6],
-        init_settings.motors[6].unitsteps,
-    )));
+    let wirefeed: &'static SharedWirefeed = WIREFEED_CELL.init(Mutex::new(Wirefeed::new(step[6])));
     static TOOLSUPPLY_CELL: StaticCell<SharedToolSupply> = StaticCell::new();
-    let toolsupply: &'static SharedToolSupply = TOOLSUPPLY_CELL.init(Mutex::new(ToolSupply::new(
-        board.toolsupply_pwm,
-        init_settings.ts.open_ms,
-        init_settings.ts.close_ms,
-    )));
+    let toolsupply: &'static SharedToolSupply =
+        TOOLSUPPLY_CELL.init(Mutex::new(ToolSupply::new(board.toolsupply_pwm)));
+    static HOMING_CELL: StaticCell<SharedHoming> = StaticCell::new();
+    let homing: &'static SharedHoming = HOMING_CELL.init(Mutex::new(HomingConfig::default()));
     let line_tx = LineTx::init();
 
     // init phase
@@ -112,12 +104,13 @@ async fn main(spawner: Spawner) {
     let pulser_ok = pulser.lock().await.init(line_tx).await;
     toolsupply.lock().await.init();
     let settings_ok = settings::apply_all(
-        &init_settings,
+        &Repo::defaults(),
         motion,
         tmc,
         coord,
         wirefeed,
         toolsupply,
+        homing,
         line_tx,
     )
     .await;
@@ -136,7 +129,7 @@ async fn main(spawner: Spawner) {
             line_tx,
         ),
         cmd_loop(
-            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, line_tx,
+            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, homing, line_tx,
         ),
     )
     .await;
@@ -247,9 +240,10 @@ async fn cmd_loop(
     pump: &SharedPump,
     wirefeed: &SharedWirefeed,
     toolsupply: &SharedToolSupply,
+    homing: &SharedHoming,
     line_tx: &LineTx,
 ) {
-    let mut settings = SettingsCache::defaults();
+    let mut repo = Repo::defaults();
     // Modal pulser config (M3/M4); seeds the C `pulser_config` defaults.
     let mut pulser_cfg = model::gcode::PulserConfig::default();
 
@@ -292,8 +286,9 @@ async fn cmd_loop(
             pump,
             wirefeed,
             toolsupply,
+            homing,
             line_tx,
-            &mut settings,
+            &mut repo,
             &mut pulser_cfg,
         )
         .await;

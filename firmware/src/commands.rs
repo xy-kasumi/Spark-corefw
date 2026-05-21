@@ -17,16 +17,17 @@ use model::coordstate::CoordState;
 use model::gcode::{Command as GCmd, HomeAxes, PulserConfig};
 use model::motion::Mode;
 use model::pstate::{ErrorLine, Line, PsType};
-use model::settings::{self, Axis, Settings};
+use model::settings::{Axis, Repo};
 
 pub use model::command::Command;
 
 use crate::board::{Pulser, Pump, ToolSupply, MOTOR_NAMES, NUM_MOTORS};
 use crate::canceler::CANCELER;
 use crate::drivers::tmc2209::{REG_CHOPCONF, REG_GCONF, REG_IOIN, REG_SG_RESULT};
+use crate::homing::HomingConfig;
 use crate::line_tx::LineTx;
 use crate::motion::Motion;
-use crate::settings::{apply_one, SharedTmc};
+use crate::settings::{write, SharedTmc};
 use crate::wirefeed::Wirefeed;
 
 pub const CMD_QUEUE_CAP: usize = 64;
@@ -59,8 +60,9 @@ pub async fn exec(
     pump: &Mutex<NoopRawMutex, Pump>,
     wirefeed: &Mutex<NoopRawMutex, Wirefeed>,
     toolsupply: &Mutex<NoopRawMutex, ToolSupply>,
+    homing: &Mutex<NoopRawMutex, HomingConfig>,
     line_tx: &LineTx,
-    settings: &mut Settings,
+    repo: &mut Repo,
     pulser_cfg: &mut PulserConfig,
 ) {
     match cmd {
@@ -126,7 +128,7 @@ pub async fn exec(
             wait_move_end(motion, pulser, false).await;
         }
         Command::Gcode(GCmd::Home(axes)) => {
-            exec_home(axes, motion, line_tx, settings).await;
+            exec_home(axes, motion, line_tx, homing).await;
         }
         Command::Gcode(GCmd::SelectCoordSys(a)) => {
             coord.lock().await.select(a);
@@ -149,28 +151,26 @@ pub async fn exec(
             // Modal: M3/M4 only update the config the next G1/G38.3 energizes with.
             *pulser_cfg = cfg;
         }
-        Command::Set(id, v) => {
-            // Try-apply-then-commit: cache only updates if hardware accepted the change.
-            match apply_one(id, v, motion, tmc, coord, wirefeed, toolsupply).await {
-                Ok(()) => {
-                    let _ = id.write(settings, v);
-                }
-                Err(e) => {
-                    let _ = line_tx.try_send(
-                        ErrorLine::new()
-                            .msg(format_args!(
-                                "setting failed: {}={} ({:?})",
-                                id.path().as_str(),
-                                v,
-                                e
-                            ))
-                            .finish(),
-                    );
-                }
+        Command::Set(key, val) => {
+            if let Err(e) = write(
+                repo, &key, val, motion, tmc, coord, wirefeed, toolsupply, homing,
+            )
+            .await
+            {
+                let _ = line_tx.try_send(
+                    ErrorLine::new()
+                        .msg(format_args!(
+                            "setting failed: {}={} ({:?})",
+                            key.as_str(),
+                            val.get(),
+                            e
+                        ))
+                        .finish(),
+                );
             }
         }
         Command::Get => {
-            dump_settings(line_tx, settings).await;
+            dump_settings(line_tx, repo).await;
         }
         Command::Stat => {
             dump_stat(line_tx, motion, tmc, pulser, wirefeed).await;
@@ -206,8 +206,10 @@ async fn exec_home(
     axes: HomeAxes,
     motion: &Mutex<NoopRawMutex, Motion>,
     line_tx: &LineTx,
-    settings: &Settings,
+    homing: &Mutex<NoopRawMutex, HomingConfig>,
 ) {
+    // Snapshot once; homing params don't change mid-G28.
+    let homing = *homing.lock().await;
     if axes.c {
         let _ = line_tx.try_send(
             ErrorLine::new()
@@ -225,9 +227,10 @@ async fn exec_home(
     // count == 0 means home all in phase order; otherwise the single named axis.
     let mut order = [Axis::X, Axis::Y, Axis::Z];
     order.sort_unstable_by(|a, b| {
-        settings.axes[a.idx()]
+        homing
+            .axis(*a)
             .phase
-            .total_cmp(&settings.axes[b.idx()].phase)
+            .total_cmp(&homing.axis(*b).phase)
     });
     for axis in order {
         let named = match axis {
@@ -239,7 +242,7 @@ async fn exec_home(
             continue;
         }
 
-        let cfg = settings.axes[axis.idx()];
+        let cfg = homing.axis(axis);
         let watch = CANCELER.watch();
         {
             let mut m = motion.lock().await;
@@ -262,11 +265,12 @@ async fn exec_home(
 }
 
 /// Emit one logical `stg` p-state framed by `stg <` / `stg >`, one kv line per setting.
-async fn dump_settings(line_tx: &LineTx, settings: &Settings) {
+async fn dump_settings(line_tx: &LineTx, repo: &Repo) {
     line_tx.send(Line::new(PsType::Settings).begin()).await;
-    for id in settings::iter_all() {
-        let line = Line::new(PsType::Settings).float(id.path().as_str(), id.read(settings));
-        line_tx.send(line).await;
+    for (key, value) in repo.iter() {
+        line_tx
+            .send(Line::new(PsType::Settings).float(key, value))
+            .await;
     }
     line_tx.send(Line::new(PsType::Settings).end()).await;
 }

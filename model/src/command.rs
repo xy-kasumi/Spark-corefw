@@ -5,18 +5,19 @@
 //! this module turns them into an [`Outcome`]: either a queued [`Command`] or
 //! an immediate [`FastSet`]. Sits in `model` so it can be host-fuzzed without
 //! firmware deps.
-use crate::gcode;
-use crate::settings::SettingId;
+use heapless::String;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+use crate::gcode;
+use crate::settings::{SettingsVal, STG_KEY_CAP};
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Gcode(gcode::Command),
-    /// `set <key> <value>`. Path resolved to a typed id at parse time; value
-    /// is finite-checked. Apply-side validation is the executor's problem.
-    Set(SettingId, f32),
-    /// `get` — dump all settings as one `stg` p-state.
+    /// `set` - Set single (key, val)
+    Set(String<STG_KEY_CAP>, SettingsVal),
+    /// `get` - dump all settings as one `stg` p-state.
     Get,
-    /// `stat` — dump per-module debug status as one `stat` p-state.
+    /// `stat` - dump per-module debug status as one `stat` p-state.
     Stat,
 }
 
@@ -30,7 +31,7 @@ pub enum FastSet {
 
 /// Result of parsing a non-signal line: a queued command, or an immediate
 /// fast-set. The caller dispatches each down its own path.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     Command(Command),
     FastSet(FastSet),
@@ -80,12 +81,9 @@ fn parse_set(rest: &str) -> Result<Command, ParseError> {
     if !tail.trim_start_matches(is_ws).is_empty() {
         return Err(ParseError::Syntax);
     }
-    let id = SettingId::parse(key).ok_or(ParseError::Syntax)?;
-    let value: f32 = value_str.parse().map_err(|_| ParseError::Syntax)?;
-    if !value.is_finite() {
-        return Err(ParseError::Syntax);
-    }
-    Ok(Command::Set(id, value))
+    let key = String::<STG_KEY_CAP>::try_from(key).map_err(|_| ParseError::Syntax)?;
+    let value = SettingsVal::parse(value_str).ok_or(ParseError::Syntax)?;
+    Ok(Command::Set(key, value))
 }
 
 fn parse_get(rest: &str) -> Result<Command, ParseError> {

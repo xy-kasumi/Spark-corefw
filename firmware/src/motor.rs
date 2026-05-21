@@ -17,6 +17,17 @@ pub struct MotorAxisConfig {
     pub steps_per_turn_c: f32,
 }
 
+impl Default for MotorAxisConfig {
+    fn default() -> Self {
+        Self {
+            steps_per_mm_x: 200.0,
+            steps_per_mm_y: 200.0,
+            steps_per_mm_z: 200.0,
+            steps_per_turn_c: 200.0,
+        }
+    }
+}
+
 pub struct Motors {
     pub x: MotorStepping,
     pub y: MotorStepping,

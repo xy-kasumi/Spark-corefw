@@ -11,6 +11,8 @@ use crate::drivers::pwm_output::PwmOutput;
 
 /// Servo carrier period (50 Hz). Pulse widths are fractions of this.
 const PERIOD_MS: f32 = 20.0;
+const DEFAULT_OPEN_MS: f32 = 1.6;
+const DEFAULT_CLOSED_MS: f32 = 1.3;
 
 pub struct ToolSupply<P: PwmOutput> {
     pwm: P,
@@ -21,13 +23,13 @@ pub struct ToolSupply<P: PwmOutput> {
 }
 
 impl<P: PwmOutput> ToolSupply<P> {
-    pub fn new(mut pwm: P, open_ms: f32, closed_ms: f32) -> Self {
+    pub fn new(mut pwm: P) -> Self {
         pwm.init(PERIOD_MS);
         Self {
             pwm,
-            open_ms,
-            closed_ms,
-            current_ms: closed_ms,
+            open_ms: DEFAULT_OPEN_MS,
+            closed_ms: DEFAULT_CLOSED_MS,
+            current_ms: DEFAULT_CLOSED_MS,
             current_state: ToolSupplyState::Closed,
         }
     }

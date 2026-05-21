@@ -85,6 +85,60 @@ impl CoordSys {
             CoordSys::Ts => 2,
         }
     }
+
+    /// Settings-key segment (`cs.<name>.pos.*`).
+    pub fn name(self) -> &'static str {
+        match self {
+            CoordSys::W => "w",
+            CoordSys::G => "g",
+            CoordSys::Ts => "ts",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "w" => Some(CoordSys::W),
+            "g" => Some(CoordSys::G),
+            "ts" => Some(CoordSys::Ts),
+            _ => None,
+        }
+    }
+}
+
+/// A linear/rotary machine axis. Indexes per-axis arrays and names the
+/// `a.<name>.*` / `cs.*.pos.<name>` settings-key segments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+impl Axis {
+    pub fn idx(self) -> usize {
+        match self {
+            Axis::X => 0,
+            Axis::Y => 1,
+            Axis::Z => 2,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Axis::X => "x",
+            Axis::Y => "y",
+            Axis::Z => "z",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "x" => Some(Axis::X),
+            "y" => Some(Axis::Y),
+            "z" => Some(Axis::Z),
+            _ => None,
+        }
+    }
 }
 
 /// The active (modal) coordinate system selected by G53-G56. `Offset` wraps
