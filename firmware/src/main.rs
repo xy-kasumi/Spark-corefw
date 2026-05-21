@@ -184,6 +184,7 @@ async fn tick_loop(
                     }
                     coord.lock().await.cancel();
                     pulser.lock().await.deenergize().await;
+                    pump.lock().await.cancel();
                     wirefeed.lock().await.stop();
                     while cmd_queue.try_receive().is_ok() {}
                 }

@@ -44,6 +44,15 @@ impl Pump {
         self.apply();
     }
 
+    /// Cancel: stop the pump and drop the `fset ov.pump_en` override, returning
+    /// to the powered-off default. Applied immediately with no settle delay, so
+    /// it is safe to call from the tick loop.
+    pub fn cancel(&mut self) {
+        self.commanded = false;
+        self.override_on = false;
+        self.apply();
+    }
+
     fn apply(&mut self) {
         if self.commanded || self.override_on {
             self.gpio.set_high();
