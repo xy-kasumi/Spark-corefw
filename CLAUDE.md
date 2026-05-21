@@ -20,7 +20,7 @@ Run from the repo root.
 
 # Code Style
 - Run `./format.sh` when you're done editing.
-- Imports: `use` the parent module, qualify items at the call site (`use model::gcode;` then `gcode::Command`) — not the bare type.
+- Imports: `use` the parent module, qualify items at the call site (`use model::gcode;` then `gcode::Parsed`) — not the bare type.
   - Exceptions, imported directly: traits (needed in scope for method resolution) and macros.
   - Crate-root types take no `use` — write the 2-segment path inline (`heapless::String`, `embassy_time::Duration`).
 

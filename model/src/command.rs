@@ -10,7 +10,7 @@ use crate::settings;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    Gcode(gcode::Command),
+    Gcode(gcode::Parsed),
     /// `set` - Set single (key, val)
     Set(heapless::String<{ settings::STG_KEY_CAP }>, settings::Value),
     /// `get` - dump all settings as one `stg` p-state.

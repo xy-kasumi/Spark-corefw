@@ -4,8 +4,6 @@
 //! Tool supply: a 50 Hz servo whose pulse width selects open vs. closed. Moves
 //! are ramped over ~1 s so the servo travels smoothly.
 
-use model::gcode;
-
 use crate::drivers::pwm_out::Pin;
 
 /// Servo carrier period (50 Hz). Pulse widths are fractions of this.
@@ -13,12 +11,18 @@ const PERIOD_MS: f32 = 20.0;
 const DEFAULT_OPEN_MS: f32 = 1.6;
 const DEFAULT_CLOSED_MS: f32 = 1.3;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    Open,
+    Closed,
+}
+
 pub struct ToolSupply<P: Pin> {
     pwm: P,
     open_ms: f32,
     closed_ms: f32,
     current_ms: f32,
-    current_state: gcode::ToolSupplyState,
+    current_state: State,
 }
 
 impl<P: Pin> ToolSupply<P> {
@@ -29,7 +33,7 @@ impl<P: Pin> ToolSupply<P> {
             open_ms: DEFAULT_OPEN_MS,
             closed_ms: DEFAULT_CLOSED_MS,
             current_ms: DEFAULT_CLOSED_MS,
-            current_state: gcode::ToolSupplyState::Closed,
+            current_state: State::Closed,
         }
     }
 
@@ -42,15 +46,15 @@ impl<P: Pin> ToolSupply<P> {
         self.pwm.set(on_ms / PERIOD_MS);
     }
 
-    fn target_ms(&self, state: gcode::ToolSupplyState) -> f32 {
+    fn target_ms(&self, state: State) -> f32 {
         match state {
-            gcode::ToolSupplyState::Open => self.open_ms,
-            gcode::ToolSupplyState::Closed => self.closed_ms,
+            State::Open => self.open_ms,
+            State::Closed => self.closed_ms,
         }
     }
 
     /// Ramp the servo to `target` over 100 steps of 10 ms each (blocking, ~1 s).
-    pub async fn set_state(&mut self, target: gcode::ToolSupplyState) {
+    pub async fn set_state(&mut self, target: State) {
         const NUM_CYCLES: u16 = 100;
         let src = self.current_ms;
         let dst = self.target_ms(target);
@@ -64,10 +68,10 @@ impl<P: Pin> ToolSupply<P> {
     }
 
     /// Update one state's pulse width, then re-apply the active state (moves the servo).
-    pub async fn configure(&mut self, state: gcode::ToolSupplyState, on_ms: f32) {
+    pub async fn configure(&mut self, state: State, on_ms: f32) {
         match state {
-            gcode::ToolSupplyState::Open => self.open_ms = on_ms,
-            gcode::ToolSupplyState::Closed => self.closed_ms = on_ms,
+            State::Open => self.open_ms = on_ms,
+            State::Closed => self.closed_ms = on_ms,
         }
         self.set_state(self.current_state).await;
     }

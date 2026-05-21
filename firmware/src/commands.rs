@@ -23,7 +23,9 @@ use crate::drivers::tmc2209;
 use crate::homing;
 use crate::line_tx;
 use crate::motion;
+use crate::pulser;
 use crate::settings;
+use crate::toolsupply;
 use crate::wirefeed;
 
 pub const CMD_QUEUE_CAP: usize = 64;
@@ -42,7 +44,7 @@ const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
 /// True if `cmd` is a G1 move — the only command that chains via the path buffer.
 pub fn is_g1(cmd: &Command) -> bool {
-    matches!(cmd, Command::Gcode(gcode::Command::Linear(_)))
+    matches!(cmd, Command::Gcode(gcode::Parsed::Feed(_)))
 }
 
 pub async fn exec(
@@ -59,10 +61,10 @@ pub async fn exec(
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
     repo: &mut model::settings::Repo,
-    pulser_cfg: &mut gcode::PulserConfig,
+    pulser_cfg: &mut pulser::Config,
 ) {
     match cmd {
-        Command::Gcode(gcode::Command::Rapid(spec)) => {
+        Command::Gcode(gcode::Parsed::Rapid(spec)) => {
             {
                 // Lock order motion -> coord (matches signals.rs) to avoid deadlock.
                 let mut m = motion.lock().await;
@@ -74,7 +76,7 @@ pub async fn exec(
             // would overwrite this still-running move (matches C G0 handler).
             wait_move_end(motion, pulser, cont_next).await;
         }
-        Command::Gcode(gcode::Command::Linear(spec)) => {
+        Command::Gcode(gcode::Parsed::Feed(spec)) => {
             let (target, chaining) = {
                 let m = motion.lock().await;
                 let here = m.current_position();
@@ -103,7 +105,7 @@ pub async fn exec(
             }
             wait_move_end(motion, pulser, cont_next).await;
         }
-        Command::Gcode(gcode::Command::Probe(spec)) => {
+        Command::Gcode(gcode::Parsed::Probe(spec)) => {
             let target = {
                 let m = motion.lock().await;
                 let here = m.current_position();
@@ -126,29 +128,51 @@ pub async fn exec(
                 .start_probe(target, PROBE_SPEED_MM_PER_S);
             wait_move_end(motion, pulser, false).await;
         }
-        Command::Gcode(gcode::Command::Home(axes)) => {
-            exec_home(axes, motion, line_tx, homing).await;
+        Command::Gcode(gcode::Parsed::Home(target)) => {
+            exec_home(target, motion, homing).await;
         }
-        Command::Gcode(gcode::Command::SelectCoordSys(a)) => {
+        Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
             coord.lock().await.select(a);
         }
-        Command::Gcode(gcode::Command::Pump(enable)) => {
-            pump.lock().await.set_enable(enable).await;
+        Command::Gcode(gcode::Parsed::PumpOn) => {
+            pump.lock().await.set_enable(true).await;
         }
-        Command::Gcode(gcode::Command::WirefeedStart(rate)) => {
+        Command::Gcode(gcode::Parsed::PumpOff) => {
+            pump.lock().await.set_enable(false).await;
+        }
+        Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
             wirefeed.lock().await.start(rate);
             // Wait 2 s for wire tension to stabilize (matches C M10 handler).
             embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
-        Command::Gcode(gcode::Command::WirefeedStop) => {
+        Command::Gcode(gcode::Parsed::WirefeedStop) => {
             wirefeed.lock().await.stop();
         }
-        Command::Gcode(gcode::Command::ToolSupply(state)) => {
-            toolsupply.lock().await.set_state(state).await;
+        Command::Gcode(gcode::Parsed::ToolSupplyOpen) => {
+            toolsupply
+                .lock()
+                .await
+                .set_state(toolsupply::State::Open)
+                .await;
         }
-        Command::Gcode(gcode::Command::Pulser(cfg)) => {
-            // Modal: M3/M4 only update the config the next G1/G38.3 energizes with.
-            *pulser_cfg = cfg;
+        Command::Gcode(gcode::Parsed::ToolSupplyClose) => {
+            toolsupply
+                .lock()
+                .await
+                .set_state(toolsupply::State::Closed)
+                .await;
+        }
+        Command::Gcode(gcode::Parsed::Pulser(params)) => {
+            // Modal: M3/M4 only update the config the next G1/G38.3 energizes
+            // with. Omitted P/Q/R resolve to the spec defaults here, in the
+            // executor — the parser stays free of pulser policy.
+            let d = pulser::Config::default();
+            *pulser_cfg = pulser::Config {
+                tool_negative: params.tool_negative,
+                pulse_us: params.pulse_us.unwrap_or(d.pulse_us),
+                current_a: params.current_a.unwrap_or(d.current_a),
+                duty_pct: params.duty_pct.unwrap_or(d.duty_pct),
+            };
         }
         Command::Set(key, val) => {
             if let Err(e) = settings::write(
@@ -197,36 +221,17 @@ async fn wait_move_end(
     }
 }
 
-/// G28: home each requested axis (or all, in phase order) by slamming `side*travel`
+/// G28: home the target axis, or all axes in phase order, by slamming `side*travel`
 /// into the hard stop, then re-anchoring the axis to its configured origin. Stall
 /// sensing is dead on this board, so the move always stops at target.
 async fn exec_home(
-    axes: gcode::HomeAxes,
+    target: gcode::HomeSpec,
     motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
-    line_tx: &line_tx::LineTx,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) {
     // Snapshot once; homing params don't change mid-G28.
     let homing = *homing.lock().await;
-    if axes.c {
-        let _ = line_tx.try_send(
-            pstate::ErrorLine::new()
-                .msg(format_args!("C homing not supported"))
-                .finish(),
-        );
-        return;
-    }
-    let count = axes.x as u8 + axes.y as u8 + axes.z as u8;
-    if count > 1 {
-        let _ = line_tx.try_send(
-            pstate::ErrorLine::new()
-                .msg(format_args!("too many axes"))
-                .finish(),
-        );
-        return;
-    }
 
-    // count == 0 means home all in phase order; otherwise the single named axis.
     let mut order = [
         model::settings::Axis::X,
         model::settings::Axis::Y,
@@ -234,13 +239,10 @@ async fn exec_home(
     ];
     order.sort_unstable_by(|a, b| homing.axis(*a).phase.total_cmp(&homing.axis(*b).phase));
     for axis in order {
-        let named = match axis {
-            model::settings::Axis::X => axes.x,
-            model::settings::Axis::Y => axes.y,
-            model::settings::Axis::Z => axes.z,
-        };
-        if count == 1 && !named {
-            continue;
+        if let gcode::HomeSpec::One(named) = target {
+            if axis != named {
+                continue;
+            }
         }
 
         let cfg = homing.axis(axis);

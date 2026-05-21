@@ -241,8 +241,7 @@ async fn cmd_loop(
     line_tx: &line_tx::LineTx,
 ) {
     let mut repo = model::settings::Repo::defaults();
-    // Modal pulser config (M3/M4); seeds the C `pulser_config` defaults.
-    let mut pulser_cfg = model::gcode::PulserConfig::default();
+    let mut pulser_cfg = pulser::Config::default();
 
     let mut peek_buf: Option<commands::Command> = None;
     // Tracks whether the previous command was a G1 with a following G1 (cont_next).

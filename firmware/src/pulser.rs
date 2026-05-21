@@ -17,6 +17,25 @@ const EFF_DUTY_ALPHA: f32 = 0.001;
 /// Retries for a critical register write before declaring the device lost.
 const WRITE_RETRIES: u32 = 5;
 
+#[derive(Clone, Copy)]
+pub struct Config {
+    pub tool_negative: bool,
+    pub pulse_us: f32,
+    pub current_a: f32,
+    pub duty_pct: f32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            tool_negative: true,
+            pulse_us: 500.0,
+            current_a: 1.0,
+            duty_pct: 25.0,
+        }
+    }
+}
+
 /// Snapshot for the `stat` command: cached counters/rates plus a fresh read-back
 /// of the config registers. `None` config fields mean that register read failed.
 /// EDM rates are normalized to [0, 1]. Built under the pulser lock so the caller

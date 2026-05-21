@@ -9,7 +9,6 @@
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::mutex;
 use model::coordstate;
-use model::gcode;
 use model::pstate;
 use model::settings;
 
@@ -17,6 +16,7 @@ use crate::board;
 use crate::homing;
 use crate::line_tx;
 use crate::motion;
+use crate::toolsupply;
 use crate::wirefeed;
 
 pub type SharedTmc = mutex::Mutex<raw::NoopRawMutex, [board::MotorConfig; board::NUM_MOTORS]>;
@@ -108,7 +108,7 @@ async fn dispatch(
             toolsupply
                 .lock()
                 .await
-                .configure(gcode::ToolSupplyState::Open, val)
+                .configure(toolsupply::State::Open, val)
                 .await;
             Ok(())
         }
@@ -116,7 +116,7 @@ async fn dispatch(
             toolsupply
                 .lock()
                 .await
-                .configure(gcode::ToolSupplyState::Closed, val)
+                .configure(toolsupply::State::Closed, val)
                 .await;
             Ok(())
         }
