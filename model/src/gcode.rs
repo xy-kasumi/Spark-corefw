@@ -89,11 +89,10 @@ pub struct HomeAxes {
 pub enum ParseError {
     Empty,
     UnknownCommand,
-    BadAxis,
-    BadNumber,
-    ExpectedSeparator,
-    TrailingGarbage,
-    MissingParam,
+    /// Any malformed-body failure (bad axis/number, missing or trailing param,
+    /// missing separator). The offending line is echoed back, so the category
+    /// alone is enough.
+    Syntax,
 }
 
 pub fn parse(line: &[u8]) -> Result<Command, ParseError> {
@@ -138,23 +137,23 @@ fn no_params(p: &mut Cursor) -> Result<(), ParseError> {
     if p.eof_or_only_ws() {
         Ok(())
     } else {
-        Err(ParseError::TrailingGarbage)
+        Err(ParseError::Syntax)
     }
 }
 
 /// Parse the single required `R<float>` parameter (M10 feedrate, mm/min).
 fn parse_required_r(p: &mut Cursor) -> Result<f32, ParseError> {
     if p.eof_or_only_ws() {
-        return Err(ParseError::MissingParam);
+        return Err(ParseError::Syntax);
     }
     if !p.require_ws() {
-        return Err(ParseError::ExpectedSeparator);
+        return Err(ParseError::Syntax);
     }
-    let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
+    let letter = p.read_letter().ok_or(ParseError::Syntax)?;
     if letter != b'R' {
-        return Err(ParseError::BadAxis);
+        return Err(ParseError::Syntax);
     }
-    let value = p.read_float().ok_or(ParseError::BadNumber)?;
+    let value = p.read_float().ok_or(ParseError::Syntax)?;
     no_params(p)?;
     Ok(value)
 }
@@ -172,15 +171,15 @@ fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Result<PulserConfig, Par
             break;
         }
         if !p.require_ws() {
-            return Err(ParseError::ExpectedSeparator);
+            return Err(ParseError::Syntax);
         }
-        let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
-        let value = p.read_float().ok_or(ParseError::BadNumber)?;
+        let letter = p.read_letter().ok_or(ParseError::Syntax)?;
+        let value = p.read_float().ok_or(ParseError::Syntax)?;
         match letter {
             b'P' => cfg.pulse_us = value,
             b'Q' => cfg.current_a = value,
             b'R' => cfg.duty_pct = value,
-            _ => return Err(ParseError::BadAxis),
+            _ => return Err(ParseError::Syntax),
         }
     }
     Ok(cfg)
@@ -195,19 +194,19 @@ fn parse_home(p: &mut Cursor) -> Result<HomeAxes, ParseError> {
             break;
         }
         if !p.require_ws() {
-            return Err(ParseError::ExpectedSeparator);
+            return Err(ParseError::Syntax);
         }
-        let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
+        let letter = p.read_letter().ok_or(ParseError::Syntax)?;
         match letter {
             b'X' => axes.x = true,
             b'Y' => axes.y = true,
             b'Z' => axes.z = true,
             b'C' => axes.c = true,
-            _ => return Err(ParseError::BadAxis),
+            _ => return Err(ParseError::Syntax),
         }
         // Bare letters only: a digit (value) following an axis is invalid.
         if !p.eof_or_only_ws() && !p.at_ws() {
-            return Err(ParseError::TrailingGarbage);
+            return Err(ParseError::Syntax);
         }
     }
     Ok(axes)
@@ -216,7 +215,7 @@ fn parse_home(p: &mut Cursor) -> Result<HomeAxes, ParseError> {
 /// Parse a coordinate-system select (G53-G56). Takes no parameters.
 fn parse_select(p: &mut Cursor, code: i32) -> Result<Command, ParseError> {
     if !p.eof_or_only_ws() {
-        return Err(ParseError::TrailingGarbage);
+        return Err(ParseError::Syntax);
     }
     let cs = ActiveCoordSys::from_gcode(code).ok_or(ParseError::UnknownCommand)?;
     Ok(Command::SelectCoordSys(cs))
@@ -229,16 +228,16 @@ fn parse_move(p: &mut Cursor) -> Result<MoveSpec, ParseError> {
             break;
         }
         if !p.require_ws() {
-            return Err(ParseError::ExpectedSeparator);
+            return Err(ParseError::Syntax);
         }
-        let letter = p.read_letter().ok_or(ParseError::BadAxis)?;
-        let value = p.read_float().ok_or(ParseError::BadNumber)?;
+        let letter = p.read_letter().ok_or(ParseError::Syntax)?;
+        let value = p.read_float().ok_or(ParseError::Syntax)?;
         match letter {
             b'X' => spec.x = Some(value),
             b'Y' => spec.y = Some(value),
             b'Z' => spec.z = Some(value),
             b'C' => spec.c = Some(value / 360.0),
-            _ => return Err(ParseError::BadAxis),
+            _ => return Err(ParseError::Syntax),
         }
     }
     Ok(spec)
@@ -307,7 +306,7 @@ impl<'a> Cursor<'a> {
             return Ok(None);
         }
         self.pos += 1;
-        self.read_int().map(Some).ok_or(ParseError::BadNumber)
+        self.read_int().map(Some).ok_or(ParseError::Syntax)
     }
 
     fn read_int(&mut self) -> Option<i32> {

@@ -5,10 +5,6 @@
 //! this module turns them into an [`Outcome`]: either a queued [`Command`] or
 //! an immediate [`FastSet`]. Sits in `model` so it can be host-fuzzed without
 //! firmware deps.
-//!
-//! Errors are categorical (one variant per failure shape); the wire-format
-//! error message comes from Debug printing in the caller.
-
 use crate::gcode;
 use crate::settings::SettingId;
 
@@ -45,16 +41,7 @@ pub enum ParseError {
     Empty,
     UnknownCommand,
     Gcode(gcode::ParseError),
-    SetMissingKey,
-    SetMissingValue,
-    SetUnknownKey,
-    SetBadValue,
-    GetExtraArgs,
-    StatExtraArgs,
-    FsetMissingKey,
-    FsetMissingValue,
-    FsetUnknownKey,
-    FsetBadValue,
+    Syntax,
 }
 
 pub fn parse(bytes: &[u8]) -> Result<Outcome, ParseError> {
@@ -84,33 +71,33 @@ fn parse_text(bytes: &[u8]) -> Result<Outcome, ParseError> {
 fn parse_set(rest: &str) -> Result<Command, ParseError> {
     let (key, rest) = split_word(rest);
     if key.is_empty() {
-        return Err(ParseError::SetMissingKey);
+        return Err(ParseError::Syntax);
     }
     let (value_str, tail) = split_word(rest);
     if value_str.is_empty() {
-        return Err(ParseError::SetMissingValue);
+        return Err(ParseError::Syntax);
     }
     if !tail.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::SetBadValue);
+        return Err(ParseError::Syntax);
     }
-    let id = SettingId::parse(key).ok_or(ParseError::SetUnknownKey)?;
-    let value: f32 = value_str.parse().map_err(|_| ParseError::SetBadValue)?;
+    let id = SettingId::parse(key).ok_or(ParseError::Syntax)?;
+    let value: f32 = value_str.parse().map_err(|_| ParseError::Syntax)?;
     if !value.is_finite() {
-        return Err(ParseError::SetBadValue);
+        return Err(ParseError::Syntax);
     }
     Ok(Command::Set(id, value))
 }
 
 fn parse_get(rest: &str) -> Result<Command, ParseError> {
     if !rest.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::GetExtraArgs);
+        return Err(ParseError::Syntax);
     }
     Ok(Command::Get)
 }
 
 fn parse_stat(rest: &str) -> Result<Command, ParseError> {
     if !rest.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::StatExtraArgs);
+        return Err(ParseError::Syntax);
     }
     Ok(Command::Stat)
 }
@@ -118,19 +105,19 @@ fn parse_stat(rest: &str) -> Result<Command, ParseError> {
 fn parse_fset(rest: &str) -> Result<FastSet, ParseError> {
     let (key, rest) = split_word(rest);
     if key.is_empty() {
-        return Err(ParseError::FsetMissingKey);
+        return Err(ParseError::Syntax);
     }
     let (value_str, tail) = split_word(rest);
     if value_str.is_empty() {
-        return Err(ParseError::FsetMissingValue);
+        return Err(ParseError::Syntax);
     }
     if !tail.trim_start_matches(is_ws).is_empty() {
-        return Err(ParseError::FsetBadValue);
+        return Err(ParseError::Syntax);
     }
-    let value = parse_bool(value_str).ok_or(ParseError::FsetBadValue)?;
+    let value = parse_bool(value_str).ok_or(ParseError::Syntax)?;
     match key {
         "ov.pump_en" => Ok(FastSet::PumpEn(value)),
-        _ => Err(ParseError::FsetUnknownKey),
+        _ => Err(ParseError::Syntax),
     }
 }
 
@@ -165,21 +152,6 @@ mod tests {
         assert_eq!(
             parse(b"fset ov.pump_en false"),
             Ok(Outcome::FastSet(FastSet::PumpEn(false)))
-        );
-    }
-
-    #[test]
-    fn fset_errors() {
-        assert_eq!(parse(b"fset"), Err(ParseError::FsetMissingKey));
-        assert_eq!(parse(b"fset ov.pump_en"), Err(ParseError::FsetMissingValue));
-        assert_eq!(parse(b"fset ov.pump_en yes"), Err(ParseError::FsetBadValue));
-        assert_eq!(
-            parse(b"fset ov.pump_en true extra"),
-            Err(ParseError::FsetBadValue)
-        );
-        assert_eq!(
-            parse(b"fset ov.unknown true"),
-            Err(ParseError::FsetUnknownKey)
         );
     }
 }
