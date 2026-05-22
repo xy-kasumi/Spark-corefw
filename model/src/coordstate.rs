@@ -1,14 +1,6 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Modal coordinate-system state: which system G-code coordinates are relative
-//! to (G53-G56), the live per-system offsets, and the last commanded target
-//! used as the base for partial moves.
-//!
-//! Mirrors the C `gcode.c` modal state (`current_coord_system`, `coord_offsets`,
-//! `last_target`/`last_target_avail`). Pure and host-testable; the firmware owns
-//! one instance behind a mutex shared by the executor and the signal handler.
-
 use crate::coords;
 use crate::gcode;
 use crate::settings;
@@ -56,7 +48,7 @@ impl CoordState {
         }
     }
 
-    /// Select a new active system (G53-G56), re-anchoring `last_target` through
+    /// Select a new active system, re-anchoring `last_target` through
     /// machine coordinates so the held target stays at the same physical point.
     pub fn select(&mut self, new: coords::ActiveCoordSys) {
         if let Some(lt) = self.last_target {

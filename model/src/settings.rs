@@ -72,7 +72,7 @@ impl Repo {
                 ins(format_args!("a.{n}.home.side"), default_side(a));
                 ins(format_args!("a.{n}.home.travel"), 500.0);
             }
-            for c in [CoordSys::G, CoordSys::W, CoordSys::Ts] {
+            for c in [CoordSys::G, CoordSys::W] {
                 let cn = c.name();
                 for a in [Axis::X, Axis::Y, Axis::Z] {
                     ins(format_args!("cs.{cn}.pos.{}", a.name()), 0.0);

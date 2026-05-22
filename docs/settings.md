@@ -47,8 +47,8 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 		* valid: > 0
 		* max distance (mm) to travel when homing
 
-### **cs.{w,g,ts}** Coordinates
-`w` is work coordinate system, `g` is grinder coordinate system, `ts` is tool supply coordinate system.
+### **cs.{w,g}** Coordinates
+`w` is work coordinate system, `g` is grinder coordinate system.
 
 * **pos.{x,y,z}** origin of specified (work or grinder) coordinates in machine coordinates
 	* valid: any

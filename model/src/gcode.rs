@@ -17,7 +17,7 @@ pub enum Parsed {
     Home(HomeSpec),
     /// G38.3: probe toward target, stop on contact, no error if not reached.
     Probe(MoveSpec),
-    /// G53-G56: select the active (modal) coordinate system.
+    /// G53-G55: select the active (modal) coordinate system.
     SelectCoordSys(coords::ActiveCoordSys),
     /// M8: start the pump.
     PumpOn,
@@ -166,7 +166,7 @@ fn parse_home(p: &mut Cursor) -> Option<HomeSpec> {
     Some(HomeSpec::One(axis))
 }
 
-/// Parse a coordinate-system select (G53-G56). Takes no parameters.
+/// Parse a coordinate-system select (G53-G55). Takes no parameters.
 fn parse_select(p: &mut Cursor, code: i32) -> Option<Parsed> {
     if !p.eof_or_only_ws() {
         return None;
@@ -356,7 +356,6 @@ mod tests {
         check("G53", expect!["Some(SelectCoordSys(Machine))"]);
         check("G54", expect!["Some(SelectCoordSys(Offset(G)))"]);
         check("G55", expect!["Some(SelectCoordSys(Offset(W)))"]);
-        check("G56", expect!["Some(SelectCoordSys(Offset(Ts)))"]);
     }
 
     #[test]

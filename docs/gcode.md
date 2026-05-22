@@ -22,8 +22,6 @@ We have 4 coordinate systems based on these origins:
   * coordinates = tool origin wrt. grinder origin
 * Work coordinate system (G55)
   * coordinates = tool origin wrt. work origin
-* Tool supply coordinate system (G56)
-  * coordinates = TBD
 
 We do not provide "tool center point control".
 Management of current tool shape is G-code programs' responsibility.
@@ -128,9 +126,6 @@ Interpret following commands' coordinates in grinder coordinate system.
 
 ### G55: Use work coordinate system
 Interpret following commands' coordinates in work coordinate system.
-
-### G56: Use tool supply coordinate system
-Interpret following commands' coordinates in tool supply coordinate system.
 
 ## Supported M-codes
 

@@ -66,14 +66,11 @@ impl PosPhys {
     }
 }
 
-/// The three offset-bearing work coordinate systems (G54/G55/G56). The machine
-/// system (G53) has no offset and is represented separately by
-/// [`ActiveCoordSys::Machine`].
+/// Non-machine coords.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoordSys {
     W,
     G,
-    Ts,
 }
 
 impl CoordSys {
@@ -82,7 +79,6 @@ impl CoordSys {
         match self {
             CoordSys::W => 0,
             CoordSys::G => 1,
-            CoordSys::Ts => 2,
         }
     }
 
@@ -91,7 +87,6 @@ impl CoordSys {
         match self {
             CoordSys::W => "w",
             CoordSys::G => "g",
-            CoordSys::Ts => "ts",
         }
     }
 
@@ -99,7 +94,6 @@ impl CoordSys {
         match s {
             "w" => Some(CoordSys::W),
             "g" => Some(CoordSys::G),
-            "ts" => Some(CoordSys::Ts),
             _ => None,
         }
     }
@@ -141,8 +135,6 @@ impl Axis {
     }
 }
 
-/// The active (modal) coordinate system selected by G53-G56. `Offset` wraps
-/// [`CoordSys`] so that "machine has no offset" is structurally enforced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActiveCoordSys {
     Machine,
@@ -156,7 +148,6 @@ impl ActiveCoordSys {
             53 => Some(ActiveCoordSys::Machine),
             54 => Some(ActiveCoordSys::Offset(CoordSys::G)),
             55 => Some(ActiveCoordSys::Offset(CoordSys::W)),
-            56 => Some(ActiveCoordSys::Offset(CoordSys::Ts)),
             _ => None,
         }
     }
@@ -167,7 +158,6 @@ impl ActiveCoordSys {
             ActiveCoordSys::Machine => "machine",
             ActiveCoordSys::Offset(CoordSys::G) => "grinder",
             ActiveCoordSys::Offset(CoordSys::W) => "work",
-            ActiveCoordSys::Offset(CoordSys::Ts) => "toolsupply",
         }
     }
 
@@ -177,7 +167,6 @@ impl ActiveCoordSys {
             ActiveCoordSys::Machine => "m",
             ActiveCoordSys::Offset(CoordSys::G) => "g",
             ActiveCoordSys::Offset(CoordSys::W) => "w",
-            ActiveCoordSys::Offset(CoordSys::Ts) => "t",
         }
     }
 
