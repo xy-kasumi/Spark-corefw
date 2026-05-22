@@ -9,11 +9,9 @@ Example of valid keys:
 m.0.thresh
 a.x.home.side
 cs.w.pos.x
-ts.servo.openms
 ```
 
 ## Key List
-note: Keys marked with `(future)` will be candidates for future addition, but currently unavailable.
 
 ### **m.{0,1,2,3,4,5,6}** Motor
 0~6 is stepper motor index.
@@ -55,7 +53,3 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 * **pos.{x,y,z}** origin of specified (work or grinder) coordinates in machine coordinates
 	* valid: any
 	* must be configured by user to match machine's spec
-* (future) **ofs.{x,y,z}**
-	* grinder's origin offset in machine coordinates
-	* auto-adjusted by calibration motion (G-code TBD)
-	* offset must be at most a few mm; otherwise calibration will fail
