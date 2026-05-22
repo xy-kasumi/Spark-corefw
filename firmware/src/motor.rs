@@ -68,6 +68,6 @@ impl Motors {
             settings::Axis::Y => (self.y.current(), self.cal.steps_per_mm_y),
             settings::Axis::Z => (self.z.current(), self.cal.steps_per_mm_z),
         };
-        self.home_offset[axis.idx()] = raw - (origin_mm * spm) as i32;
+        self.home_offset[settings::axis_idx(axis)] = raw - (origin_mm * spm) as i32;
     }
 }

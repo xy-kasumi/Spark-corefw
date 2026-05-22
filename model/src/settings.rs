@@ -17,6 +17,56 @@ pub const STG_KEY_SEGS_CAP: usize = 5;
 
 pub use crate::coords::{Axis, CoordSys};
 
+/// Index into a per-system offset/config array.
+pub fn cs_idx(cs: CoordSys) -> usize {
+    match cs {
+        CoordSys::W => 0,
+        CoordSys::G => 1,
+    }
+}
+
+/// Index into a per-axis array.
+pub fn axis_idx(axis: Axis) -> usize {
+    match axis {
+        Axis::X => 0,
+        Axis::Y => 1,
+        Axis::Z => 2,
+    }
+}
+
+pub fn cs_name(cs: CoordSys) -> &'static str {
+    match cs {
+        CoordSys::W => "w",
+        CoordSys::G => "g",
+    }
+}
+
+pub fn cs_parse(s: &str) -> Option<CoordSys> {
+    match s {
+        "w" => Some(CoordSys::W),
+        "g" => Some(CoordSys::G),
+        _ => None,
+    }
+}
+
+/// Settings-key segment.
+pub fn axis_name(axis: Axis) -> &'static str {
+    match axis {
+        Axis::X => "x",
+        Axis::Y => "y",
+        Axis::Z => "z",
+    }
+}
+
+pub fn axis_parse(s: &str) -> Option<Axis> {
+    match s {
+        "x" => Some(Axis::X),
+        "y" => Some(Axis::Y),
+        "z" => Some(Axis::Z),
+        _ => None,
+    }
+}
+
 /// [`Repo`]'s capacity. Needs to be bigger than number of keys.
 const STG_CAP: usize = 64;
 
@@ -62,16 +112,16 @@ impl Repo {
                 map.insert(k, v).expect("CAP fits all keys");
             };
             for a in [Axis::X, Axis::Y, Axis::Z] {
-                let n = a.name();
+                let n = axis_name(a);
                 ins(format_args!("a.{n}.home.origin"), 0.0);
                 ins(format_args!("a.{n}.home.phase"), default_phase(a));
                 ins(format_args!("a.{n}.home.side"), default_side(a));
                 ins(format_args!("a.{n}.home.travel"), 500.0);
             }
             for c in [CoordSys::G, CoordSys::W] {
-                let cn = c.name();
+                let cn = cs_name(c);
                 for a in [Axis::X, Axis::Y, Axis::Z] {
-                    ins(format_args!("cs.{cn}.pos.{}", a.name()), 0.0);
+                    ins(format_args!("cs.{cn}.pos.{}", axis_name(a)), 0.0);
                 }
             }
             for m in 0..N_MOTORS {

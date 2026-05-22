@@ -89,13 +89,13 @@ async fn dispatch(
             Ok(())
         }
         ["cs", c, "pos", a] => {
-            let cs = settings::CoordSys::parse(c).ok_or(Error::UnknownKey)?;
-            let axis = settings::Axis::parse(a).ok_or(Error::UnknownKey)?;
+            let cs = settings::cs_parse(c).ok_or(Error::UnknownKey)?;
+            let axis = settings::axis_parse(a).ok_or(Error::UnknownKey)?;
             coord.lock().await.set_offset(cs, axis, val);
             Ok(())
         }
         ["a", a, "home", prop] => {
-            let axis = settings::Axis::parse(a).ok_or(Error::UnknownKey)?;
+            let axis = settings::axis_parse(a).ok_or(Error::UnknownKey)?;
             homing
                 .lock()
                 .await

@@ -12,7 +12,7 @@ pub struct CoordState {
     /// position.
     last_target: Option<coords::PosPhys>,
     /// Per-system XYZ origins in machine coordinates, indexed by
-    /// [`CoordSys::idx`]. C-axis is never offset.
+    /// [`settings::cs_idx`]. C-axis is never offset.
     offsets: [coords::PosPhys; 3],
 }
 
@@ -34,13 +34,13 @@ impl CoordState {
     pub fn offset_of(&self, active: coords::ActiveCoordSys) -> coords::PosPhys {
         match active {
             coords::ActiveCoordSys::Machine => coords::PosPhys::ZERO,
-            coords::ActiveCoordSys::Offset(cs) => self.offsets[cs.idx()],
+            coords::ActiveCoordSys::Offset(cs) => self.offsets[settings::cs_idx(cs)],
         }
     }
 
     /// Set one axis of one system's origin (from the `cs.*.pos.*` settings path).
     pub fn set_offset(&mut self, cs: coords::CoordSys, axis: settings::Axis, value: f32) {
-        let o = &mut self.offsets[cs.idx()];
+        let o = &mut self.offsets[settings::cs_idx(cs)];
         match axis {
             settings::Axis::X => o.x = value,
             settings::Axis::Y => o.y = value,

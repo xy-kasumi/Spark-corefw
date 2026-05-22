@@ -42,7 +42,7 @@ impl Config {
     /// Apply one `a.<axis>.home.<prop>` value. `Err` on an unknown property
     /// (the dispatcher turns that into an unknown-key error).
     pub fn set(&mut self, axis: settings::Axis, prop: &str, val: f32) -> Result<(), ()> {
-        let a = &mut self.axes[axis.idx()];
+        let a = &mut self.axes[settings::axis_idx(axis)];
         match prop {
             "origin" => a.origin = val,
             "phase" => a.phase = val,
@@ -54,6 +54,6 @@ impl Config {
     }
 
     pub fn axis(&self, axis: settings::Axis) -> Axis {
-        self.axes[axis.idx()]
+        self.axes[settings::axis_idx(axis)]
     }
 }

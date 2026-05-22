@@ -73,34 +73,7 @@ pub enum CoordSys {
     G,
 }
 
-impl CoordSys {
-    /// Index into a per-system offset/config array.
-    pub fn idx(self) -> usize {
-        match self {
-            CoordSys::W => 0,
-            CoordSys::G => 1,
-        }
-    }
-
-    /// Settings-key segment (`cs.<name>.pos.*`).
-    pub fn name(self) -> &'static str {
-        match self {
-            CoordSys::W => "w",
-            CoordSys::G => "g",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "w" => Some(CoordSys::W),
-            "g" => Some(CoordSys::G),
-            _ => None,
-        }
-    }
-}
-
-/// A linear/rotary machine axis. Indexes per-axis arrays and names the
-/// `a.<name>.*` / `cs.*.pos.<name>` settings-key segments.
+/// A linear/rotary machine axis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Axis {
     X,
@@ -108,61 +81,10 @@ pub enum Axis {
     Z,
 }
 
-impl Axis {
-    pub fn idx(self) -> usize {
-        match self {
-            Axis::X => 0,
-            Axis::Y => 1,
-            Axis::Z => 2,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Axis::X => "x",
-            Axis::Y => "y",
-            Axis::Z => "z",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "x" => Some(Axis::X),
-            "y" => Some(Axis::Y),
-            "z" => Some(Axis::Z),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActiveCoordSys {
     Machine,
     Offset(CoordSys),
-}
-
-impl ActiveCoordSys {
-    /// Full name for the `?pos` `sys` field.
-    pub fn sys_name(self) -> &'static str {
-        match self {
-            ActiveCoordSys::Machine => "machine",
-            ActiveCoordSys::Offset(CoordSys::G) => "grinder",
-            ActiveCoordSys::Offset(CoordSys::W) => "work",
-        }
-    }
-
-    /// Key prefix for `?pos` axis fields. Note toolsupply is `t`, not `ts`.
-    pub fn pos_prefix(self) -> &'static str {
-        match self {
-            ActiveCoordSys::Machine => "m",
-            ActiveCoordSys::Offset(CoordSys::G) => "g",
-            ActiveCoordSys::Offset(CoordSys::W) => "w",
-        }
-    }
-
-    pub fn is_machine(self) -> bool {
-        matches!(self, ActiveCoordSys::Machine)
-    }
 }
 
 /// Wrap a turn value to `[0, 1)`.
