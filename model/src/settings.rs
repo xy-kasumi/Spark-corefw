@@ -17,14 +17,6 @@ pub const STG_KEY_SEGS_CAP: usize = 5;
 
 pub use crate::coords::{Axis, CoordSys};
 
-/// Index into a per-system offset/config array.
-pub fn cs_idx(cs: CoordSys) -> usize {
-    match cs {
-        CoordSys::W => 0,
-        CoordSys::G => 1,
-    }
-}
-
 /// Index into a per-axis array.
 pub fn axis_idx(axis: Axis) -> usize {
     match axis {

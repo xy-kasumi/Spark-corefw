@@ -67,7 +67,7 @@ impl PosPhys {
 }
 
 /// Non-machine coords.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, enum_map::Enum)]
 pub enum CoordSys {
     W,
     G,

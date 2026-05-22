@@ -11,18 +11,17 @@ pub struct CoordState {
     /// cancel, which forces the next move to re-base off the live machine
     /// position.
     last_target: Option<coords::PosPhys>,
-    /// Per-system XYZ origins in machine coordinates, indexed by
-    /// [`settings::cs_idx`]. C-axis is never offset.
-    offsets: [coords::PosPhys; 3],
+    /// Per-system XYZ origins in machine coordinates. C-axis is never offset.
+    offsets: enum_map::EnumMap<coords::CoordSys, coords::PosPhys>,
 }
 
 impl CoordState {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             active: coords::ActiveCoordSys::Machine,
             // Initial state: a zeroed target is already available.
             last_target: Some(coords::PosPhys::ZERO),
-            offsets: [coords::PosPhys::ZERO; 3],
+            offsets: enum_map::EnumMap::default(),
         }
     }
 
@@ -34,13 +33,13 @@ impl CoordState {
     pub fn offset_of(&self, active: coords::ActiveCoordSys) -> coords::PosPhys {
         match active {
             coords::ActiveCoordSys::Machine => coords::PosPhys::ZERO,
-            coords::ActiveCoordSys::Offset(cs) => self.offsets[settings::cs_idx(cs)],
+            coords::ActiveCoordSys::Offset(cs) => self.offsets[cs],
         }
     }
 
     /// Set one axis of one system's origin (from the `cs.*.pos.*` settings path).
     pub fn set_offset(&mut self, cs: coords::CoordSys, axis: settings::Axis, value: f32) {
-        let o = &mut self.offsets[settings::cs_idx(cs)];
+        let o = &mut self.offsets[cs];
         match axis {
             settings::Axis::X => o.x = value,
             settings::Axis::Y => o.y = value,
