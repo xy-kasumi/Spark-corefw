@@ -171,7 +171,12 @@ fn parse_select(p: &mut Cursor, code: i32) -> Option<Parsed> {
     if !p.eof_or_only_ws() {
         return None;
     }
-    let cs = coords::ActiveCoordSys::from_gcode(code)?;
+    let cs = match code {
+        53 => coords::ActiveCoordSys::Machine,
+        54 => coords::ActiveCoordSys::Offset(coords::CoordSys::G),
+        55 => coords::ActiveCoordSys::Offset(coords::CoordSys::W),
+        _ => return None,
+    };
     Some(Parsed::SelectCoordSys(cs))
 }
 

@@ -142,16 +142,6 @@ pub enum ActiveCoordSys {
 }
 
 impl ActiveCoordSys {
-    /// Map a G-code code (53-56) to its coordinate system. Other codes yield None.
-    pub fn from_gcode(code: i32) -> Option<Self> {
-        match code {
-            53 => Some(ActiveCoordSys::Machine),
-            54 => Some(ActiveCoordSys::Offset(CoordSys::G)),
-            55 => Some(ActiveCoordSys::Offset(CoordSys::W)),
-            _ => None,
-        }
-    }
-
     /// Full name for the `?pos` `sys` field.
     pub fn sys_name(self) -> &'static str {
         match self {
