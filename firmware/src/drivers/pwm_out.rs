@@ -3,6 +3,8 @@
 
 //! Single PWM output channel: fixed-period with a settable duty cycle.
 
+#![allow(dead_code)]
+
 pub trait Pin {
     /// Set the carrier period (milliseconds) and enable the output.
     fn init(&mut self, period_ms: f32);

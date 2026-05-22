@@ -18,7 +18,6 @@ mod pulser;
 mod pump;
 mod settings;
 mod signals;
-mod toolsupply;
 mod wirefeed;
 
 use core::sync::atomic;
@@ -43,7 +42,6 @@ type SharedPulser = mutex::Mutex<raw::NoopRawMutex, board::Pulser>;
 type SharedCoord = mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>;
 type SharedPump = mutex::Mutex<raw::NoopRawMutex, board::Pump>;
 type SharedWirefeed = mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>;
-type SharedToolSupply = mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>;
 type SharedHoming = mutex::Mutex<raw::NoopRawMutex, homing::Config>;
 
 #[embassy_executor::main]
@@ -82,11 +80,6 @@ async fn main(spawner: embassy_executor::Spawner) {
     static WIREFEED_CELL: static_cell::StaticCell<SharedWirefeed> = static_cell::StaticCell::new();
     let wirefeed: &'static SharedWirefeed =
         WIREFEED_CELL.init(mutex::Mutex::new(wirefeed::Wirefeed::new(step[6])));
-    static TOOLSUPPLY_CELL: static_cell::StaticCell<SharedToolSupply> =
-        static_cell::StaticCell::new();
-    let toolsupply: &'static SharedToolSupply = TOOLSUPPLY_CELL.init(mutex::Mutex::new(
-        board::ToolSupply::new(board.toolsupply_pwm),
-    ));
     static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
     let homing: &'static SharedHoming =
         HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
@@ -95,14 +88,12 @@ async fn main(spawner: embassy_executor::Spawner) {
     // init phase
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).begin());
     let pulser_ok = pulser.lock().await.init(line_tx).await;
-    toolsupply.lock().await.init();
     let settings_ok = settings::apply_all(
         &model::settings::Repo::defaults(),
         motion,
         tmc,
         coord,
         wirefeed,
-        toolsupply,
         homing,
         line_tx,
     )
@@ -123,7 +114,7 @@ async fn main(spawner: embassy_executor::Spawner) {
             line_tx,
         ),
         cmd_loop(
-            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, toolsupply, homing, line_tx,
+            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, homing, line_tx,
         ),
     )
     .await;
@@ -236,7 +227,7 @@ async fn cmd_loop(
     pulser: &SharedPulser,
     pump: &SharedPump,
     wirefeed: &SharedWirefeed,
-    toolsupply: &SharedToolSupply,
+
     homing: &SharedHoming,
     line_tx: &line_tx::LineTx,
 ) {
@@ -281,7 +272,6 @@ async fn cmd_loop(
             coord,
             pump,
             wirefeed,
-            toolsupply,
             homing,
             line_tx,
             &mut repo,

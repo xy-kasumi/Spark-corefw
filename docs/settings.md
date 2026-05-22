@@ -59,10 +59,3 @@ It's displayed as `mot0`, `mot1` etc in `stat motor`.
 	* grinder's origin offset in machine coordinates
 	* auto-adjusted by calibration motion (G-code TBD)
 	* offset must be at most a few mm; otherwise calibration will fail
-
-### **ts** Tool supply
-* **servo.{openms,closems}**
-	* valid: [0, 20]
-	* Configure tool supply's servo position (on-cycle time) in msec (float).
-		* For SG90, valid value is 0.5~2.4.
-	* Period is 20ms (50Hz).

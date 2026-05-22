@@ -200,8 +200,6 @@ Examples:
 M11  ; Stop wire feed
 ```
 
-### M60: Open tool supply
-Open the tool supply for the head to pick up.
+### (future) M60: Open tool supply
+### (future) M61: Close tool supply
 
-### M61: Close tool supply
-Cloes the tool supply for normal operation.

@@ -25,7 +25,6 @@ use crate::line_tx;
 use crate::motion;
 use crate::pulser;
 use crate::settings;
-use crate::toolsupply;
 use crate::wirefeed;
 
 pub const CMD_QUEUE_CAP: usize = 64;
@@ -57,7 +56,6 @@ pub async fn exec(
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
-    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
     repo: &mut model::settings::Repo,
@@ -148,20 +146,6 @@ pub async fn exec(
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
             wirefeed.lock().await.stop();
         }
-        Command::Gcode(gcode::Parsed::ToolSupplyOpen) => {
-            toolsupply
-                .lock()
-                .await
-                .set_state(toolsupply::State::Open)
-                .await;
-        }
-        Command::Gcode(gcode::Parsed::ToolSupplyClose) => {
-            toolsupply
-                .lock()
-                .await
-                .set_state(toolsupply::State::Closed)
-                .await;
-        }
         Command::Gcode(gcode::Parsed::Pulser(params)) => {
             // Modal: M3/M4 only update the config the next G1/G38.3 energizes
             // with. Omitted P/Q/R resolve to the spec defaults here, in the
@@ -175,10 +159,8 @@ pub async fn exec(
             };
         }
         Command::Set(key, val) => {
-            if let Err(e) = settings::write(
-                repo, &key, val, motion, tmc, coord, wirefeed, toolsupply, homing,
-            )
-            .await
+            if let Err(e) =
+                settings::write(repo, &key, val, motion, tmc, coord, wirefeed, homing).await
             {
                 let line = match e {
                     settings::Error::UnknownKey => pstate::ErrorLine::new()

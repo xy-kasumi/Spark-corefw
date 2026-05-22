@@ -27,10 +27,6 @@ pub enum Parsed {
     WirefeedStart(f32),
     /// M11: stop wire feeding.
     WirefeedStop,
-    /// M60: open the tool supply.
-    ToolSupplyOpen,
-    /// M61: close the tool supply.
-    ToolSupplyClose,
     /// M3/M4: set the modal pulser parameters used by the next G1/G38.3.
     Pulser(PulserSpec),
 }
@@ -92,8 +88,6 @@ fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Option<Parsed> {
         (9, None) => no_params(p).map(|_| Parsed::PumpOff),
         (10, None) => parse_required_r(p).map(Parsed::WirefeedStart),
         (11, None) => no_params(p).map(|_| Parsed::WirefeedStop),
-        (60, None) => no_params(p).map(|_| Parsed::ToolSupplyOpen),
-        (61, None) => no_params(p).map(|_| Parsed::ToolSupplyClose),
         _ => None,
     }
 }
@@ -393,12 +387,6 @@ mod tests {
     fn dispatch_wirefeed() {
         check("M10 R120", expect!["Some(WirefeedStart(120.0))"]);
         check("M11", expect!["Some(WirefeedStop)"]);
-    }
-
-    #[test]
-    fn dispatch_tool_supply() {
-        check("M60", expect!["Some(ToolSupplyOpen)"]);
-        check("M61", expect!["Some(ToolSupplyClose)"]);
     }
 
     #[test]

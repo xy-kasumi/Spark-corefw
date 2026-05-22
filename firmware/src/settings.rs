@@ -16,7 +16,6 @@ use crate::board;
 use crate::homing;
 use crate::line_tx;
 use crate::motion;
-use crate::toolsupply;
 use crate::wirefeed;
 
 pub type SharedTmc = mutex::Mutex<raw::NoopRawMutex, [board::MotorConfig; board::NUM_MOTORS]>;
@@ -42,7 +41,6 @@ async fn dispatch(
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
-    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     let mut parts: [&str; settings::STG_KEY_SEGS_CAP] = [""; settings::STG_KEY_SEGS_CAP];
@@ -104,22 +102,6 @@ async fn dispatch(
                 .set(axis, prop, val)
                 .map_err(|_| Error::UnknownKey)
         }
-        ["ts", "servo", "openms"] => {
-            toolsupply
-                .lock()
-                .await
-                .configure(toolsupply::State::Open, val)
-                .await;
-            Ok(())
-        }
-        ["ts", "servo", "closems"] => {
-            toolsupply
-                .lock()
-                .await
-                .configure(toolsupply::State::Closed, val)
-                .await;
-            Ok(())
-        }
         _ => Err(Error::UnknownKey),
     }
 }
@@ -133,23 +115,12 @@ pub async fn write(
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
-    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
     }
-    dispatch(
-        key,
-        val.get(),
-        motion,
-        tmc,
-        coord,
-        wirefeed,
-        toolsupply,
-        homing,
-    )
-    .await?;
+    dispatch(key, val.get(), motion, tmc, coord, wirefeed, homing).await?;
     let _ = repo.set(key, val); // infallible: key present
     Ok(())
 }
@@ -161,12 +132,11 @@ pub async fn apply_all(
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
-    toolsupply: &mutex::Mutex<raw::NoopRawMutex, board::ToolSupply>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
 ) -> bool {
     for (key, v) in repo.iter() {
-        if dispatch(key, v, motion, tmc, coord, wirefeed, toolsupply, homing)
+        if dispatch(key, v, motion, tmc, coord, wirefeed, homing)
             .await
             .is_err()
         {

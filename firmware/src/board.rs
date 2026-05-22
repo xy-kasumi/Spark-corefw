@@ -12,13 +12,10 @@ use embassy_stm32::interrupt;
 use embassy_stm32::mode;
 use embassy_stm32::time;
 use embassy_stm32::timer;
-use embassy_stm32::timer::low_level;
-use embassy_stm32::timer::simple_pwm;
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 
 use crate::drivers::digital_out;
 use crate::drivers::pulser::{self, Bus};
-use crate::drivers::pwm_out;
 use crate::drivers::serial;
 use crate::drivers::soft_uart;
 use crate::drivers::step_gen;
@@ -32,8 +29,6 @@ type StepGenTim = peripherals::TIM6;
 pub type TmcBus = soft_uart::SoftUartHandle<SoftUartTim, NUM_MOTORS>;
 pub type MotorStepping = step_gen::StepGenHandle<StepGenTim, NUM_MOTORS>;
 pub type MotorConfig = tmc2209::Device<TmcBus>;
-pub type ToolSupplyPwm = simple_pwm::SimplePwm<'static, peripherals::TIM1>;
-pub type ToolSupply = crate::toolsupply::ToolSupply<ToolSupplyPwm>;
 pub type PulserBusImpl = i2c::I2c<'static, mode::Async>;
 pub type Pulser = crate::pulser::Device<PulserBusImpl>;
 pub type Pump = crate::pump::Pump<gpio::Output<'static>>;
@@ -60,7 +55,6 @@ pub struct Board {
     pub pulser: Pulser,
     /// Pump gate (PA3, active-high).
     pub pump: gpio::Output<'static>,
-    pub toolsupply_pwm: ToolSupplyPwm,
 }
 
 pub struct Motors {
@@ -143,25 +137,12 @@ pub fn init(spawner: &embassy_executor::Spawner, console_baud: u32) -> Board {
 
     // Misc. peripherals.
     let pump = out(p.PA3); // default off (b/c active high)
-    let toolsupply_pwm = simple_pwm::SimplePwm::new(
-        p.TIM1,
-        Some(simple_pwm::PwmPin::new_ch1(
-            p.PE9,
-            gpio::OutputType::PushPull,
-        )),
-        None,
-        None,
-        None,
-        time::Hertz(50),
-        low_level::CountingMode::EdgeAlignedUp,
-    );
 
     Board {
         serial,
         motors,
         pulser,
         pump,
-        toolsupply_pwm,
     }
 }
 
@@ -182,18 +163,6 @@ impl Bus for PulserBusImpl {
 impl digital_out::Pin for gpio::Output<'static> {
     fn set(&mut self, high: bool) {
         self.set_level(high.into());
-    }
-}
-
-impl pwm_out::Pin for ToolSupplyPwm {
-    fn init(&mut self, period_ms: f32) {
-        self.set_frequency(time::Hertz((1000.0 / period_ms) as u32));
-        self.ch1().enable();
-    }
-    fn set(&mut self, duty: f32) {
-        let mut ch = self.ch1();
-        let max = ch.max_duty_cycle();
-        ch.set_duty_cycle((duty * max as f32) as u16);
     }
 }
 
