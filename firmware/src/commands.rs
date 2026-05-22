@@ -36,9 +36,9 @@ pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
 /// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field.
 pub static OUTSTANDING: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
-/// Rapid feed, also used for homing moves (matches C `VELOCITY_MM_PER_S`).
+/// Rapid feed, also used for homing moves.
 const RAPID_SPEED_MM_PER_S: f32 = 10.0;
-/// Probe feed (matches C `PROBE_VELOCITY_MM_PER_S`).
+/// Probe feed.
 const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
 /// True if `cmd` is a G1 move — the only command that chains via the path buffer.
@@ -71,7 +71,7 @@ pub async fn exec(
                 m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
             }
             // Block until the rapid finishes; otherwise the next queued command
-            // would overwrite this still-running move (matches C G0 handler).
+            // would overwrite this still-running move.
             wait_move_end(motion, pulser, cont_next).await;
         }
         Command::Gcode(gcode::Parsed::Feed(spec)) => {
@@ -140,7 +140,7 @@ pub async fn exec(
         }
         Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
             wirefeed.lock().await.start(rate);
-            // Wait 2 s for wire tension to stabilize (matches C M10 handler).
+            // Wait 2 s for wire tension to stabilize.
             embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
@@ -183,7 +183,7 @@ pub async fn exec(
 }
 
 /// Wait for the current move to finish, polling on the tick cadence while the
-/// tick loop concurrently advances motion (mirrors C `wait_move_command_end`).
+/// tick loop concurrently advances motion.
 /// With `cont_next`, return once the path can accept the next chained segment
 /// (pulser stays energized); otherwise wait for full stop and de-energize.
 async fn wait_move_end(

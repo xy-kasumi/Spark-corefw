@@ -81,7 +81,7 @@ impl Motion {
 
     /// Re-anchor `axis` to `origin_mm` after a homing move: update the motor
     /// offset so the position reads `origin_mm`, then reset the controller to
-    /// that new position. Mirrors C `update_homing_offset` + `pos[axis]=origin`.
+    /// that new position.
     pub fn finish_home(&mut self, axis: settings::Axis, origin_mm: f32) {
         self.motors.reanchor(axis, origin_mm);
         let here = self.motors.current();

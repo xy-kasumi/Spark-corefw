@@ -9,7 +9,7 @@
 use crate::coords;
 use crate::path;
 
-/// EDM control thresholds and per-tick step sizes (mirror C `motion_tick_handler`).
+/// EDM control thresholds and per-tick step sizes.
 const EDM_OPEN_RATE_THRESH: u8 = 200;
 const EDM_SHORT_RATE_THRESH: u8 = 127;
 const EDM_ADVANCE_MM: f32 = 1e-3; // +1 µm/tick when too far (open)
@@ -147,7 +147,7 @@ impl<const N: usize> MotionState<N> {
                 }
             }
             Mode::EdmMove => {
-                // Retraction can hit the history limit; clamp and continue (as C does).
+                // Retraction can hit the history limit; clamp and continue.
                 if input.open_rate > EDM_OPEN_RATE_THRESH {
                     let _ = self.path.move_by(EDM_ADVANCE_MM);
                 } else if input.short_rate > EDM_SHORT_RATE_THRESH {
@@ -159,8 +159,8 @@ impl<const N: usize> MotionState<N> {
             }
             Mode::Idle => {}
         }
-        // Track the furthest distance reached while moving (mirrors C stats update,
-        // which runs only when the move is still in progress).
+        // Track the furthest distance reached while moving; only update while the
+        // move is still in progress.
         if self.mode != Mode::Idle {
             self.distance_max = self.distance_max.max(self.path.distance());
         }

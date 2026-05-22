@@ -20,7 +20,7 @@ impl CoordState {
     pub const fn new() -> Self {
         Self {
             active: coords::ActiveCoordSys::Machine,
-            // C zero-inits the static and leaves last_target_avail = true.
+            // Initial state: a zeroed target is already available.
             last_target: Some(coords::PosPhys::ZERO),
             offsets: [coords::PosPhys::ZERO; 3],
         }

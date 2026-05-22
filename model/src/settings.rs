@@ -119,7 +119,7 @@ impl Repo {
     }
 }
 
-/// Default home phase: X=1, Y=2, Z=0 (mirrors the legacy `settings[]`).
+/// Default home phase: X=1, Y=2, Z=0.
 fn default_phase(a: Axis) -> f32 {
     match a {
         Axis::X => 1.0,
@@ -137,7 +137,7 @@ fn default_side(a: Axis) -> f32 {
 }
 
 /// Default microsteps per +1 unit. Motors 1/2 invert; 5 is the wire spool, 6 the
-/// wire feed (mirrors the legacy `settings[]`).
+/// wire feed.
 fn default_unitsteps(motor: usize) -> f32 {
     match motor {
         1 | 2 => -200.0,

@@ -199,7 +199,7 @@ mod tests {
 
     use super::*;
 
-    /// History size matching the era of the C tests.
+    /// History size for the tests below (see module note).
     const N: usize = 201;
 
     fn p3(x: f32, y: f32, z: f32) -> coords::PosPhys {
@@ -210,7 +210,7 @@ mod tests {
         (a - b).abs() < tol
     }
 
-    /// Position tolerance matches the C `EDM_RESOLUTION_MM + 1e-4f` convention.
+    /// Position tolerance: one resolution step plus a small epsilon.
     const POS_TOL: f32 = RESOLUTION_MM + 1e-4;
 
     #[test]

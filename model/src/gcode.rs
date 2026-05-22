@@ -502,7 +502,7 @@ mod tests {
     // Build a move command from a non-empty axis subset, rendering it with a
     // shuffled order and varied inter-token spacing alongside the spec it must
     // parse back to. This one property subsumes order-independence, whitespace
-    // insensitivity, value round-tripping, and the C degrees->turns conversion.
+    // insensitivity, value round-tripping, and the C-axis degrees->turns conversion.
     prop_compose! {
         fn move_case()(
             pairs in prop::sample::subsequence(std::vec![b'X', b'Y', b'Z', b'C'], 1..=4)

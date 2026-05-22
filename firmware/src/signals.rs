@@ -74,7 +74,7 @@ pub fn exec_query(
             }
         }
         signal::QuerySignal::Edm => {
-            // Motion and pulser fields come from the same tick snapshot (as in C).
+            // Motion and pulser fields come from the same tick snapshot.
             let edm = stats.edm;
             let eff_duty = stats.eff_duty;
             let r_open = stats.open_rate as f32 / 255.0;

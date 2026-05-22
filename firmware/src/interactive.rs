@@ -12,7 +12,7 @@
 
 use crate::drivers::serial;
 
-/// Emit terminal echo for one inbound byte, mirroring the C transport:
+/// Emit terminal echo for one inbound byte:
 /// - LF -> `\r\n`, so the user's Enter shows as a proper line break.
 /// - BS/DEL over a non-empty in-progress line -> ` \x08`, erasing the glyph the
 ///   terminal already cursored back over.
