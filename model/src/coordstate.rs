@@ -6,39 +6,41 @@ use crate::gcode;
 use crate::settings;
 
 pub struct CoordState {
-    active: coords::ActiveCoordSys,
+    active: coords::CoordSys,
     /// Last commanded target, in active-system coordinates. `None` after a
     /// cancel, which forces the next move to re-base off the live machine
     /// position.
     last_target: Option<coords::PosPhys>,
     /// Per-system XYZ origins in machine coordinates. C-axis is never offset.
+    /// (CoordSys::Machine slot is wasted)
     offsets: enum_map::EnumMap<coords::CoordSys, coords::PosPhys>,
 }
 
 impl CoordState {
     pub fn new() -> Self {
         Self {
-            active: coords::ActiveCoordSys::Machine,
+            active: coords::CoordSys::Machine,
             // Initial state: a zeroed target is already available.
             last_target: Some(coords::PosPhys::ZERO),
             offsets: enum_map::EnumMap::default(),
         }
     }
 
-    pub fn active(&self) -> coords::ActiveCoordSys {
+    pub fn active(&self) -> coords::CoordSys {
         self.active
     }
 
     /// The XYZ origin (machine coords) of `active`; `ZERO` for the machine system.
-    pub fn offset_of(&self, active: coords::ActiveCoordSys) -> coords::PosPhys {
-        match active {
-            coords::ActiveCoordSys::Machine => coords::PosPhys::ZERO,
-            coords::ActiveCoordSys::Offset(cs) => self.offsets[cs],
-        }
+    pub fn offset_of(&self, active: coords::CoordSys) -> coords::PosPhys {
+        self.offsets[active]
     }
 
     /// Set one axis of one system's origin (from the `cs.*.pos.*` settings path).
     pub fn set_offset(&mut self, cs: coords::CoordSys, axis: settings::Axis, value: f32) {
+        debug_assert!(
+            cs != coords::CoordSys::Machine,
+            "machine coordsys has no settable offset"
+        );
         let o = &mut self.offsets[cs];
         match axis {
             settings::Axis::X => o.x = value,
@@ -49,7 +51,7 @@ impl CoordState {
 
     /// Select a new active system, re-anchoring `last_target` through
     /// machine coordinates so the held target stays at the same physical point.
-    pub fn select(&mut self, new: coords::ActiveCoordSys) {
+    pub fn select(&mut self, new: coords::CoordSys) {
         if let Some(lt) = self.last_target {
             let machine = lt.with_offset_added(self.offset_of(self.active));
             self.last_target = Some(machine.with_offset_removed(self.offset_of(new)));

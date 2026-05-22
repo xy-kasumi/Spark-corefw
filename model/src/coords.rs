@@ -3,7 +3,15 @@
 
 use core::f32::consts;
 
-/// Single physical coordinate (G-code coordinate specification).
+/// A linear/rotary machine axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
+/// Single physical coordinate [`CoordSys::Machine`].
 ///
 /// `c` is in turns, conventionally in `[0, 1)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -66,25 +74,11 @@ impl PosPhys {
     }
 }
 
-/// Non-machine coords.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, enum_map::Enum)]
 pub enum CoordSys {
-    W,
-    G,
-}
-
-/// A linear/rotary machine axis.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Axis {
-    X,
-    Y,
-    Z,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ActiveCoordSys {
     Machine,
-    Offset(CoordSys),
+    Work,
+    Grinder,
 }
 
 /// Wrap a turn value to `[0, 1)`.

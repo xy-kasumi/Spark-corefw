@@ -7,7 +7,7 @@ use core::fmt::Write;
 use core::sync::atomic;
 
 use model::coords;
-use model::coords::ActiveCoordSys;
+use model::coords::CoordSys;
 use model::pstate;
 use model::signal;
 
@@ -20,7 +20,7 @@ use crate::motion;
 pub struct MachineStats {
     pub pos: coords::PosPhys,
     pub edm: motion::EdmState,
-    pub active: coords::ActiveCoordSys,
+    pub active: coords::CoordSys,
     pub offset: coords::PosPhys,
     pub eff_duty: f32,
     pub open_rate: u8,
@@ -57,7 +57,7 @@ pub fn exec_query(
                 .float("m.y", pos.y)
                 .float("m.z", pos.z)
                 .float("m.c", pos.c * 360.0);
-            if active == ActiveCoordSys::Machine {
+            if active == CoordSys::Machine {
                 let _ = line_tx.try_send(line1.end());
             } else {
                 // Leave line 1 open; line 2 carries the active-system position.
@@ -115,19 +115,19 @@ fn key(prefix: &str, axis: char) -> heapless::String<8> {
     k
 }
 /// Full name for the `?pos` `sys` field.
-fn sys_name(cs: ActiveCoordSys) -> &'static str {
+fn sys_name(cs: CoordSys) -> &'static str {
     match cs {
-        ActiveCoordSys::Machine => "machine",
-        ActiveCoordSys::Offset(coords::CoordSys::G) => "grinder",
-        ActiveCoordSys::Offset(coords::CoordSys::W) => "work",
+        CoordSys::Machine => "machine",
+        CoordSys::Grinder => "grinder",
+        CoordSys::Work => "work",
     }
 }
 
 /// Key prefix for `?pos` axis fields. Note toolsupply is `t`, not `ts`.
-fn pos_prefix(cs: ActiveCoordSys) -> &'static str {
+fn pos_prefix(cs: CoordSys) -> &'static str {
     match cs {
-        ActiveCoordSys::Machine => "m",
-        ActiveCoordSys::Offset(coords::CoordSys::G) => "g",
-        ActiveCoordSys::Offset(coords::CoordSys::W) => "w",
+        CoordSys::Machine => "m",
+        CoordSys::Grinder => "g",
+        CoordSys::Work => "w",
     }
 }

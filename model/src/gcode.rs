@@ -18,7 +18,7 @@ pub enum Parsed {
     /// G38.3: probe toward target, stop on contact, no error if not reached.
     Probe(MoveSpec),
     /// G53-G55: select the active (modal) coordinate system.
-    SelectCoordSys(coords::ActiveCoordSys),
+    SelectCoordSys(coords::CoordSys),
     /// M8: start the pump.
     PumpOn,
     /// M9: stop the pump.
@@ -172,9 +172,9 @@ fn parse_select(p: &mut Cursor, code: i32) -> Option<Parsed> {
         return None;
     }
     let cs = match code {
-        53 => coords::ActiveCoordSys::Machine,
-        54 => coords::ActiveCoordSys::Offset(coords::CoordSys::G),
-        55 => coords::ActiveCoordSys::Offset(coords::CoordSys::W),
+        53 => coords::CoordSys::Machine,
+        54 => coords::CoordSys::Grinder,
+        55 => coords::CoordSys::Work,
         _ => return None,
     };
     Some(Parsed::SelectCoordSys(cs))
@@ -359,8 +359,8 @@ mod tests {
     #[test]
     fn dispatch_coord_select() {
         check("G53", expect!["Some(SelectCoordSys(Machine))"]);
-        check("G54", expect!["Some(SelectCoordSys(Offset(G)))"]);
-        check("G55", expect!["Some(SelectCoordSys(Offset(W)))"]);
+        check("G54", expect!["Some(SelectCoordSys(Grinder))"]);
+        check("G55", expect!["Some(SelectCoordSys(Work))"]);
     }
 
     #[test]

@@ -26,17 +26,19 @@ pub fn axis_idx(axis: Axis) -> usize {
     }
 }
 
+/// Settings-key segment. `Machine` has no settable offset and so no key prefix.
 pub fn cs_name(cs: CoordSys) -> &'static str {
     match cs {
-        CoordSys::W => "w",
-        CoordSys::G => "g",
+        CoordSys::Work => "w",
+        CoordSys::Grinder => "g",
+        CoordSys::Machine => unreachable!("machine coordsys has no settings prefix"),
     }
 }
 
 pub fn cs_parse(s: &str) -> Option<CoordSys> {
     match s {
-        "w" => Some(CoordSys::W),
-        "g" => Some(CoordSys::G),
+        "w" => Some(CoordSys::Work),
+        "g" => Some(CoordSys::Grinder),
         _ => None,
     }
 }
@@ -110,7 +112,7 @@ impl Repo {
                 ins(format_args!("a.{n}.home.side"), default_side(a));
                 ins(format_args!("a.{n}.home.travel"), 500.0);
             }
-            for c in [CoordSys::G, CoordSys::W] {
+            for c in [CoordSys::Grinder, CoordSys::Work] {
                 let cn = cs_name(c);
                 for a in [Axis::X, Axis::Y, Axis::Z] {
                     ins(format_args!("cs.{cn}.pos.{}", axis_name(a)), 0.0);
