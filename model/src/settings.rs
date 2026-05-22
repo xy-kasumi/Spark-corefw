@@ -1,12 +1,8 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! The settings repo: an explicit `key -> f32` map keyed by the raw dotted wire
-//! path (per `docs/settings.md`), plus value parsing. Source of truth for
-//! `read`/`get`; host-testable with no firmware deps.
-//!
-//! Per-key range validation and the side effects of a change (reconfiguring
-//! TMC, motion, etc.) live in the firmware write dispatcher, not here.
+//! Repo of all settings. Source of truth for `get`.
+//! Write is handled by dispatcher.
 
 use core::fmt::Write;
 

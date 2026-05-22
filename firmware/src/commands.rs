@@ -1,10 +1,6 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Host command pipeline: queue plumbing and command executor. The `Command`
-//! enum + parser live in `model::command`; this module re-exports `Command`
-//! for the executor's callers.
-
 use core::fmt::Write;
 use core::sync::atomic;
 
@@ -40,11 +36,6 @@ pub static OUTSTANDING: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 /// Probe feed.
 const PROBE_SPEED_MM_PER_S: f32 = 1.0;
-
-/// True if `cmd` is a G1 move — the only command that chains via the path buffer.
-pub fn is_g1(cmd: &Command) -> bool {
-    matches!(cmd, Command::Gcode(gcode::Parsed::Feed(_)))
-}
 
 pub async fn exec(
     cmd: Command,
@@ -147,8 +138,8 @@ pub async fn exec(
             wirefeed.lock().await.stop();
         }
         Command::Gcode(gcode::Parsed::Pulser(params)) => {
-            // Modal: M3/M4 only update the config the next G1/G38.3 energizes
-            // with. Omitted P/Q/R resolve to the spec defaults here, in the
+            // Modal: the pulser command only updates the config the next feed/probe
+            // energizes with. Omitted P/Q/R resolve to the spec defaults here, in the
             // executor — the parser stays free of pulser policy.
             let d = pulser::Config::default();
             *pulser_cfg = pulser::Config {
@@ -203,7 +194,7 @@ async fn wait_move_end(
     }
 }
 
-/// G28: home the target axis, or all axes in phase order, by slamming `side*travel`
+/// Home the target axis, or all axes in phase order, by slamming `side*travel`
 /// into the hard stop, then re-anchoring the axis to its configured origin. Stall
 /// sensing is dead on this board, so the move always stops at target.
 async fn exec_home(
@@ -211,7 +202,7 @@ async fn exec_home(
     motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) {
-    // Snapshot once; homing params don't change mid-G28.
+    // Snapshot once; homing params don't change mid-home.
     let homing = *homing.lock().await;
 
     let mut order = [

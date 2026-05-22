@@ -1,11 +1,6 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Motion state machine: passive controller pumped on each tick by the firmware.
-//!
-//! Implements G0 (rapid), G1 (EDM control), and G38.3 (probe). Homing reuses the
-//! rapid primitive; its position re-anchor lives in the firmware controller.
-
 use crate::coords;
 use crate::path;
 
@@ -38,11 +33,11 @@ pub struct MotionInputs {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Idle,
-    /// G0: open-loop linear motion at a fixed feed.
+    /// Constant-velocity motion.
     Rapid,
-    /// G1: EDM-controlled move, advancing/retracting by pulser feedback.
+    /// EDM-controlled move, advancing/retracting by pulser feedback.
     EdmMove,
-    /// G38.3: constant-feed move that stops on discharge or target.
+    /// Constant-velocity move that stops by pulser feedback.
     Probing,
 }
 

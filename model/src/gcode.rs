@@ -537,7 +537,7 @@ mod tests {
     }
 
     proptest! {
-        /// The parser must never panic, whatever bytes the host sends.
+        /// The parser must never panic.
         #[test]
         fn never_panics_on_arbitrary_bytes(bytes in prop::collection::vec(any::<u8>(), 0..32)) {
             let _ = parse(&bytes);

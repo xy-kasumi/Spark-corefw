@@ -29,6 +29,7 @@ use embassy_sync::mutex;
 use model::comm;
 use model::command;
 use model::coordstate;
+use model::gcode;
 use model::pstate;
 
 use crate::drivers::serial;
@@ -218,7 +219,7 @@ async fn tick_loop(
 
 /// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
 /// buffer so the executor can see the next command before committing — used to
-/// detect G1-chain continuity (`cont_next`).
+/// detect Feed-chain continuity (`cont_next`).
 async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
     motion: &SharedMotion,
@@ -235,7 +236,7 @@ async fn cmd_loop(
     let mut pulser_cfg = pulser::Config::default();
 
     let mut peek_buf: Option<commands::Command> = None;
-    // Tracks whether the previous command was a G1 with a following G1 (cont_next).
+    // Tracks whether the previous command was a feed with a following feed (cont_next).
     let mut last_has_cont = false;
     loop {
         // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
@@ -255,9 +256,9 @@ async fn cmd_loop(
             }
             Err(_) => None,
         };
-        // Chain consecutive G1s: cont_next is set when both this and the peeked
-        // command are G1. cont_prev carries the previous iteration's cont_next.
-        let cont_next = commands::is_g1(&curr) && peek.as_ref().map_or(false, commands::is_g1);
+        // Chain consecutive feeds: cont_next is set when both this and the peeked
+        // command are feeds. cont_prev carries the previous iteration's cont_next.
+        let cont_next = is_feed(&curr) && peek.as_ref().map_or(false, is_feed);
         // The lookahead is already pulled out of the channel, so a cancel's queue
         // drain (signals::exec) can't reach it. Watch the canceler and drop the
         // held lookahead ourselves if a cancel landed during this command.
@@ -322,4 +323,8 @@ async fn capture_stats(
         short_rate,
         temp,
     }
+}
+
+fn is_feed(cmd: &commands::Command) -> bool {
+    matches!(cmd, commands::Command::Gcode(gcode::Parsed::Feed(_)))
 }

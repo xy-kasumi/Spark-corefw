@@ -1,10 +1,6 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Host-side parsing of non-signal lines. Bytes arrive from `comm::Framer`;
-//! this module turns them into an [`Outcome`]: either a queued [`Command`] or
-//! an immediate [`FastSet`]. Sits in `model` so it can be host-fuzzed without
-//! firmware deps.
 use crate::gcode;
 use crate::settings;
 
@@ -23,7 +19,7 @@ pub enum Command {
 /// Applied immediately in the tick loop, bypassing the command queue.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FastSet {
-    /// `ov.pump_en`: true forces the pump on; false lets M8/M9 control it.
+    /// `ov.pump_en`: true forces the pump on; false lets G-code control it.
     PumpEn(bool),
 }
 

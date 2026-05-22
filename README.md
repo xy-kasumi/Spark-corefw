@@ -15,8 +15,7 @@ See
 * [docs/protocol.md](docs/protocol.md) Serial communication protocol
 
 ## Layout
-* `model/` — portable compute (G-code parser, motion, coordinates, protocol).
-  Host-testable, no hardware dependency.
+* `model/` — portable compute (G-code parser, motion, coordinates, protocol). Testable on PC.
 * `firmware/` — the on-device binary: embassy app and hardware drivers.
 
 ## License

@@ -7,7 +7,7 @@ use crate::drivers::digital_out::Pin;
 
 pub struct Pump<D: Pin> {
     pin_en: D,
-    /// Last M8/M9 commanded state.
+    /// Last pump-on/off commanded state.
     commanded: bool,
     /// `fset ov.pump_en` override: while set, forces the pump on regardless of
     /// `commanded`. The GPIO follows `commanded || override_on`.
@@ -23,8 +23,7 @@ impl<D: Pin> Pump<D> {
         }
     }
 
-    /// M8/M9: set the commanded state, then wait for the pump to settle: 1 s
-    /// after starting, 100 ms after stopping (blocking).
+    /// Set the commanded state, then wait for the pump to settle (blocking).
     pub async fn set_enable(&mut self, enable: bool) {
         self.commanded = enable;
         self.apply();
@@ -36,8 +35,8 @@ impl<D: Pin> Pump<D> {
     }
 
     /// `fset ov.pump_en`: force the pump on (true) or hand control back to
-    /// M8/M9 (false). Applied immediately with no settle delay, so it is safe
-    /// to call from the tick loop.
+    /// the commanded state (false). Applied immediately with no settle delay, so it
+    /// is safe to call from the tick loop.
     pub fn set_override(&mut self, on: bool) {
         self.override_on = on;
         self.apply();
