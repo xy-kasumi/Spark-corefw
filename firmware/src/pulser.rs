@@ -37,19 +37,34 @@ impl Default for Config {
 
 /// Snapshot for the `stat` command: cached counters/rates plus a fresh read-back
 /// of the config registers. `None` config fields mean that register read failed.
-/// EDM rates are normalized to [0, 1]. Built under the pulser lock so the caller
-/// can format and emit lines after releasing it.
+/// Built under the pulser lock so the caller can format and emit lines after
+/// releasing it.
 pub struct Stat {
     pub init_ok: bool,
     pub energized: bool,
     pub poll_count: u32,
     pub i2c_fail: u32,
-    pub r_pulse: f32,
-    pub r_short: f32,
-    pub r_open: f32,
+    pub ratio: PulseRatio,
     pub pulse_current_a: Option<f32>,
     pub pulse_dur_us: Option<f32>,
     pub max_duty_pct: Option<f32>,
+}
+
+/// Pulse ratio. Each field is in [0, 1] and they add up to 1.
+#[derive(Clone, Copy)]
+pub struct PulseRatio {
+    pub good: f32,
+    pub short: f32,
+    pub open: f32,
+}
+
+impl PulseRatio {
+    /// All-open ratio — the resting state when not energized.
+    pub const ALL_OPEN: Self = Self {
+        good: 0.0,
+        short: 0.0,
+        open: 1.0,
+    };
 }
 
 pub struct Device<B: Bus> {
@@ -58,9 +73,7 @@ pub struct Device<B: Bus> {
     energized: bool,
     /// Discard the first checkpoint after energize — it holds stale pre-energize data.
     first_after_energize: bool,
-    last_r_pulse: u8,
-    last_r_short: u8,
-    last_r_open: u8,
+    last_ratio: PulseRatio,
     eff_duty: f32,
     poll_count: u32,
     num_i2c_fail: u32,
@@ -73,9 +86,7 @@ impl<B: Bus> Device<B> {
             init_ok: false,
             energized: false,
             first_after_energize: true,
-            last_r_pulse: 0,
-            last_r_short: 0,
-            last_r_open: 255,
+            last_ratio: PulseRatio::ALL_OPEN,
             eff_duty: 0.0,
             poll_count: 0,
             num_i2c_fail: 0,
@@ -128,9 +139,7 @@ impl<B: Bus> Device<B> {
 
     pub async fn deenergize(&mut self) {
         self.energized = false;
-        self.last_r_pulse = 0;
-        self.last_r_short = 0;
-        self.last_r_open = 255; // all-open when not energized
+        self.last_ratio = PulseRatio::ALL_OPEN;
         self.eff_duty = 0.0;
         self.write_with_retry(pulser::REG_POLARITY, 0).await;
     }
@@ -144,45 +153,30 @@ impl<B: Bus> Device<B> {
             return;
         }
 
-        let val_ps = match self.dev.read_register(pulser::REG_CKP_PS).await {
-            Ok(v) => v,
-            Err(_) => {
+        let (good, short) = match self.dev.read_ckp_ps().await {
+            Some((val_p, val_s)) => (val_p as f32 / 15.0, val_s as f32 / 15.0),
+            None => {
                 self.num_i2c_fail += 1;
                 return;
             }
         };
-        let val_p = (val_ps >> 4) & 0xf;
-        let val_s = val_ps & 0xf;
-        if val_p + val_s > 15 {
-            // Out of protocol range — treat noise like a comm failure.
-            self.num_i2c_fail += 1;
-            return;
-        }
 
         if self.first_after_energize {
             self.first_after_energize = false;
         } else {
-            self.last_r_pulse = (val_p as u16 * 255 / 15) as u8;
-            self.last_r_short = (val_s as u16 * 255 / 15) as u8;
-            self.last_r_open = ((15 - (val_p + val_s)) as u16 * 255 / 15) as u8;
-            self.eff_duty += EFF_DUTY_ALPHA * (val_p as f32 / 15.0 - self.eff_duty);
+            self.last_ratio = PulseRatio {
+                good,
+                short,
+                open: 1.0 - (good + short),
+            };
+            self.eff_duty += EFF_DUTY_ALPHA * (good - self.eff_duty);
         }
         self.poll_count += 1;
     }
 
-    /// Latest short rate (0-255); >127 typically indicates retraction needed.
-    pub fn short_rate(&self) -> u8 {
-        self.last_r_short
-    }
-
-    /// Latest pulse rate (0-255).
-    pub fn pulse_rate(&self) -> u8 {
-        self.last_r_pulse
-    }
-
-    /// Latest open rate (0-255).
-    pub fn open_rate(&self) -> u8 {
-        self.last_r_open
+    /// Latest pulse ratio. open=1 when non-energized.
+    pub fn pulse_ratio(&self) -> PulseRatio {
+        self.last_ratio
     }
 
     /// Smoothed effective duty [0, 1]; 0 when not energized.
@@ -195,7 +189,7 @@ impl<B: Bus> Device<B> {
     }
 
     pub fn has_discharge(&self) -> bool {
-        self.last_r_pulse > 0 || self.last_r_short > 0
+        self.last_ratio.good > 0.0 || self.last_ratio.short > 0.0
     }
 
     /// Gather a [`PulserStat`] snapshot for the `stat` command. Reads the config
@@ -208,9 +202,7 @@ impl<B: Bus> Device<B> {
                 energized: false,
                 poll_count: self.poll_count,
                 i2c_fail: self.num_i2c_fail,
-                r_pulse: 0.0,
-                r_short: 0.0,
-                r_open: 0.0,
+                ratio: PulseRatio::ALL_OPEN,
                 pulse_current_a: None,
                 pulse_dur_us: None,
                 max_duty_pct: None,
@@ -240,9 +232,7 @@ impl<B: Bus> Device<B> {
             energized: self.energized,
             poll_count: self.poll_count,
             i2c_fail: self.num_i2c_fail,
-            r_pulse: self.last_r_pulse as f32 / 255.0,
-            r_short: self.last_r_short as f32 / 255.0,
-            r_open: self.last_r_open as f32 / 255.0,
+            ratio: self.last_ratio,
             pulse_current_a,
             pulse_dur_us,
             max_duty_pct,

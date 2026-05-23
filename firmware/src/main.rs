@@ -198,10 +198,11 @@ async fn tick_loop(
         let input = {
             let mut p = pulser.lock().await;
             p.tick().await;
+            let r = p.pulse_ratio();
             motion::MotionInputs {
                 dt: TICK_DT_S,
-                open_rate: p.open_rate(),
-                short_rate: p.short_rate(),
+                open_rate: r.open,
+                short_rate: r.short,
                 discharge: p.has_discharge(),
             }
         };
@@ -313,9 +314,9 @@ async fn capture_stats(
         let c = coord.lock().await;
         (c.active(), c.offset_of(c.active()))
     };
-    let (eff_duty, open_rate, short_rate) = {
+    let (eff_duty, ratio) = {
         let p = pulser.lock().await;
-        (p.eff_duty(), p.open_rate(), p.short_rate())
+        (p.eff_duty(), p.pulse_ratio())
     };
     signals::MachineStats {
         pos,
@@ -323,8 +324,8 @@ async fn capture_stats(
         active,
         offset,
         eff_duty,
-        open_rate,
-        short_rate,
+        open_rate: ratio.open,
+        short_rate: ratio.short,
     }
 }
 

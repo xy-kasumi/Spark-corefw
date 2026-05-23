@@ -23,7 +23,7 @@ pub const REG_POLARITY: u8 = 0x01; // RW: 0=OFF, 1-4=energize with polarity
 pub const REG_PULSE_CURRENT: u8 = 0x02; // RW: pulse current in 100mA units (1-200)
 pub const REG_PULSE_DUR: u8 = 0x04; // RW: pulse duration in 10us units (5-100)
 pub const REG_MAX_DUTY: u8 = 0x05; // RW: max duty factor in percent (1-95)
-pub const REG_CKP_PS: u8 = 0x10; // R (special): rate of pulse & short
+const REG_CKP_PS: u8 = 0x10; // R (special): packed pulse/short nibbles
 
 pub struct Device<B: Bus> {
     bus: B,
@@ -42,5 +42,17 @@ impl<B: Bus> Device<B> {
 
     pub async fn write_register(&mut self, reg: u8, val: u8) -> Result<(), B::Error> {
         self.bus.write(I2C_ADDR, &[reg, val]).await
+    }
+
+    /// Read pulse/short checkpoint register as `(pulse, short)` (0~15 each).
+    /// Returns `None` on bus failure or when `pulse + short > 15` (out of protocol range — treat as comm noise).
+    pub async fn read_ckp_ps(&mut self) -> Option<(u8, u8)> {
+        let v = self.read_register(REG_CKP_PS).await.ok()?;
+        let p = (v >> 4) & 0xf;
+        let s = v & 0xf;
+        if p + s > 15 {
+            return None;
+        }
+        Some((p, s))
     }
 }

@@ -5,8 +5,8 @@ use crate::coords;
 use crate::path;
 
 /// EDM control thresholds and per-tick step sizes.
-const EDM_OPEN_RATE_THRESH: u8 = 200;
-const EDM_SHORT_RATE_THRESH: u8 = 127;
+const EDM_OPEN_RATE_THRESH: f32 = 0.78;
+const EDM_SHORT_RATE_THRESH: f32 = 0.5;
 const EDM_ADVANCE_MM: f32 = 1e-3; // +1 µm/tick when too far (open)
 const EDM_RETRACT_MM: f32 = -5e-3; // -5 µm/tick when too close (short)
 
@@ -22,10 +22,10 @@ pub struct MotionOutputs {
 pub struct MotionInputs {
     /// Elapsed time since the previous tick, in seconds.
     pub dt: f32,
-    /// Pulser open rate (0-255); high means the gap is too wide (advance).
-    pub open_rate: u8,
-    /// Pulser short rate (0-255); high means the gap is too narrow (retract).
-    pub short_rate: u8,
+    /// Pulser open rate [0, 1]; high means the gap is too wide (advance).
+    pub open_rate: f32,
+    /// Pulser short rate [0, 1]; high means the gap is too narrow (retract).
+    pub short_rate: f32,
     /// True when the pulser detects a discharge — the probe contact signal.
     pub discharge: bool,
 }

@@ -342,13 +342,20 @@ async fn dump_stat(
             )
             .await;
         line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_pulse", stat.r_pulse))
+            .send(
+                pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_good", stat.ratio.good),
+            )
             .await;
         line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_short", stat.r_short))
+            .send(
+                pstate::Line::new(pstate::PsType::Stat)
+                    .float("pulser.edm.r_short", stat.ratio.short),
+            )
             .await;
         line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_open", stat.r_open))
+            .send(
+                pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_open", stat.ratio.open),
+            )
             .await;
         send_stat_f32(line_tx, "pulser.pulse_current_a", stat.pulse_current_a).await;
         send_stat_f32(line_tx, "pulser.pulse_dur_us", stat.pulse_dur_us).await;
