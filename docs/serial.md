@@ -34,6 +34,9 @@ commands
 * `fset <fs-key> <val>`: set single config quickly (not-queued)
 * `stat`: dump all debug states as p-state (queued)
 
+`!` causes the core to enter cancel window of approx 500ms.
+Everything other than `?...` will be ignored in this window.
+
 `set` & `get` shares same settings namespace (addressed by hierarchical key).
 See [settings.md](./settings.md).
 

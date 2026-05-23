@@ -47,12 +47,13 @@ pub(crate) const PB_CAPACITY: usize = 2001;
 /// methods, which do bounded I²C transactions (~150µs–1ms). Tick jitter
 /// during those calls matches the pre-fold behavior.
 pub(crate) struct Core {
-    pub motion: motion::MotionState<PB_CAPACITY>,
     pub motors: motor::Motors,
-    pub coord: coordstate::CoordState,
     pub pulser: board::Pulser,
     pub pump: board::Pump,
     pub wirefeed: wirefeed::Wirefeed,
+
+    pub coord: coordstate::CoordState,
+    pub motion: motion::MotionState<PB_CAPACITY>,
 }
 
 pub(crate) type SharedCore = mutex::Mutex<raw::NoopRawMutex, Core>;
@@ -128,57 +129,27 @@ async fn tick_loop(
         ticker.next().await;
         canceler::CANCELER.tick();
 
-        let mut chunk = [0u8; 32];
-        for &b in serial.rx_get(&mut chunk) {
-            interactive::echo(b, framer.line_len(), line_tx.is_idle(&tx_state), serial);
-            let Some(bytes) = framer.feed(b) else {
-                continue;
-            };
-            match command::parse(bytes) {
-                command::Parsed::Cancel => {
-                    canceler::CANCELER.cancel();
-                    {
-                        let mut c = core.lock().await;
-                        let here = c.motors.current();
-                        c.motion.cancel(here);
-                        c.motors.set_target(here);
-                        c.coord.cancel();
-                        c.pump.cancel();
-                        c.wirefeed.stop();
-                    }
-                    // Pulser carve-out: I²C write holds Core across .await.
-                    core.lock().await.pulser.deenergize().await;
-                    while cmd_queue.try_receive().is_ok() {}
-                }
-                command::Parsed::Query(q) => {
-                    signals::exec_query(q, &stats, cmd_queue, line_tx);
-                }
-                command::Parsed::FastSet(fs) => match fs {
-                    command::FastKey::PumpEn(on) => core.lock().await.pump.set_override(on),
-                },
-                // Only handle commands received outside cancel window.
-                command::Parsed::Command(c) if !canceler::CANCELER.active() => {
-                    if let Err(_dropped) = cmd_queue.try_send(c) {
-                        let _ = line_tx.try_send(
-                            pstate::ErrorLine::new()
-                                .msg(format_args!("queue full"))
-                                .finish(),
-                        );
-                    }
-                }
-                command::Parsed::Error if !canceler::CANCELER.active() => {
-                    let _ = line_tx.try_send(
-                        pstate::ErrorLine::new()
-                            .source(bytes)
-                            .msg(format_args!("syntax error"))
-                            .finish(),
-                    );
-                }
-                _ => {}
+        let rx = handle_rx(serial, &mut framer, &tx_state, line_tx, cmd_queue, &stats);
+
+        if rx.cancel_seen {
+            {
+                let mut c = core.lock().await;
+                let here = c.motors.current();
+                c.motion.cancel(here);
+                c.motors.set_target(here);
+                c.coord.cancel();
+                c.pump.cancel();
+                c.wirefeed.stop();
+            }
+            // Pulser carve-out: I²C write holds Core across .await.
+            core.lock().await.pulser.deenergize().await;
+            while cmd_queue.try_receive().is_ok() {}
+        }
+        for fs in &rx.fastsets {
+            match fs {
+                command::FastKey::PumpEn(on) => core.lock().await.pump.set_override(*on),
             }
         }
-
-        line_tx.drain(serial, &mut tx_state);
 
         // Pulser carve-out: refresh I²C holds Core across .await.
         let input = {
@@ -203,7 +174,81 @@ async fn tick_loop(
             }
             c.pump.tick();
         }
+
+        line_tx.drain(serial, &mut tx_state);
     }
+}
+
+/// Serial-side phase of one tick: echo, frame, parse, immediate-dispatch.
+/// Touches `serial`, `line_tx`, `cmd_queue`, and global `CANCELER` — never
+/// `Core`. Anything that needs `Core` (the cancel block, fset applies) is
+/// returned via [`RxBatch`] for the caller's Core-touching pass.
+fn handle_rx(
+    serial: &serial::Device,
+    framer: &mut linecomm::Framer,
+    tx_state: &line_tx::DrainState,
+    line_tx: &line_tx::LineTx,
+    cmd_queue: &commands::CmdQueue,
+    stats: &signals::MachineStats,
+) -> RxBatch {
+    let mut batch = RxBatch {
+        cancel_seen: false,
+        fastsets: heapless::Vec::new(),
+    };
+    let mut chunk = [0u8; TICK_RX_BYTES];
+    for &b in serial.rx_get(&mut chunk) {
+        interactive::echo(b, framer.line_len(), line_tx.is_idle(tx_state), serial);
+        let Some(bytes) = framer.feed(b) else {
+            continue;
+        };
+        match command::parse(bytes) {
+            command::Parsed::Cancel => {
+                canceler::CANCELER.cancel();
+                batch.cancel_seen = true;
+            }
+            command::Parsed::Query(q) => {
+                signals::exec_query(q, stats, cmd_queue, line_tx);
+            }
+            command::Parsed::FastSet(fs) if !canceler::CANCELER.active() => {
+                let _ = batch.fastsets.push(fs);
+            }
+            command::Parsed::Command(c) if !canceler::CANCELER.active() => {
+                if let Err(_dropped) = cmd_queue.try_send(c) {
+                    let _ = line_tx.try_send(
+                        pstate::ErrorLine::new()
+                            .msg(format_args!("queue full"))
+                            .finish(),
+                    );
+                }
+            }
+            command::Parsed::Error if !canceler::CANCELER.active() => {
+                let _ = line_tx.try_send(
+                    pstate::ErrorLine::new()
+                        .source(bytes)
+                        .msg(format_args!("syntax error"))
+                        .finish(),
+                );
+            }
+            _ => {}
+        }
+    }
+    if batch.cancel_seen {
+        batch.fastsets.clear();
+    }
+    batch
+}
+
+/// Max rx bytes to process per tick.
+const TICK_RX_BYTES: usize = 32;
+
+/// Max "fset" to process per tick.
+/// Must be larger than TICK_RX_BYTES / (min "fset" command size).
+const TICK_FS_CAP: usize = 8;
+
+/// Per-tick output of serial RX parsing.
+struct RxBatch {
+    cancel_seen: bool,
+    fastsets: heapless::Vec<command::FastKey, TICK_FS_CAP>,
 }
 
 /// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
