@@ -216,6 +216,8 @@ async fn tick_loop(
             motors.lock().await.set_motor_target(6, pos_mm);
         }
 
+        pump.lock().await.tick();
+
         stats = capture_stats(motion, motors, coord, pulser).await;
     }
 }

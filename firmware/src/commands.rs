@@ -114,10 +114,12 @@ pub async fn exec(
             coord.lock().await.select(a);
         }
         Command::Gcode(gcode::Parsed::PumpOn) => {
-            pump.lock().await.set_enable(true).await;
+            pump.lock().await.set_enable(true);
+            wait_pump_settled(pump).await;
         }
         Command::Gcode(gcode::Parsed::PumpOff) => {
-            pump.lock().await.set_enable(false).await;
+            pump.lock().await.set_enable(false);
+            wait_pump_settled(pump).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
             wirefeed.lock().await.start(rate);
@@ -179,6 +181,13 @@ async fn wait_move_end(
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         pulser.lock().await.deenergize().await;
+    }
+}
+
+/// Wait for the pump's settle countdown to drain on the tick cadence.
+async fn wait_pump_settled(pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>) {
+    while !pump.lock().await.settled() {
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
     }
 }
 
