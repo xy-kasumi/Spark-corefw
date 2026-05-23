@@ -16,7 +16,7 @@ bench = false
 [dependencies]
 model = { path = "../model" }
 embassy-stm32 = { version = "0.2", features = ["stm32h723ze", "memory-x", "time-driver-any"] }
-embassy-executor = { version = "0.7", features = ["arch-cortex-m", "executor-thread"] }
+embassy-executor = { version = "0.7", features = ["arch-cortex-m", "executor-thread", "task-arena-size-16384"] }
 embassy-time = { version = "0.4", features = ["tick-hz-1_000_000"] }
 embassy-futures = "0.1"
 embassy-sync = "0.7"
