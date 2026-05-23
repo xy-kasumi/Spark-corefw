@@ -53,9 +53,9 @@ impl Canceler {
         self.ticks_left.load(atomic::Ordering::Relaxed) > 0
     }
 
-    /// Snapshot the cancel generation. Pair with [`CancelWatch::cancelled`] to
+    /// Snapshot the cancel generation. Pair with [`Watcher::cancelled`] to
     /// detect a cancel that landed while a command was running.
-    pub fn watch(&'static self) -> Watcher {
+    pub fn watch(&self) -> Watcher<'_> {
         Watcher {
             canceler: self,
             gen: self.gen.load(atomic::Ordering::Relaxed),
@@ -65,16 +65,14 @@ impl Canceler {
 
 /// A snapshot of the cancel generation taken at [`Canceler::watch`].
 #[derive(Clone, Copy)]
-pub struct Watcher {
-    canceler: &'static Canceler,
+pub struct Watcher<'a> {
+    canceler: &'a Canceler,
     gen: u32,
 }
 
-impl Watcher {
+impl Watcher<'_> {
     /// True if a cancel has fired since this watch was taken.
     pub fn cancelled(&self) -> bool {
         self.canceler.gen.load(atomic::Ordering::Relaxed) != self.gen
     }
 }
-
-pub static CANCELER: Canceler = Canceler::new();

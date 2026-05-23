@@ -46,6 +46,7 @@ pub async fn exec(
     tmc: &settings::SharedTmc,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
+    canceler: &canceler::Canceler,
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut pulser::Config,
 ) {
@@ -114,7 +115,7 @@ pub async fn exec(
             wait_move_end(core, false).await;
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
-            exec_home(target, core, homing).await;
+            exec_home(target, core, homing, canceler).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
             core.lock().await.coord.select(a);
@@ -201,6 +202,7 @@ async fn exec_home(
     target: gcode::HomeSpec,
     core: &SharedCore,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
+    canceler: &canceler::Canceler,
 ) {
     // Snapshot once; homing params don't change mid-home.
     let homing = *homing.lock().await;
@@ -215,7 +217,7 @@ async fn exec_home(
         }
 
         let cfg = homing.axis(axis);
-        let watch = canceler::CANCELER.watch();
+        let watch = canceler.watch();
         {
             let mut c = core.lock().await;
             let mut target = c.motors.current();

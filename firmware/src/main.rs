@@ -91,6 +91,9 @@ async fn main(spawner: embassy_executor::Spawner) {
     static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
     let homing: &'static SharedHoming =
         HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
+    static CANCELER_CELL: static_cell::StaticCell<canceler::Canceler> =
+        static_cell::StaticCell::new();
+    let canceler: &'static canceler::Canceler = CANCELER_CELL.init(canceler::Canceler::new());
     let line_tx = line_tx::LineTx::init();
 
     // init phase
@@ -109,8 +112,8 @@ async fn main(spawner: embassy_executor::Spawner) {
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).end());
 
     join::join(
-        tick_loop(board.serial, cmd_queue, core, line_tx),
-        cmd_loop(cmd_queue, core, tmc, homing, line_tx),
+        tick_loop(board.serial, cmd_queue, core, line_tx, canceler),
+        cmd_loop(cmd_queue, core, tmc, homing, line_tx, canceler),
     )
     .await;
 }
@@ -121,6 +124,7 @@ async fn tick_loop(
     cmd_queue: &commands::CmdQueue,
     core: &SharedCore,
     line_tx: &line_tx::LineTx,
+    canceler: &canceler::Canceler,
 ) {
     let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1));
     let mut framer = linecomm::Framer::new();
@@ -130,9 +134,17 @@ async fn tick_loop(
         let stats = capture_stats(core).await;
 
         ticker.next().await;
-        canceler::CANCELER.tick();
+        canceler.tick();
 
-        let rx = handle_rx(serial, &mut framer, &tx_state, line_tx, cmd_queue, &stats);
+        let rx = handle_rx(
+            serial,
+            &mut framer,
+            &tx_state,
+            line_tx,
+            cmd_queue,
+            canceler,
+            &stats,
+        );
 
         if rx.cancel_seen {
             {
@@ -183,15 +195,16 @@ async fn tick_loop(
 }
 
 /// Serial-side phase of one tick: echo, frame, parse, immediate-dispatch.
-/// Touches `serial`, `line_tx`, `cmd_queue`, and global `CANCELER` — never
-/// `Core`. Anything that needs `Core` (the cancel block, fset applies) is
-/// returned via [`RxBatch`] for the caller's Core-touching pass.
+/// Touches `serial`, `line_tx`, `cmd_queue`, and `canceler` — never `Core`.
+/// Anything that needs `Core` (the cancel block, fset applies) is returned via
+/// [`RxBatch`] for the caller's Core-touching pass.
 fn handle_rx(
     serial: &serial::Device,
     framer: &mut linecomm::Framer,
     tx_state: &line_tx::DrainState,
     line_tx: &line_tx::LineTx,
     cmd_queue: &commands::CmdQueue,
+    canceler: &canceler::Canceler,
     stats: &signals::MachineStats,
 ) -> RxBatch {
     let mut batch = RxBatch {
@@ -206,16 +219,16 @@ fn handle_rx(
         };
         match command::parse(bytes) {
             command::Parsed::Cancel => {
-                canceler::CANCELER.cancel();
+                canceler.cancel();
                 batch.cancel_seen = true;
             }
             command::Parsed::Query(q) => {
                 signals::exec_query(q, stats, cmd_queue, line_tx);
             }
-            command::Parsed::FastSet(fs) if !canceler::CANCELER.active() => {
+            command::Parsed::FastSet(fs) if !canceler.active() => {
                 let _ = batch.fastsets.push(fs);
             }
-            command::Parsed::Command(c) if !canceler::CANCELER.active() => {
+            command::Parsed::Command(c) if !canceler.active() => {
                 if let Err(_dropped) = cmd_queue.try_send(c) {
                     let _ = line_tx.try_send(
                         pstate::ErrorLine::new()
@@ -224,7 +237,7 @@ fn handle_rx(
                     );
                 }
             }
-            command::Parsed::Error if !canceler::CANCELER.active() => {
+            command::Parsed::Error if !canceler.active() => {
                 let _ = line_tx.try_send(
                     pstate::ErrorLine::new()
                         .source(bytes)
@@ -263,6 +276,7 @@ async fn cmd_loop(
     tmc: &settings::SharedTmc,
     homing: &SharedHoming,
     line_tx: &line_tx::LineTx,
+    canceler: &canceler::Canceler,
 ) {
     let mut repo = model::settings::Repo::defaults();
     let mut pulser_cfg = pulser::Config::default();
@@ -294,7 +308,7 @@ async fn cmd_loop(
         // The lookahead is already pulled out of the channel, so a cancel's queue
         // drain (signals::exec) can't reach it. Watch the canceler and drop the
         // held lookahead ourselves if a cancel landed during this command.
-        let watch = canceler::CANCELER.watch();
+        let watch = canceler.watch();
         commands::exec(
             curr,
             last_has_cont,
@@ -303,6 +317,7 @@ async fn cmd_loop(
             tmc,
             homing,
             line_tx,
+            canceler,
             &mut repo,
             &mut pulser_cfg,
         )
