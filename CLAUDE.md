@@ -33,3 +33,8 @@ Run from the repo root.
 * 1ms central tick loop. Anything needing faster than 1ms is encapsulated as a
   hardware driver with its own hardware timers or DMAs, exposing only a "slow"
   (1ms) API. No other `Timer::after` calls.
+* RAM / flash / compute limit consideration:
+  * current target has roughly (500KB RAM, 1MB flash, 550 MHz, with FPUs).
+  * keep design open for middle-end 32bit uCs (30KB RAM, 100KB flash, 150MHz, with FPUs).
+    * Not a strict rule, but architectural decision must have optimization opprtunity left for these devices.
+  * No need to ever support 8bit or no-FPU chips.
