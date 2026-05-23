@@ -117,7 +117,7 @@ fn sys_name(cs: CoordSys) -> &'static str {
     }
 }
 
-/// Key prefix for `?pos` axis fields. Note toolsupply is `t`, not `ts`.
+/// Key prefix for `?pos` axis fields.
 fn pos_prefix(cs: CoordSys) -> &'static str {
     match cs {
         CoordSys::Machine => "m",

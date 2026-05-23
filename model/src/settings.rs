@@ -9,7 +9,7 @@ use core::fmt::Write;
 pub const N_MOTORS: usize = 7;
 
 /// Settings key max length.
-/// cf. `ts.servo.closems` is 16 bytes
+/// cf. `a.x.home.origin` is 15 bytes
 pub const STG_KEY_CAP: usize = 20;
 /// Max number of key segments
 /// cf. `cs.w.pos.x` has 4 segs
@@ -115,8 +115,6 @@ impl Repo {
                 ins(format_args!("m.{m}.thresh"), 2.0);
                 ins(format_args!("m.{m}.unitsteps"), default_unitsteps(m));
             }
-            ins(format_args!("ts.servo.closems"), 1.3);
-            ins(format_args!("ts.servo.openms"), 1.6);
         }
         Self { map }
     }
