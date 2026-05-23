@@ -38,6 +38,9 @@ use crate::drivers::serial;
 const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
+/// Motor index of wirefeed stepper.
+const M_WIREFEED: usize = 6;
+
 /// EDM path-buffer history capacity: 10 mm max retract at 0.005 mm resolution.
 pub(crate) const PB_CAPACITY: usize = 2001;
 
@@ -170,7 +173,7 @@ async fn tick_loop(
                 c.motors.set_target(o.target);
             }
             if let Some(pos_mm) = c.wirefeed.tick() {
-                c.motors.set_motor_target(6, pos_mm);
+                c.motors.set_motor_target(M_WIREFEED, pos_mm);
             }
             c.pump.tick();
         }
