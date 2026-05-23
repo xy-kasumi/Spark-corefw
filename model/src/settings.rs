@@ -18,6 +18,7 @@ pub const STG_KEY_SEGS_CAP: usize = 5;
 pub use crate::coords::{Axis, CoordSys};
 
 /// Index into a per-axis array.
+/// TODO: This does not belong in settings
 pub fn axis_idx(axis: Axis) -> usize {
     match axis {
         Axis::X => 0,

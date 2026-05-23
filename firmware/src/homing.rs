@@ -35,6 +35,7 @@ impl Default for Axis {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
+    // TODO: should not be using int-index for coords::Axis-indexed data
     axes: [Axis; 3],
 }
 

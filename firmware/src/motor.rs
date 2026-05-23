@@ -36,6 +36,7 @@ pub struct Motors {
     pub cal: AxisConfig,
     /// Per-axis homing offset in steps (x/y/z), added on the raw step counter so
     /// the homed position reads as the configured origin. C has no home offset.
+    /// TODO: is it per-axis or per-motor? If per-motor, int-index is OK. If per-axis, use coords::Axis-index.
     pub home_offset: [i32; 3],
 }
 

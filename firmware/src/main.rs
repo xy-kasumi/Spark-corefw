@@ -56,6 +56,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         z: step[2],
         c: step[3],
         cal: motor::AxisConfig::default(),
+        // TODO: what's 3?
         home_offset: [0; 3],
     };
 
