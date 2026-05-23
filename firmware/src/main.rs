@@ -165,14 +165,10 @@ async fn tick_loop(
                 command::Parsed::Query(q) => {
                     signals::exec_query(q, &stats, cmd_queue, line_tx);
                 }
-                // Fast-set: applied immediately like a signal (unqueued), and
-                // stays live during the cancel window for the same reason.
                 command::Parsed::FastSet(fs) => match fs {
-                    command::FastSet::PumpEn(on) => pump.lock().await.set_override(on),
+                    command::FastKey::PumpEn(on) => pump.lock().await.set_override(on),
                 },
-                // While the cancel window is open, blackhole incoming commands so a
-                // single `!` drains the queue instead of racing host bytes still in
-                // flight. Signals stay live so `?` queries and a follow-up `!` work.
+                // Only handle commands received outside cancel window.
                 command::Parsed::Command(c) if !canceler::CANCELER.active() => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
                         let _ = line_tx.try_send(

@@ -6,6 +6,19 @@
 use crate::gcode;
 use crate::settings;
 
+/// Canonical parsed representation of single line from host.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Parsed {
+    /// `!`
+    Cancel,
+    /// `?...`
+    Query(QuerySignal),
+    /// `fset <key> <val>`
+    FastSet(FastKey),
+    Command(Command),
+    Error,
+}
+
 /// Query-like signal (?...)
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum QuerySignal {
@@ -14,6 +27,12 @@ pub enum QuerySignal {
     Edm,
     /// Recognized `?` byte but unknown content.
     Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FastKey {
+    /// `ov.pump_en`: true forces the pump on; false lets G-code control it.
+    PumpEn(bool),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,27 +45,6 @@ pub enum Command {
     /// `stat` - dump per-module debug status as one `stat` p-state.
     Stat,
 }
-
-/// `fset <key> <value>`: an unqueued "fast set" override (see protocol.md).
-/// Applied immediately in the tick loop, bypassing the command queue.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum FastSet {
-    /// `ov.pump_en`: true forces the pump on; false lets G-code control it.
-    PumpEn(bool),
-}
-
-/// Outcome of parsing a framed line. The caller dispatches each variant down
-/// its own path: cancel/query/fast-set are immediate; command goes through
-/// the queue; error emits a diagnostic.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Parsed {
-    Cancel,
-    Query(QuerySignal),
-    Command(Command),
-    FastSet(FastSet),
-    Error,
-}
-
 pub fn parse(bytes: &[u8]) -> Parsed {
     match bytes.first() {
         Some(b'!') | Some(b'?') => match bytes {
@@ -107,7 +105,7 @@ fn parse_stat(rest: &str) -> Option<Command> {
     Some(Command::Stat)
 }
 
-fn parse_fset(rest: &str) -> Option<FastSet> {
+fn parse_fset(rest: &str) -> Option<FastKey> {
     let (key, rest) = split_word(rest);
     if key.is_empty() {
         return None;
@@ -121,7 +119,7 @@ fn parse_fset(rest: &str) -> Option<FastSet> {
     }
     let value = parse_bool(value_str)?;
     match key {
-        "ov.pump_en" => Some(FastSet::PumpEn(value)),
+        "ov.pump_en" => Some(FastKey::PumpEn(value)),
         _ => None,
     }
 }
@@ -152,11 +150,11 @@ mod tests {
     fn fset_pump_en() {
         assert_eq!(
             parse(b"fset ov.pump_en true"),
-            Parsed::FastSet(FastSet::PumpEn(true))
+            Parsed::FastSet(FastKey::PumpEn(true))
         );
         assert_eq!(
             parse(b"fset ov.pump_en false"),
-            Parsed::FastSet(FastSet::PumpEn(false))
+            Parsed::FastSet(FastKey::PumpEn(false))
         );
     }
 }
