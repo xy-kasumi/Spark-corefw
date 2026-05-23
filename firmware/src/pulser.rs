@@ -47,7 +47,6 @@ pub struct Stat {
     pub r_pulse: f32,
     pub r_short: f32,
     pub r_open: f32,
-    pub temp_c: Option<u8>,
     pub pulse_current_a: Option<f32>,
     pub pulse_dur_us: Option<f32>,
     pub max_duty_pct: Option<f32>,
@@ -62,7 +61,6 @@ pub struct Device<B: Bus> {
     last_r_pulse: u8,
     last_r_short: u8,
     last_r_open: u8,
-    last_temp: u8,
     eff_duty: f32,
     poll_count: u32,
     num_i2c_fail: u32,
@@ -78,26 +76,17 @@ impl<B: Bus> Device<B> {
             last_r_pulse: 0,
             last_r_short: 0,
             last_r_open: 255,
-            last_temp: 0,
             eff_duty: 0.0,
             poll_count: 0,
             num_i2c_fail: 0,
         }
     }
 
-    /// Verify communication by reading the temperature register, emitting the
+    /// Verify communication by reading a control register, emitting the
     /// `pulser.ok` line (and `pulser.msg` on failure) into the caller's open
     /// `init` p-state group. The caller owns the group's `begin`/`end`.
     pub async fn init(&mut self, line_tx: &line_tx::LineTx) -> bool {
-        match self.dev.read_register(pulser::REG_TEMPERATURE).await {
-            Ok(temp) => {
-                self.last_temp = temp;
-                self.init_ok = true;
-            }
-            Err(_) => {
-                self.init_ok = false;
-            }
-        }
+        self.init_ok = self.dev.read_register(pulser::REG_POLARITY).await.is_ok();
         if self.init_ok {
             let _ =
                 line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", true));
@@ -146,19 +135,9 @@ impl<B: Bus> Device<B> {
         self.write_with_retry(pulser::REG_POLARITY, 0).await;
     }
 
-    /// One polling step: refresh temperature, and when energized refresh the
-    /// pulse/short/open rates and smoothed effective duty. Driven by the
-    /// orchestrator at ~1 ms.
+    /// One polling step: when energized, refresh the pulse/short/open rates and
+    /// smoothed effective duty. Driven by the orchestrator at ~1 ms.
     pub async fn tick(&mut self) {
-        let temp = match self.dev.read_register(pulser::REG_TEMPERATURE).await {
-            Ok(v) => v,
-            Err(_) => {
-                self.num_i2c_fail += 1;
-                return;
-            }
-        };
-        self.last_temp = temp;
-
         if !self.energized {
             self.first_after_energize = true;
             self.poll_count += 1;
@@ -206,11 +185,6 @@ impl<B: Bus> Device<B> {
         self.last_r_open
     }
 
-    /// Latest heatsink temperature (°C).
-    pub fn temp(&self) -> u8 {
-        self.last_temp
-    }
-
     /// Smoothed effective duty [0, 1]; 0 when not energized.
     pub fn eff_duty(&self) -> f32 {
         if self.energized {
@@ -237,14 +211,12 @@ impl<B: Bus> Device<B> {
                 r_pulse: 0.0,
                 r_short: 0.0,
                 r_open: 0.0,
-                temp_c: None,
                 pulse_current_a: None,
                 pulse_dur_us: None,
                 max_duty_pct: None,
             };
         }
         // Config registers are held by the board, not cached — read them back.
-        let temp_c = self.dev.read_register(pulser::REG_TEMPERATURE).await.ok();
         let pulse_current_a = self
             .dev
             .read_register(pulser::REG_PULSE_CURRENT)
@@ -271,7 +243,6 @@ impl<B: Bus> Device<B> {
             r_pulse: self.last_r_pulse as f32 / 255.0,
             r_short: self.last_r_short as f32 / 255.0,
             r_open: self.last_r_open as f32 / 255.0,
-            temp_c,
             pulse_current_a,
             pulse_dur_us,
             max_duty_pct,

@@ -313,9 +313,9 @@ async fn capture_stats(
         let c = coord.lock().await;
         (c.active(), c.offset_of(c.active()))
     };
-    let (eff_duty, open_rate, short_rate, temp) = {
+    let (eff_duty, open_rate, short_rate) = {
         let p = pulser.lock().await;
-        (p.eff_duty(), p.open_rate(), p.short_rate(), p.temp())
+        (p.eff_duty(), p.open_rate(), p.short_rate())
     };
     signals::MachineStats {
         pos,
@@ -325,7 +325,6 @@ async fn capture_stats(
         eff_duty,
         open_rate,
         short_rate,
-        temp,
     }
 }
 

@@ -350,11 +350,6 @@ async fn dump_stat(
         line_tx
             .send(pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_open", stat.r_open))
             .await;
-        let temp = match stat.temp_c {
-            Some(v) => pstate::Line::new(pstate::PsType::Stat).int("pulser.temp_c", v as i32),
-            None => pstate::Line::new(pstate::PsType::Stat).str_val("pulser.temp_c", "error"),
-        };
-        line_tx.send(temp).await;
         send_stat_f32(line_tx, "pulser.pulse_current_a", stat.pulse_current_a).await;
         send_stat_f32(line_tx, "pulser.pulse_dur_us", stat.pulse_dur_us).await;
         send_stat_f32(line_tx, "pulser.max_duty_pct", stat.max_duty_pct).await;

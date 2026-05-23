@@ -25,7 +25,6 @@ pub struct MachineStats {
     pub eff_duty: f32,
     pub open_rate: u8,
     pub short_rate: u8,
-    pub temp: u8,
 }
 
 pub fn exec_query(
@@ -80,15 +79,13 @@ pub fn exec_query(
             let eff_duty = stats.eff_duty;
             let r_open = stats.open_rate as f32 / 255.0;
             let r_short = stats.short_rate as f32 / 255.0;
-            let temp = stats.temp;
             let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).begin());
             if edm.has_edm_data {
                 let _ = line_tx.try_send(
                     pstate::Line::new(pstate::PsType::Edm)
                         .float("eff_duty", eff_duty)
                         .float("open", r_open)
-                        .float("short", r_short)
-                        .int("temp", temp as i32),
+                        .float("short", r_short),
                 );
             }
             if edm.is_moving {
