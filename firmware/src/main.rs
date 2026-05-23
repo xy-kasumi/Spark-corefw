@@ -41,12 +41,21 @@ const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 /// EDM path-buffer history capacity: 10 mm max retract at 0.005 mm resolution.
 pub(crate) const PB_CAPACITY: usize = 2001;
 
-pub(crate) type SharedMotion = mutex::Mutex<raw::NoopRawMutex, motion::MotionState<PB_CAPACITY>>;
-pub(crate) type SharedMotors = mutex::Mutex<raw::NoopRawMutex, motor::Motors>;
-type SharedPulser = mutex::Mutex<raw::NoopRawMutex, board::Pulser>;
-type SharedCoord = mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>;
-type SharedPump = mutex::Mutex<raw::NoopRawMutex, board::Pump>;
-type SharedWirefeed = mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>;
+/// All state shared between tick_loop and cmd_loop. One Mutex, no lock order.
+///
+/// Discipline: do not `.await` while holding the guard — except `pulser.*`
+/// methods, which do bounded I²C transactions (~150µs–1ms). Tick jitter
+/// during those calls matches the pre-fold behavior.
+pub(crate) struct Core {
+    pub motion: motion::MotionState<PB_CAPACITY>,
+    pub motors: motor::Motors,
+    pub coord: coordstate::CoordState,
+    pub pulser: board::Pulser,
+    pub pump: board::Pump,
+    pub wirefeed: wirefeed::Wirefeed,
+}
+
+pub(crate) type SharedCore = mutex::Mutex<raw::NoopRawMutex, Core>;
 type SharedHoming = mutex::Mutex<raw::NoopRawMutex, homing::Config>;
 
 #[embassy_executor::main]
@@ -61,26 +70,20 @@ async fn main(spawner: embassy_executor::Spawner) {
     // main's future they make it exceed the embassy task arena (default 4 KiB;
     // Motion alone is ~32 KiB), so spawning main panics ("task arena is full")
     // before any code runs. StaticCell puts them in plain .bss instead.
-    static MOTORS_CELL: static_cell::StaticCell<SharedMotors> = static_cell::StaticCell::new();
-    let motors: &'static SharedMotors = MOTORS_CELL.init(mutex::Mutex::new(motors));
-    static MOTION_CELL: static_cell::StaticCell<SharedMotion> = static_cell::StaticCell::new();
-    let motion: &'static SharedMotion =
-        MOTION_CELL.init(mutex::Mutex::new(motion::MotionState::new(start)));
+    static CORE_CELL: static_cell::StaticCell<SharedCore> = static_cell::StaticCell::new();
+    let core: &'static SharedCore = CORE_CELL.init(mutex::Mutex::new(Core {
+        motion: motion::MotionState::new(start),
+        motors,
+        coord: coordstate::CoordState::new(),
+        pulser: board.pulser,
+        pump: board::Pump::new(board.pump),
+        wirefeed: wirefeed::Wirefeed::new(),
+    }));
     static TMC_CELL: static_cell::StaticCell<settings::SharedTmc> = static_cell::StaticCell::new();
     let tmc: &'static settings::SharedTmc = TMC_CELL.init(mutex::Mutex::new(board.motors.tmc));
-    static PULSER_CELL: static_cell::StaticCell<SharedPulser> = static_cell::StaticCell::new();
-    let pulser: &'static SharedPulser = PULSER_CELL.init(mutex::Mutex::new(board.pulser));
     static CMD_QUEUE_CELL: static_cell::StaticCell<commands::CmdQueue> =
         static_cell::StaticCell::new();
     let cmd_queue: &'static commands::CmdQueue = CMD_QUEUE_CELL.init(channel::Channel::new());
-    static COORD_CELL: static_cell::StaticCell<SharedCoord> = static_cell::StaticCell::new();
-    let coord: &'static SharedCoord =
-        COORD_CELL.init(mutex::Mutex::new(coordstate::CoordState::new()));
-    static PUMP_CELL: static_cell::StaticCell<SharedPump> = static_cell::StaticCell::new();
-    let pump: &'static SharedPump = PUMP_CELL.init(mutex::Mutex::new(board::Pump::new(board.pump)));
-    static WIREFEED_CELL: static_cell::StaticCell<SharedWirefeed> = static_cell::StaticCell::new();
-    let wirefeed: &'static SharedWirefeed =
-        WIREFEED_CELL.init(mutex::Mutex::new(wirefeed::Wirefeed::new()));
     static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
     let homing: &'static SharedHoming =
         HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
@@ -88,12 +91,11 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     // init phase
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).begin());
-    let pulser_ok = pulser.lock().await.init(line_tx).await;
+    let pulser_ok = core.lock().await.pulser.init(line_tx).await;
     let settings_ok = settings::apply_all(
         &model::settings::Repo::defaults(),
-        motors,
+        core,
         tmc,
-        coord,
         homing,
         line_tx,
     )
@@ -103,44 +105,26 @@ async fn main(spawner: embassy_executor::Spawner) {
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).end());
 
     join::join(
-        tick_loop(
-            board.serial,
-            cmd_queue,
-            motion,
-            motors,
-            coord,
-            pulser,
-            pump,
-            wirefeed,
-            line_tx,
-        ),
-        cmd_loop(
-            cmd_queue, motion, motors, tmc, coord, pulser, pump, wirefeed, homing, line_tx,
-        ),
+        tick_loop(board.serial, cmd_queue, core, line_tx),
+        cmd_loop(cmd_queue, core, tmc, homing, line_tx),
     )
     .await;
 }
 
 /// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
-#[allow(clippy::too_many_arguments)]
 async fn tick_loop(
     serial: &serial::Device,
     cmd_queue: &commands::CmdQueue,
-    motion: &SharedMotion,
-    motors: &SharedMotors,
-    coord: &SharedCoord,
-    pulser: &SharedPulser,
-    pump: &SharedPump,
-    wirefeed: &SharedWirefeed,
+    core: &SharedCore,
     line_tx: &line_tx::LineTx,
 ) {
     let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1));
     let mut framer = linecomm::Framer::new();
     let mut tx_state = line_tx::DrainState::new();
-    // Tick-published query snapshot; seeded so the first query after init is valid.
-    let mut stats = capture_stats(motion, motors, coord, pulser).await;
 
     loop {
+        let stats = capture_stats(core).await;
+
         ticker.next().await;
         canceler::CANCELER.tick();
 
@@ -153,20 +137,24 @@ async fn tick_loop(
             match command::parse(bytes) {
                 command::Parsed::Cancel => {
                     canceler::CANCELER.cancel();
-                    let here = motors.lock().await.current();
-                    motion.lock().await.cancel(here);
-                    motors.lock().await.set_target(here);
-                    coord.lock().await.cancel();
-                    pulser.lock().await.deenergize().await;
-                    pump.lock().await.cancel();
-                    wirefeed.lock().await.stop();
+                    {
+                        let mut c = core.lock().await;
+                        let here = c.motors.current();
+                        c.motion.cancel(here);
+                        c.motors.set_target(here);
+                        c.coord.cancel();
+                        c.pump.cancel();
+                        c.wirefeed.stop();
+                    }
+                    // Pulser carve-out: I²C write holds Core across .await.
+                    core.lock().await.pulser.deenergize().await;
                     while cmd_queue.try_receive().is_ok() {}
                 }
                 command::Parsed::Query(q) => {
                     signals::exec_query(q, &stats, cmd_queue, line_tx);
                 }
                 command::Parsed::FastSet(fs) => match fs {
-                    command::FastKey::PumpEn(on) => pump.lock().await.set_override(on),
+                    command::FastKey::PumpEn(on) => core.lock().await.pump.set_override(on),
                 },
                 // Only handle commands received outside cancel window.
                 command::Parsed::Command(c) if !canceler::CANCELER.active() => {
@@ -192,49 +180,39 @@ async fn tick_loop(
 
         line_tx.drain(serial, &mut tx_state);
 
-        // Refresh pulser feedback first, then feed the snapshot into the motion
-        // tick. Locks are taken sequentially (never nested), so no lock-order
-        // constraint with the executor's motion->coord/pulser order.
+        // Pulser carve-out: refresh I²C holds Core across .await.
         let input = {
-            let mut p = pulser.lock().await;
-            p.tick().await;
-            let r = p.pulse_ratio();
+            let mut c = core.lock().await;
+            c.pulser.tick().await;
+            let r = c.pulser.pulse_ratio();
             motion::MotionInputs {
                 dt: TICK_DT_S,
                 open_rate: r.open,
                 short_rate: r.short,
-                discharge: p.has_discharge(),
+                discharge: c.pulser.has_discharge(),
             }
         };
 
-        let target = motion.lock().await.tick(input).ok().map(|o| o.target);
-        if let Some(t) = target {
-            motors.lock().await.set_target(t);
+        {
+            let mut c = core.lock().await;
+            if let Ok(o) = c.motion.tick(input) {
+                c.motors.set_target(o.target);
+            }
+            if let Some(pos_mm) = c.wirefeed.tick() {
+                c.motors.set_motor_target(6, pos_mm);
+            }
+            c.pump.tick();
         }
-
-        if let Some(pos_mm) = wirefeed.lock().await.tick() {
-            motors.lock().await.set_motor_target(6, pos_mm);
-        }
-
-        pump.lock().await.tick();
-
-        stats = capture_stats(motion, motors, coord, pulser).await;
     }
 }
 
 /// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
 /// buffer so the executor can see the next command before committing — used to
 /// detect Feed-chain continuity (`cont_next`).
-#[allow(clippy::too_many_arguments)]
 async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
-    motion: &SharedMotion,
-    motors: &SharedMotors,
+    core: &SharedCore,
     tmc: &settings::SharedTmc,
-    coord: &SharedCoord,
-    pulser: &SharedPulser,
-    pump: &SharedPump,
-    wirefeed: &SharedWirefeed,
     homing: &SharedHoming,
     line_tx: &line_tx::LineTx,
 ) {
@@ -273,13 +251,8 @@ async fn cmd_loop(
             curr,
             last_has_cont,
             cont_next,
-            motion,
-            motors,
+            core,
             tmc,
-            pulser,
-            coord,
-            pump,
-            wirefeed,
             homing,
             line_tx,
             &mut repo,
@@ -300,30 +273,17 @@ async fn cmd_loop(
     }
 }
 
-/// Snapshot the query-visible state. Locks motors/motion/coord/pulser
-/// sequentially (never nested), reading cached getters only.
-async fn capture_stats(
-    motion: &SharedMotion,
-    motors: &SharedMotors,
-    coord: &SharedCoord,
-    pulser: &SharedPulser,
-) -> signals::MachineStats {
-    let pos = motors.lock().await.current();
-    let edm = motion.lock().await.edm_state();
-    let (active, offset) = {
-        let c = coord.lock().await;
-        (c.active(), c.offset_of(c.active()))
-    };
-    let (eff_duty, ratio) = {
-        let p = pulser.lock().await;
-        (p.eff_duty(), p.pulse_ratio())
-    };
+/// Snapshot the query-visible state under one lock take, reading cached getters only.
+async fn capture_stats(core: &SharedCore) -> signals::MachineStats {
+    let c = core.lock().await;
+    let active = c.coord.active();
+    let ratio = c.pulser.pulse_ratio();
     signals::MachineStats {
-        pos,
-        edm,
+        pos: c.motors.current(),
+        edm: c.motion.edm_state(),
         active,
-        offset,
-        eff_duty,
+        offset: c.coord.offset_of(active),
+        eff_duty: c.pulser.eff_duty(),
         open_rate: ratio.open,
         short_rate: ratio.short,
     }

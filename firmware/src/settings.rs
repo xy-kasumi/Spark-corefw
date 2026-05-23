@@ -8,14 +8,13 @@
 
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::mutex;
-use model::coordstate;
 use model::pstate;
 use model::settings;
 
 use crate::board;
 use crate::homing;
 use crate::line_tx;
-use crate::motor;
+use crate::SharedCore;
 
 pub type SharedTmc = mutex::Mutex<raw::NoopRawMutex, [board::MotorConfig; board::NUM_MOTORS]>;
 
@@ -36,9 +35,8 @@ fn motor_idx(s: &str) -> Result<usize, Error> {
 async fn dispatch(
     key: &str,
     val: f32,
-    motors: &mutex::Mutex<raw::NoopRawMutex, motor::Motors>,
+    core: &SharedCore,
     tmc: &SharedTmc,
-    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     let mut parts: [&str; settings::STG_KEY_SEGS_CAP] = [""; settings::STG_KEY_SEGS_CAP];
@@ -75,13 +73,13 @@ async fn dispatch(
             Ok(())
         }
         ["m", i, "unitsteps"] => {
-            motors.lock().await.set_unitsteps(motor_idx(i)?, val);
+            core.lock().await.motors.set_unitsteps(motor_idx(i)?, val);
             Ok(())
         }
         ["cs", c, "pos", a] => {
             let cs = settings::cs_parse(c).ok_or(Error::UnknownKey)?;
             let axis = settings::axis_parse(a).ok_or(Error::UnknownKey)?;
-            coord.lock().await.set_offset(cs, axis, val);
+            core.lock().await.coord.set_offset(cs, axis, val);
             Ok(())
         }
         ["a", a, "home", prop] => {
@@ -96,34 +94,31 @@ async fn dispatch(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn write(
     repo: &mut settings::Repo,
     key: &str,
     val: settings::Value,
-    motors: &mutex::Mutex<raw::NoopRawMutex, motor::Motors>,
+    core: &SharedCore,
     tmc: &SharedTmc,
-    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
     }
-    dispatch(key, val.get(), motors, tmc, coord, homing).await?;
+    dispatch(key, val.get(), core, tmc, homing).await?;
     let _ = repo.set(key, val); // infallible: key present
     Ok(())
 }
 
 pub async fn apply_all(
     repo: &settings::Repo,
-    motors: &mutex::Mutex<raw::NoopRawMutex, motor::Motors>,
+    core: &SharedCore,
     tmc: &SharedTmc,
-    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
 ) -> bool {
     for (key, v) in repo.iter() {
-        if dispatch(key, v, motors, tmc, coord, homing).await.is_err() {
+        if dispatch(key, v, core, tmc, homing).await.is_err() {
             let _ = line_tx
                 .try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", false));
             let _ = line_tx

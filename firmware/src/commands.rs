@@ -7,7 +7,7 @@ use core::sync::atomic;
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::channel;
 use embassy_sync::mutex;
-use model::coordstate;
+use model::coords;
 use model::gcode;
 use model::motion;
 use model::pstate;
@@ -21,7 +21,7 @@ use crate::homing;
 use crate::line_tx;
 use crate::pulser;
 use crate::settings;
-use crate::wirefeed;
+use crate::SharedCore;
 
 pub const CMD_QUEUE_CAP: usize = 64;
 
@@ -37,17 +37,13 @@ const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 /// Probe feed.
 const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn exec(
     cmd: Command,
     cont_prev: bool,
     cont_next: bool,
-    motion: &crate::SharedMotion,
-    motors: &crate::SharedMotors,
+    core: &SharedCore,
     tmc: &settings::SharedTmc,
-    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
-    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
-    pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>,
-    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
     repo: &mut model::settings::Repo,
@@ -55,28 +51,34 @@ pub async fn exec(
 ) {
     match cmd {
         Command::Gcode(gcode::Parsed::Rapid(spec)) => {
-            let here = motors.lock().await.current();
-            let target = coord.lock().await.resolve_move(&spec, here);
-            motion
-                .lock()
-                .await
-                .start_rapid(target, RAPID_SPEED_MM_PER_S);
+            {
+                let mut c = core.lock().await;
+                let here = c.motors.current();
+                let target = c.coord.resolve_move(&spec, here);
+                c.motion.start_rapid(target, RAPID_SPEED_MM_PER_S);
+            }
             // Block until the rapid finishes; otherwise the next queued command
             // would overwrite this still-running move.
-            wait_move_end(motion, pulser, cont_next).await;
+            wait_move_end(core, cont_next).await;
         }
         Command::Gcode(gcode::Parsed::Feed(spec)) => {
-            let here = motors.lock().await.current();
-            let target = coord.lock().await.resolve_move(&spec, here);
-            // Only chain onto a still-running EDM move; a cancel drops it to
-            // Idle and breaks the chain even if cont_prev was set.
-            let chaining = cont_prev && motion.lock().await.mode() == motion::Mode::EdmMove;
-            if chaining {
-                motion.lock().await.enqueue_edm(target, cont_next);
-            } else {
-                pulser
-                    .lock()
+            let (target, chaining) = {
+                let mut c = core.lock().await;
+                let here = c.motors.current();
+                let target = c.coord.resolve_move(&spec, here);
+                // Only chain onto a still-running EDM move; a cancel drops it to
+                // Idle and breaks the chain even if cont_prev was set.
+                let chaining = cont_prev && c.motion.mode() == motion::Mode::EdmMove;
+                if chaining {
+                    c.motion.enqueue_edm(target, cont_next);
+                }
+                (target, chaining)
+            };
+            if !chaining {
+                // Pulser carve-out: I²C writes hold Core across .await.
+                core.lock()
                     .await
+                    .pulser
                     .energize(
                         pulser_cfg.tool_negative,
                         pulser_cfg.pulse_us,
@@ -84,16 +86,20 @@ pub async fn exec(
                         pulser_cfg.duty_pct,
                     )
                     .await;
-                motion.lock().await.start_edm(target, cont_next);
+                core.lock().await.motion.start_edm(target, cont_next);
             }
-            wait_move_end(motion, pulser, cont_next).await;
+            wait_move_end(core, cont_next).await;
         }
         Command::Gcode(gcode::Parsed::Probe(spec)) => {
-            let here = motors.lock().await.current();
-            let target = coord.lock().await.resolve_move(&spec, here);
-            pulser
-                .lock()
+            let target = {
+                let mut c = core.lock().await;
+                let here = c.motors.current();
+                c.coord.resolve_move(&spec, here)
+            };
+            // Pulser carve-out: I²C writes hold Core across .await.
+            core.lock()
                 .await
+                .pulser
                 .energize(
                     pulser_cfg.tool_negative,
                     pulser_cfg.pulse_us,
@@ -101,33 +107,33 @@ pub async fn exec(
                     pulser_cfg.duty_pct,
                 )
                 .await;
-            motion
-                .lock()
+            core.lock()
                 .await
+                .motion
                 .start_probe(target, PROBE_SPEED_MM_PER_S);
-            wait_move_end(motion, pulser, false).await;
+            wait_move_end(core, false).await;
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
-            exec_home(target, motion, motors, homing).await;
+            exec_home(target, core, homing).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
-            coord.lock().await.select(a);
+            core.lock().await.coord.select(a);
         }
         Command::Gcode(gcode::Parsed::PumpOn) => {
-            pump.lock().await.set_enable(true);
-            wait_pump_settled(pump).await;
+            core.lock().await.pump.set_enable(true);
+            wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::PumpOff) => {
-            pump.lock().await.set_enable(false);
-            wait_pump_settled(pump).await;
+            core.lock().await.pump.set_enable(false);
+            wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
-            wirefeed.lock().await.start(rate);
+            core.lock().await.wirefeed.start(rate);
             // Wait 2 s for wire tension to stabilize.
             embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
-            wirefeed.lock().await.stop();
+            core.lock().await.wirefeed.stop();
         }
         Command::Gcode(gcode::Parsed::SetPulse(params)) => {
             // Modal: the pulser command only updates the config the next feed/probe
@@ -142,7 +148,7 @@ pub async fn exec(
             };
         }
         Command::Set(key, val) => {
-            if let Err(e) = settings::write(repo, &key, val, motors, tmc, coord, homing).await {
+            if let Err(e) = settings::write(repo, &key, val, core, tmc, homing).await {
                 let line = match e {
                     settings::Error::UnknownKey => pstate::ErrorLine::new()
                         .msg(format_args!("unknown key {}", key.as_str()))
@@ -158,7 +164,7 @@ pub async fn exec(
             dump_settings(line_tx, repo).await;
         }
         Command::Stat => {
-            dump_stat(line_tx, motion, motors, tmc, pulser, wirefeed).await;
+            dump_stat(line_tx, core, tmc).await;
         }
     }
 }
@@ -167,26 +173,23 @@ pub async fn exec(
 /// tick loop concurrently advances motion.
 /// With `cont_next`, return once the path can accept the next chained segment
 /// (pulser stays energized); otherwise wait for full stop and de-energize.
-async fn wait_move_end(
-    motion: &crate::SharedMotion,
-    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
-    cont_next: bool,
-) {
+async fn wait_move_end(core: &SharedCore, cont_next: bool) {
     if cont_next {
-        while !motion.lock().await.can_enqueue() {
+        while !core.lock().await.motion.can_enqueue() {
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
     } else {
-        while motion.lock().await.mode() != motion::Mode::Idle {
+        while core.lock().await.motion.mode() != motion::Mode::Idle {
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
-        pulser.lock().await.deenergize().await;
+        // Pulser carve-out: I²C write holds Core across .await.
+        core.lock().await.pulser.deenergize().await;
     }
 }
 
 /// Wait for the pump's settle countdown to drain on the tick cadence.
-async fn wait_pump_settled(pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>) {
-    while !pump.lock().await.settled() {
+async fn wait_pump_settled(core: &SharedCore) {
+    while !core.lock().await.pump.settled() {
         embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
     }
 }
@@ -196,18 +199,13 @@ async fn wait_pump_settled(pump: &mutex::Mutex<raw::NoopRawMutex, board::Pump>) 
 /// sensing is dead on this board, so the move always stops at target.
 async fn exec_home(
     target: gcode::HomeSpec,
-    motion: &crate::SharedMotion,
-    motors: &crate::SharedMotors,
+    core: &SharedCore,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) {
     // Snapshot once; homing params don't change mid-home.
     let homing = *homing.lock().await;
 
-    let mut order = [
-        model::settings::Axis::X,
-        model::settings::Axis::Y,
-        model::settings::Axis::Z,
-    ];
+    let mut order = [coords::Axis::X, coords::Axis::Y, coords::Axis::Z];
     order.sort_unstable_by(|a, b| homing.axis(*a).phase.total_cmp(&homing.axis(*b).phase));
     for axis in order {
         if let gcode::HomeSpec::One(named) = target {
@@ -218,17 +216,17 @@ async fn exec_home(
 
         let cfg = homing.axis(axis);
         let watch = canceler::CANCELER.watch();
-        let mut target = motors.lock().await.current();
-        match axis {
-            model::settings::Axis::X => target.x += cfg.side * cfg.travel,
-            model::settings::Axis::Y => target.y += cfg.side * cfg.travel,
-            model::settings::Axis::Z => target.z += cfg.side * cfg.travel,
+        {
+            let mut c = core.lock().await;
+            let mut target = c.motors.current();
+            match axis {
+                coords::Axis::X => target.x += cfg.side * cfg.travel,
+                coords::Axis::Y => target.y += cfg.side * cfg.travel,
+                coords::Axis::Z => target.z += cfg.side * cfg.travel,
+            }
+            c.motion.start_rapid(target, RAPID_SPEED_MM_PER_S);
         }
-        motion
-            .lock()
-            .await
-            .start_rapid(target, RAPID_SPEED_MM_PER_S);
-        while motion.lock().await.mode() != motion::Mode::Idle {
+        while core.lock().await.motion.mode() != motion::Mode::Idle {
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         if watch.cancelled() {
@@ -236,12 +234,10 @@ async fn exec_home(
         }
         // Re-anchor motors to the configured origin, then sync motion's tracked
         // position to the new physical reading.
-        let here = {
-            let mut m = motors.lock().await;
-            m.reanchor(axis, cfg.origin);
-            m.current()
-        };
-        motion.lock().await.set_position(here);
+        let mut c = core.lock().await;
+        c.motors.reanchor(axis, cfg.origin);
+        let here = c.motors.current();
+        c.motion.set_position(here);
     }
 }
 
@@ -262,20 +258,15 @@ async fn dump_settings(line_tx: &line_tx::LineTx, repo: &model::settings::Repo) 
 
 /// Emit one big `stat` p-state for debugging.
 /// It is slow takes several hundred ms. (esp TMC register dump)
-async fn dump_stat(
-    line_tx: &line_tx::LineTx,
-    motion: &crate::SharedMotion,
-    motors: &crate::SharedMotors,
-    tmc: &settings::SharedTmc,
-    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
-    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
-) {
+async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings::SharedTmc) {
     line_tx
         .send(pstate::Line::new(pstate::PsType::Stat).begin())
         .await;
 
-    let mode = motion.lock().await.mode();
-    let steps = motors.lock().await.step_counts();
+    let (mode, steps) = {
+        let c = core.lock().await;
+        (c.motion.mode(), c.motors.step_counts())
+    };
     let mode_name = match mode {
         motion::Mode::Idle => "idle",
         motion::Mode::Rapid => "rapid",
@@ -314,13 +305,10 @@ async fn dump_stat(
         }
     }
 
-    // Snapshot under the lock, then emit: holding the pulser lock across a
-    // `line_tx.send().await` could deadlock the tick loop (its sole TX drainer)
-    // when the TX queue is full.
-    let stat = {
-        let mut p = pulser.lock().await;
-        p.read_stat().await
-    };
+    // Snapshot under the lock, then emit: holding Core across a `line_tx.send().await`
+    // could deadlock the tick loop (its sole TX drainer) when the TX queue is full.
+    // Pulser carve-out: I²C reads hold Core across .await.
+    let stat = core.lock().await.pulser.read_stat().await;
     if !stat.init_ok {
         line_tx
             .send(pstate::Line::new(pstate::PsType::Stat).str_val("pulser.status", "init failed"))
@@ -363,8 +351,8 @@ async fn dump_stat(
     }
 
     let (feeding, pos, rate) = {
-        let w = wirefeed.lock().await;
-        (w.feeding(), w.pos_mm(), w.rate())
+        let c = core.lock().await;
+        (c.wirefeed.feeding(), c.wirefeed.pos_mm(), c.wirefeed.rate())
     };
     line_tx
         .send(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding))
