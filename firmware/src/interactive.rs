@@ -4,7 +4,7 @@
 //! Serial-terminal niceties for human users, deliberately quarantined from the
 //! protocol path so the "nice text shell" never distorts the normal-path APIs.
 //!
-//! Line *correctness* lives in `model::comm::Framer` (it drops backspaced bytes
+//! Line *correctness* lives in `model::linecomm::Framer` (it drops backspaced bytes
 //! as ordinary input normalization, the same bucket as CR-stripping). Everything
 //! here is pure *display* feedback that a host program neither needs nor sees: a
 //! machine sender emits no backspaces, and the newline echo collapses to an

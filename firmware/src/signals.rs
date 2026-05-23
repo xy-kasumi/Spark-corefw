@@ -6,11 +6,11 @@
 use core::fmt::Write;
 use core::sync::atomic;
 
+use model::command;
 use model::coords;
 use model::coords::CoordSys;
 use model::motion;
 use model::pstate;
-use model::signal;
 
 use crate::commands;
 use crate::line_tx;
@@ -29,13 +29,13 @@ pub struct MachineStats {
 }
 
 pub fn exec_query(
-    sig: signal::QuerySignal,
+    sig: command::QuerySignal,
     stats: &MachineStats,
     cmd_queue: &commands::CmdQueue,
     line_tx: &line_tx::LineTx,
 ) {
     match sig {
-        signal::QuerySignal::Queue => {
+        command::QuerySignal::Queue => {
             let num = cmd_queue.len() + commands::OUTSTANDING.load(atomic::Ordering::Relaxed);
             let line = pstate::Line::new(pstate::PsType::Queue)
                 .begin()
@@ -44,7 +44,7 @@ pub fn exec_query(
                 .end();
             let _ = line_tx.try_send(line);
         }
-        signal::QuerySignal::Pos => {
+        command::QuerySignal::Pos => {
             let pos = stats.pos;
             let active = stats.active;
             let off = stats.offset;
@@ -74,7 +74,7 @@ pub fn exec_query(
                 );
             }
         }
-        signal::QuerySignal::Edm => {
+        command::QuerySignal::Edm => {
             // Motion and pulser fields come from the same tick snapshot.
             let edm = stats.edm;
             let eff_duty = stats.eff_duty;
@@ -102,7 +102,7 @@ pub fn exec_query(
             }
             let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).end());
         }
-        signal::QuerySignal::Unknown => {
+        command::QuerySignal::Unknown => {
             // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.
         }
     }

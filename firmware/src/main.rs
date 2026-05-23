@@ -25,10 +25,10 @@ use embassy_futures::join;
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::channel;
 use embassy_sync::mutex;
-use model::comm;
 use model::command;
 use model::coordstate;
 use model::gcode;
+use model::linecomm;
 use model::motion;
 use model::pstate;
 
@@ -135,7 +135,7 @@ async fn tick_loop(
     line_tx: &line_tx::LineTx,
 ) {
     let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1));
-    let mut parser = comm::Parser::new();
+    let mut framer = linecomm::Framer::new();
     let mut tx_state = line_tx::DrainState::new();
     // Tick-published query snapshot; seeded so the first query after init is valid.
     let mut stats = capture_stats(motion, motors, coord, pulser).await;
@@ -146,9 +146,12 @@ async fn tick_loop(
 
         let mut chunk = [0u8; 32];
         for &b in serial.rx_get(&mut chunk) {
-            interactive::echo(b, parser.line_len(), line_tx.is_idle(&tx_state), serial);
-            match parser.feed(b) {
-                Some(comm::Parsed::CancelSignal) => {
+            interactive::echo(b, framer.line_len(), line_tx.is_idle(&tx_state), serial);
+            let Some(bytes) = framer.feed(b) else {
+                continue;
+            };
+            match command::parse(bytes) {
+                command::Parsed::Cancel => {
                     canceler::CANCELER.cancel();
                     let here = motors.lock().await.current();
                     motion.lock().await.cancel(here);
@@ -159,18 +162,18 @@ async fn tick_loop(
                     wirefeed.lock().await.stop();
                     while cmd_queue.try_receive().is_ok() {}
                 }
-                Some(comm::Parsed::QuerySignal(q)) => {
+                command::Parsed::Query(q) => {
                     signals::exec_query(q, &stats, cmd_queue, line_tx);
                 }
                 // Fast-set: applied immediately like a signal (unqueued), and
                 // stays live during the cancel window for the same reason.
-                Some(comm::Parsed::FastSet(fs)) => match fs {
+                command::Parsed::FastSet(fs) => match fs {
                     command::FastSet::PumpEn(on) => pump.lock().await.set_override(on),
                 },
                 // While the cancel window is open, blackhole incoming commands so a
                 // single `!` drains the queue instead of racing host bytes still in
                 // flight. Signals stay live so `?` queries and a follow-up `!` work.
-                Some(comm::Parsed::Command(c)) if !canceler::CANCELER.active() => {
+                command::Parsed::Command(c) if !canceler::CANCELER.active() => {
                     if let Err(_dropped) = cmd_queue.try_send(c) {
                         let _ = line_tx.try_send(
                             pstate::ErrorLine::new()
@@ -179,10 +182,10 @@ async fn tick_loop(
                         );
                     }
                 }
-                Some(comm::Parsed::CommandError(src)) if !canceler::CANCELER.active() => {
+                command::Parsed::Error if !canceler::CANCELER.active() => {
                     let _ = line_tx.try_send(
                         pstate::ErrorLine::new()
-                            .source(src)
+                            .source(bytes)
                             .msg(format_args!("syntax error"))
                             .finish(),
                     );
