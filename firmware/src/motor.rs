@@ -4,7 +4,6 @@
 //! Maps pos -> motor mapping.
 
 use model::coords;
-use model::settings;
 
 use crate::board;
 
@@ -16,11 +15,11 @@ const M_C: usize = 3;
 const DEFAULT_UNITSTEPS: [f32; board::NUM_MOTORS] = [200.0; board::NUM_MOTORS];
 
 /// Which motor index drives a linear axis.
-pub fn axis_to_motor(axis: settings::Axis) -> usize {
+pub fn axis_to_motor(axis: coords::Axis) -> usize {
     match axis {
-        settings::Axis::X => M_X,
-        settings::Axis::Y => M_Y,
-        settings::Axis::Z => M_Z,
+        coords::Axis::X => M_X,
+        coords::Axis::Y => M_Y,
+        coords::Axis::Z => M_Z,
     }
 }
 
@@ -61,7 +60,7 @@ impl Motors {
 
     /// Re-anchor `axis` so its current physical reading becomes `origin_mm`, by
     /// setting the homing offset against the live raw step counter.
-    pub fn reanchor(&mut self, axis: settings::Axis, origin_mm: f32) {
+    pub fn reanchor(&mut self, axis: coords::Axis, origin_mm: f32) {
         let m = axis_to_motor(axis);
         self.home_offset[m] = self.step[m].current() - (origin_mm * self.unitsteps[m]) as i32;
     }

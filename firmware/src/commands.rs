@@ -12,7 +12,7 @@ use model::gcode;
 use model::motion;
 use model::pstate;
 
-pub use model::command::Command;
+use model::command::Command;
 
 use crate::board;
 use crate::canceler;

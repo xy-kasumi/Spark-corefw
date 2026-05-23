@@ -281,7 +281,7 @@ async fn cmd_loop(
     let mut repo = model::settings::Repo::defaults();
     let mut pulser_cfg = pulser::Config::default();
 
-    let mut peek_buf: Option<commands::Command> = None;
+    let mut peek_buf: Option<command::Command> = None;
     // Tracks whether the previous command was a feed with a following feed (cont_next).
     let mut last_has_cont = false;
     loop {
@@ -352,6 +352,6 @@ async fn capture_stats(core: &SharedCore) -> signals::MachineStats {
     }
 }
 
-fn is_feed(cmd: &commands::Command) -> bool {
-    matches!(cmd, commands::Command::Gcode(gcode::Parsed::Feed(_)))
+fn is_feed(cmd: &command::Command) -> bool {
+    matches!(cmd, command::Command::Gcode(gcode::Parsed::Feed(_)))
 }

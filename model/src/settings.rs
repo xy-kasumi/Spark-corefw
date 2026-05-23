@@ -4,6 +4,7 @@
 //! Repo of all settings. Source of truth for `get`.
 //! Write is handled by dispatcher.
 
+use crate::coords;
 use core::fmt::Write;
 
 pub const N_MOTORS: usize = 7;
@@ -15,39 +16,37 @@ pub const STG_KEY_CAP: usize = 20;
 /// cf. `cs.w.pos.x` has 4 segs
 pub const STG_KEY_SEGS_CAP: usize = 5;
 
-pub use crate::coords::{Axis, CoordSys};
-
 /// Settings-key segment. `Machine` has no settable offset and so no key prefix.
-pub fn cs_name(cs: CoordSys) -> &'static str {
+pub fn cs_name(cs: coords::CoordSys) -> &'static str {
     match cs {
-        CoordSys::Work => "w",
-        CoordSys::Grinder => "g",
-        CoordSys::Machine => unreachable!("machine coordsys has no settings prefix"),
+        coords::CoordSys::Work => "w",
+        coords::CoordSys::Grinder => "g",
+        coords::CoordSys::Machine => unreachable!("machine coordsys has no settings prefix"),
     }
 }
 
-pub fn cs_parse(s: &str) -> Option<CoordSys> {
+pub fn cs_parse(s: &str) -> Option<coords::CoordSys> {
     match s {
-        "w" => Some(CoordSys::Work),
-        "g" => Some(CoordSys::Grinder),
+        "w" => Some(coords::CoordSys::Work),
+        "g" => Some(coords::CoordSys::Grinder),
         _ => None,
     }
 }
 
 /// Settings-key segment.
-pub fn axis_name(axis: Axis) -> &'static str {
+pub fn axis_name(axis: coords::Axis) -> &'static str {
     match axis {
-        Axis::X => "x",
-        Axis::Y => "y",
-        Axis::Z => "z",
+        coords::Axis::X => "x",
+        coords::Axis::Y => "y",
+        coords::Axis::Z => "z",
     }
 }
 
-pub fn axis_parse(s: &str) -> Option<Axis> {
+pub fn axis_parse(s: &str) -> Option<coords::Axis> {
     match s {
-        "x" => Some(Axis::X),
-        "y" => Some(Axis::Y),
-        "z" => Some(Axis::Z),
+        "x" => Some(coords::Axis::X),
+        "y" => Some(coords::Axis::Y),
+        "z" => Some(coords::Axis::Z),
         _ => None,
     }
 }
@@ -96,16 +95,16 @@ impl Repo {
                 k.write_fmt(args).expect("key fits PATH_CAP");
                 map.insert(k, v).expect("CAP fits all keys");
             };
-            for a in [Axis::X, Axis::Y, Axis::Z] {
+            for a in [coords::Axis::X, coords::Axis::Y, coords::Axis::Z] {
                 let n = axis_name(a);
                 ins(format_args!("a.{n}.home.origin"), 0.0);
                 ins(format_args!("a.{n}.home.phase"), default_phase(a));
                 ins(format_args!("a.{n}.home.side"), default_side(a));
                 ins(format_args!("a.{n}.home.travel"), 500.0);
             }
-            for c in [CoordSys::Grinder, CoordSys::Work] {
+            for c in [coords::CoordSys::Grinder, coords::CoordSys::Work] {
                 let cn = cs_name(c);
-                for a in [Axis::X, Axis::Y, Axis::Z] {
+                for a in [coords::Axis::X, coords::Axis::Y, coords::Axis::Z] {
                     ins(format_args!("cs.{cn}.pos.{}", axis_name(a)), 0.0);
                 }
             }
@@ -149,18 +148,18 @@ impl Repo {
 }
 
 /// Default home phase: X=1, Y=2, Z=0.
-fn default_phase(a: Axis) -> f32 {
+fn default_phase(a: coords::Axis) -> f32 {
     match a {
-        Axis::X => 1.0,
-        Axis::Y => 2.0,
-        Axis::Z => 0.0,
+        coords::Axis::X => 1.0,
+        coords::Axis::Y => 2.0,
+        coords::Axis::Z => 0.0,
     }
 }
 
 /// Default home side: Y homes negative, X/Z positive.
-fn default_side(a: Axis) -> f32 {
+fn default_side(a: coords::Axis) -> f32 {
     match a {
-        Axis::Y => -1.0,
+        coords::Axis::Y => -1.0,
         _ => 1.0,
     }
 }

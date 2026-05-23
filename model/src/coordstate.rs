@@ -3,7 +3,6 @@
 
 use crate::coords;
 use crate::gcode;
-use crate::settings;
 
 pub struct CoordState {
     active: coords::CoordSys,
@@ -36,16 +35,16 @@ impl CoordState {
     }
 
     /// Set one axis of one system's origin (from the `cs.*.pos.*` settings path).
-    pub fn set_offset(&mut self, cs: coords::CoordSys, axis: settings::Axis, value: f32) {
+    pub fn set_offset(&mut self, cs: coords::CoordSys, axis: coords::Axis, value: f32) {
         debug_assert!(
             cs != coords::CoordSys::Machine,
             "machine coordsys has no settable offset"
         );
         let o = &mut self.offsets[cs];
         match axis {
-            settings::Axis::X => o.x = value,
-            settings::Axis::Y => o.y = value,
-            settings::Axis::Z => o.z = value,
+            coords::Axis::X => o.x = value,
+            coords::Axis::Y => o.y = value,
+            coords::Axis::Z => o.z = value,
         }
     }
 

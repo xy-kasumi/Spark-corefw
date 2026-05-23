@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use model::settings;
+use model::coords;
 
 use crate::motor;
 
@@ -37,7 +37,7 @@ pub struct Config {
 impl Config {
     /// Apply one `a.<axis>.home.<prop>` value. `Err` on an unknown property
     /// (the dispatcher turns that into an unknown-key error).
-    pub fn set(&mut self, axis: settings::Axis, prop: &str, val: f32) -> Result<(), ()> {
+    pub fn set(&mut self, axis: coords::Axis, prop: &str, val: f32) -> Result<(), ()> {
         let a = &mut self.axes[motor::axis_to_motor(axis)];
         match prop {
             "origin" => a.origin = val,
@@ -49,7 +49,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn axis(&self, axis: settings::Axis) -> Axis {
+    pub fn axis(&self, axis: coords::Axis) -> Axis {
         self.axes[motor::axis_to_motor(axis)]
     }
 }
