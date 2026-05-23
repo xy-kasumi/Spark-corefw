@@ -27,12 +27,12 @@ pub enum Parsed {
     WirefeedStart(f32),
     /// M11: stop wire feeding.
     WirefeedStop,
-    /// M3/M4: set the modal pulser parameters used by the next G1/G38.3.
-    Pulser(PulserSpec),
+    /// M3/M4: set EDM pulse parameters.
+    SetPulse(PulseSpec),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PulserSpec {
+pub struct PulseSpec {
     pub tool_negative: bool,
     /// Pulse on-time, µs (P).
     pub pulse_us: Option<f32>,
@@ -82,8 +82,8 @@ fn parse_gcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Option<Parsed> {
 
 fn parse_mcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Option<Parsed> {
     match (code, sub) {
-        (3, None) => parse_pulser(p, true).map(Parsed::Pulser),
-        (4, None) => parse_pulser(p, false).map(Parsed::Pulser),
+        (3, None) => parse_pulser(p, true).map(Parsed::SetPulse),
+        (4, None) => parse_pulser(p, false).map(Parsed::SetPulse),
         (8, None) => no_params(p).map(|_| Parsed::PumpOn),
         (9, None) => no_params(p).map(|_| Parsed::PumpOff),
         (10, None) => parse_required_r(p).map(Parsed::WirefeedStart),
@@ -117,8 +117,8 @@ fn parse_required_r(p: &mut Cursor) -> Option<f32> {
 /// Parse M3/M4 pulser parameters: optional `P`/`Q`/`R` floats in any order.
 /// Omitted parameters stay `None` (the executor applies defaults). A bare letter
 /// (no value) or an unrecognized letter is rejected.
-fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Option<PulserSpec> {
-    let mut params = PulserSpec {
+fn parse_pulser(p: &mut Cursor, tool_negative: bool) -> Option<PulseSpec> {
+    let mut params = PulseSpec {
         tool_negative,
         pulse_us: None,
         current_a: None,
@@ -369,14 +369,14 @@ mod tests {
         check(
             "M3",
             expect![[
-                "Some(Pulser(PulserSpec { tool_negative: true, pulse_us: None, current_a: None, duty_pct: None }))"
+                "Some(SetPulse(PulseSpec { tool_negative: true, pulse_us: None, current_a: None, duty_pct: None }))"
             ]],
         );
         // M4 = tool-positive; P/Q/R map to pulse_us/current_a/duty_pct.
         check(
             "M4 P1000 Q0.8",
             expect![[
-                "Some(Pulser(PulserSpec { tool_negative: false, pulse_us: Some(1000.0), current_a: Some(0.8), duty_pct: None }))"
+                "Some(SetPulse(PulseSpec { tool_negative: false, pulse_us: Some(1000.0), current_a: Some(0.8), duty_pct: None }))"
             ]],
         );
     }
@@ -399,7 +399,7 @@ mod tests {
         check(
             "M3 R30 Q2.0",
             expect![[
-                "Some(Pulser(PulserSpec { tool_negative: true, pulse_us: None, current_a: Some(2.0), duty_pct: Some(30.0) }))"
+                "Some(SetPulse(PulseSpec { tool_negative: true, pulse_us: None, current_a: Some(2.0), duty_pct: Some(30.0) }))"
             ]],
         );
     }

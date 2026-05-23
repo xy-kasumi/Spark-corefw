@@ -127,7 +127,7 @@ pub async fn exec(
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
             wirefeed.lock().await.stop();
         }
-        Command::Gcode(gcode::Parsed::Pulser(params)) => {
+        Command::Gcode(gcode::Parsed::SetPulse(params)) => {
             // Modal: the pulser command only updates the config the next feed/probe
             // energizes with. Omitted P/Q/R resolve to the spec defaults here, in the
             // executor — the parser stays free of pulser policy.
