@@ -1,14 +1,9 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Per-axis homing parameters (`a.<axis>.home.*`). A settings-agnostic mediator:
-//! the write dispatcher pushes values in via [`HomingConfig::set`]; `exec_home`
-//! reads them out via [`HomingConfig::axis`]. Neither side touches the repo.
-//!
-//! Born with sane defaults so the module is always valid; the boot apply-all
-//! overrides them with the configured values.
-
 use model::settings;
+
+use crate::motor;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Axis {
@@ -43,7 +38,7 @@ impl Config {
     /// Apply one `a.<axis>.home.<prop>` value. `Err` on an unknown property
     /// (the dispatcher turns that into an unknown-key error).
     pub fn set(&mut self, axis: settings::Axis, prop: &str, val: f32) -> Result<(), ()> {
-        let a = &mut self.axes[settings::axis_idx(axis)];
+        let a = &mut self.axes[motor::axis_to_motor(axis)];
         match prop {
             "origin" => a.origin = val,
             "phase" => a.phase = val,
@@ -55,6 +50,6 @@ impl Config {
     }
 
     pub fn axis(&self, axis: settings::Axis) -> Axis {
-        self.axes[settings::axis_idx(axis)]
+        self.axes[motor::axis_to_motor(axis)]
     }
 }

@@ -11,7 +11,6 @@ mod drivers;
 mod homing;
 mod interactive;
 mod line_tx;
-mod motion;
 mod motor;
 mod panic_diag;
 mod pulser;
@@ -30,6 +29,7 @@ use model::comm;
 use model::command;
 use model::coordstate;
 use model::gcode;
+use model::motion;
 use model::pstate;
 
 use crate::drivers::serial;
@@ -38,7 +38,11 @@ use crate::drivers::serial;
 const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
-type SharedMotion = mutex::Mutex<raw::NoopRawMutex, motion::Motion>;
+/// EDM path-buffer history capacity: 10 mm max retract at 0.005 mm resolution.
+pub(crate) const PB_CAPACITY: usize = 2001;
+
+pub(crate) type SharedMotion = mutex::Mutex<raw::NoopRawMutex, motion::MotionState<PB_CAPACITY>>;
+pub(crate) type SharedMotors = mutex::Mutex<raw::NoopRawMutex, motor::Motors>;
 type SharedPulser = mutex::Mutex<raw::NoopRawMutex, board::Pulser>;
 type SharedCoord = mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>;
 type SharedPump = mutex::Mutex<raw::NoopRawMutex, board::Pump>;
@@ -50,23 +54,18 @@ async fn main(spawner: embassy_executor::Spawner) {
     let board = board::init(&spawner, 115200);
     let step = board.motors.step;
 
-    let motors = motor::Motors {
-        x: step[0],
-        y: step[1],
-        z: step[2],
-        c: step[3],
-        cal: motor::AxisConfig::default(),
-        // TODO: what's 3?
-        home_offset: [0; 3],
-    };
+    let motors = motor::Motors::new(step);
+    let start = motors.current();
 
     // These live in static storage, not as `main`-task locals. Held inline in
     // main's future they make it exceed the embassy task arena (default 4 KiB;
     // Motion alone is ~32 KiB), so spawning main panics ("task arena is full")
     // before any code runs. StaticCell puts them in plain .bss instead.
+    static MOTORS_CELL: static_cell::StaticCell<SharedMotors> = static_cell::StaticCell::new();
+    let motors: &'static SharedMotors = MOTORS_CELL.init(mutex::Mutex::new(motors));
     static MOTION_CELL: static_cell::StaticCell<SharedMotion> = static_cell::StaticCell::new();
     let motion: &'static SharedMotion =
-        MOTION_CELL.init(mutex::Mutex::new(motion::Motion::new(motors)));
+        MOTION_CELL.init(mutex::Mutex::new(motion::MotionState::new(start)));
     static TMC_CELL: static_cell::StaticCell<settings::SharedTmc> = static_cell::StaticCell::new();
     let tmc: &'static settings::SharedTmc = TMC_CELL.init(mutex::Mutex::new(board.motors.tmc));
     static PULSER_CELL: static_cell::StaticCell<SharedPulser> = static_cell::StaticCell::new();
@@ -81,7 +80,7 @@ async fn main(spawner: embassy_executor::Spawner) {
     let pump: &'static SharedPump = PUMP_CELL.init(mutex::Mutex::new(board::Pump::new(board.pump)));
     static WIREFEED_CELL: static_cell::StaticCell<SharedWirefeed> = static_cell::StaticCell::new();
     let wirefeed: &'static SharedWirefeed =
-        WIREFEED_CELL.init(mutex::Mutex::new(wirefeed::Wirefeed::new(step[6])));
+        WIREFEED_CELL.init(mutex::Mutex::new(wirefeed::Wirefeed::new()));
     static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
     let homing: &'static SharedHoming =
         HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
@@ -92,10 +91,9 @@ async fn main(spawner: embassy_executor::Spawner) {
     let pulser_ok = pulser.lock().await.init(line_tx).await;
     let settings_ok = settings::apply_all(
         &model::settings::Repo::defaults(),
-        motion,
+        motors,
         tmc,
         coord,
-        wirefeed,
         homing,
         line_tx,
     )
@@ -109,6 +107,7 @@ async fn main(spawner: embassy_executor::Spawner) {
             board.serial,
             cmd_queue,
             motion,
+            motors,
             coord,
             pulser,
             pump,
@@ -116,17 +115,19 @@ async fn main(spawner: embassy_executor::Spawner) {
             line_tx,
         ),
         cmd_loop(
-            cmd_queue, motion, tmc, coord, pulser, pump, wirefeed, homing, line_tx,
+            cmd_queue, motion, motors, tmc, coord, pulser, pump, wirefeed, homing, line_tx,
         ),
     )
     .await;
 }
 
 /// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
+#[allow(clippy::too_many_arguments)]
 async fn tick_loop(
     serial: &serial::Device,
     cmd_queue: &commands::CmdQueue,
     motion: &SharedMotion,
+    motors: &SharedMotors,
     coord: &SharedCoord,
     pulser: &SharedPulser,
     pump: &SharedPump,
@@ -137,7 +138,7 @@ async fn tick_loop(
     let mut parser = comm::Parser::new();
     let mut tx_state = line_tx::DrainState::new();
     // Tick-published query snapshot; seeded so the first query after init is valid.
-    let mut stats = capture_stats(motion, coord, pulser).await;
+    let mut stats = capture_stats(motion, motors, coord, pulser).await;
 
     loop {
         ticker.next().await;
@@ -149,11 +150,9 @@ async fn tick_loop(
             match parser.feed(b) {
                 Some(comm::Parsed::CancelSignal) => {
                     canceler::CANCELER.cancel();
-                    // Lock order motion -> coord (matches commands.rs).
-                    {
-                        let mut m = motion.lock().await;
-                        m.cancel();
-                    }
+                    let here = motors.lock().await.current();
+                    motion.lock().await.cancel(here);
+                    motors.lock().await.set_target(here);
                     coord.lock().await.cancel();
                     pulser.lock().await.deenergize().await;
                     pump.lock().await.cancel();
@@ -197,39 +196,43 @@ async fn tick_loop(
         // Refresh pulser feedback first, then feed the snapshot into the motion
         // tick. Locks are taken sequentially (never nested), so no lock-order
         // constraint with the executor's motion->coord/pulser order.
-        let fb = {
+        let input = {
             let mut p = pulser.lock().await;
             p.tick().await;
-            motion::PulserFeedback {
+            motion::MotionInputs {
+                dt: TICK_DT_S,
                 open_rate: p.open_rate(),
                 short_rate: p.short_rate(),
                 discharge: p.has_discharge(),
             }
         };
 
-        {
-            let mut m = motion.lock().await;
-            m.tick(TICK_DT_S, fb);
+        let target = motion.lock().await.tick(input).ok().map(|o| o.target);
+        if let Some(t) = target {
+            motors.lock().await.set_target(t);
         }
 
-        wirefeed.lock().await.tick();
+        if let Some(pos_mm) = wirefeed.lock().await.tick() {
+            motors.lock().await.set_motor_target(6, pos_mm);
+        }
 
-        stats = capture_stats(motion, coord, pulser).await;
+        stats = capture_stats(motion, motors, coord, pulser).await;
     }
 }
 
 /// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
 /// buffer so the executor can see the next command before committing — used to
 /// detect Feed-chain continuity (`cont_next`).
+#[allow(clippy::too_many_arguments)]
 async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
     motion: &SharedMotion,
+    motors: &SharedMotors,
     tmc: &settings::SharedTmc,
     coord: &SharedCoord,
     pulser: &SharedPulser,
     pump: &SharedPump,
     wirefeed: &SharedWirefeed,
-
     homing: &SharedHoming,
     line_tx: &line_tx::LineTx,
 ) {
@@ -269,6 +272,7 @@ async fn cmd_loop(
             last_has_cont,
             cont_next,
             motion,
+            motors,
             tmc,
             pulser,
             coord,
@@ -294,18 +298,16 @@ async fn cmd_loop(
     }
 }
 
-/// Snapshot the query-visible state. Locks motion/coord/pulser sequentially
-/// (never nested), reading cached getters only, so it carries no lock-order
-/// constraint with the executor's motion->coord/pulser order.
+/// Snapshot the query-visible state. Locks motors/motion/coord/pulser
+/// sequentially (never nested), reading cached getters only.
 async fn capture_stats(
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
-    coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
-    pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
+    motion: &SharedMotion,
+    motors: &SharedMotors,
+    coord: &SharedCoord,
+    pulser: &SharedPulser,
 ) -> signals::MachineStats {
-    let (pos, edm) = {
-        let m = motion.lock().await;
-        (m.current_position(), m.edm_state())
-    };
+    let pos = motors.lock().await.current();
+    let edm = motion.lock().await.edm_state();
     let (active, offset) = {
         let c = coord.lock().await;
         (c.active(), c.offset_of(c.active()))

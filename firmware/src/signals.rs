@@ -8,12 +8,12 @@ use core::sync::atomic;
 
 use model::coords;
 use model::coords::CoordSys;
+use model::motion;
 use model::pstate;
 use model::signal;
 
 use crate::commands;
 use crate::line_tx;
-use crate::motion;
 
 /// Snapshot of machine (enough to answer [`QuerySignal`])
 #[derive(Clone, Copy)]

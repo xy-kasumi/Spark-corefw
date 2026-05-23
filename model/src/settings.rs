@@ -17,16 +17,6 @@ pub const STG_KEY_SEGS_CAP: usize = 5;
 
 pub use crate::coords::{Axis, CoordSys};
 
-/// Index into a per-axis array.
-/// TODO: This does not belong in settings
-pub fn axis_idx(axis: Axis) -> usize {
-    match axis {
-        Axis::X => 0,
-        Axis::Y => 1,
-        Axis::Z => 2,
-    }
-}
-
 /// Settings-key segment. `Machine` has no settable offset and so no key prefix.
 pub fn cs_name(cs: CoordSys) -> &'static str {
     match cs {

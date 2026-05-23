@@ -1,74 +1,87 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Per-axis motor abstraction. Converts mm/turn targets to microsteps and feeds step_gen.
+//! Maps pos -> motor mapping.
 
 use model::coords;
 use model::settings;
 
 use crate::board;
 
-/// Steps-per-mm for linear axes; steps-per-turn for C.
-#[derive(Clone, Copy, Debug)]
-pub struct AxisConfig {
-    pub steps_per_mm_x: f32,
-    pub steps_per_mm_y: f32,
-    pub steps_per_mm_z: f32,
-    pub steps_per_turn_c: f32,
-}
+const M_X: usize = 0;
+const M_Y: usize = 1;
+const M_Z: usize = 2;
+const M_C: usize = 3;
 
-impl Default for AxisConfig {
-    fn default() -> Self {
-        Self {
-            steps_per_mm_x: 200.0,
-            steps_per_mm_y: 200.0,
-            steps_per_mm_z: 200.0,
-            steps_per_turn_c: 200.0,
-        }
+const DEFAULT_UNITSTEPS: [f32; board::NUM_MOTORS] = [200.0; board::NUM_MOTORS];
+
+/// Which motor index drives a linear axis.
+pub fn axis_to_motor(axis: settings::Axis) -> usize {
+    match axis {
+        settings::Axis::X => M_X,
+        settings::Axis::Y => M_Y,
+        settings::Axis::Z => M_Z,
     }
 }
 
 pub struct Motors {
-    pub x: board::MotorStepping,
-    pub y: board::MotorStepping,
-    pub z: board::MotorStepping,
-    pub c: board::MotorStepping,
-    pub cal: AxisConfig,
-    /// Per-axis homing offset in steps (x/y/z), added on the raw step counter so
-    /// the homed position reads as the configured origin. C has no home offset.
-    /// TODO: is it per-axis or per-motor? If per-motor, int-index is OK. If per-axis, use coords::Axis-index.
-    pub home_offset: [i32; 3],
+    step: [board::MotorStepping; board::NUM_MOTORS],
+    /// Steps per +1 unit value. Linear motors take mm; C takes turns.
+    unitsteps: [f32; board::NUM_MOTORS],
+    /// Per-motor homing offset in raw steps, added on the step counter so the
+    /// homed position reads as the configured origin. Only XYZ get re-anchored;
+    /// C stays at 0.
+    home_offset: [i32; board::NUM_MOTORS],
 }
 
 impl Motors {
+    pub fn new(step: [board::MotorStepping; board::NUM_MOTORS]) -> Self {
+        Self {
+            step,
+            unitsteps: DEFAULT_UNITSTEPS,
+            home_offset: [0; board::NUM_MOTORS],
+        }
+    }
+
     pub fn set_target(&self, pos: coords::PosPhys) {
-        self.x
-            .set_target((pos.x * self.cal.steps_per_mm_x) as i32 + self.home_offset[0]);
-        self.y
-            .set_target((pos.y * self.cal.steps_per_mm_y) as i32 + self.home_offset[1]);
-        self.z
-            .set_target((pos.z * self.cal.steps_per_mm_z) as i32 + self.home_offset[2]);
-        self.c
-            .set_target((pos.c * self.cal.steps_per_turn_c) as i32);
+        self.step[M_X].set_target((pos.x * self.unitsteps[M_X]) as i32 + self.home_offset[M_X]);
+        self.step[M_Y].set_target((pos.y * self.unitsteps[M_Y]) as i32 + self.home_offset[M_Y]);
+        self.step[M_Z].set_target((pos.z * self.unitsteps[M_Z]) as i32 + self.home_offset[M_Z]);
+        self.step[M_C].set_target((pos.c * self.unitsteps[M_C]) as i32);
     }
 
     pub fn current(&self) -> coords::PosPhys {
         coords::PosPhys {
-            x: (self.x.current() - self.home_offset[0]) as f32 / self.cal.steps_per_mm_x,
-            y: (self.y.current() - self.home_offset[1]) as f32 / self.cal.steps_per_mm_y,
-            z: (self.z.current() - self.home_offset[2]) as f32 / self.cal.steps_per_mm_z,
-            c: self.c.current() as f32 / self.cal.steps_per_turn_c,
+            x: (self.step[M_X].current() - self.home_offset[M_X]) as f32 / self.unitsteps[M_X],
+            y: (self.step[M_Y].current() - self.home_offset[M_Y]) as f32 / self.unitsteps[M_Y],
+            z: (self.step[M_Z].current() - self.home_offset[M_Z]) as f32 / self.unitsteps[M_Z],
+            c: self.step[M_C].current() as f32 / self.unitsteps[M_C],
         }
     }
 
     /// Re-anchor `axis` so its current physical reading becomes `origin_mm`, by
     /// setting the homing offset against the live raw step counter.
     pub fn reanchor(&mut self, axis: settings::Axis, origin_mm: f32) {
-        let (raw, spm) = match axis {
-            settings::Axis::X => (self.x.current(), self.cal.steps_per_mm_x),
-            settings::Axis::Y => (self.y.current(), self.cal.steps_per_mm_y),
-            settings::Axis::Z => (self.z.current(), self.cal.steps_per_mm_z),
-        };
-        self.home_offset[settings::axis_idx(axis)] = raw - (origin_mm * spm) as i32;
+        let m = axis_to_motor(axis);
+        self.home_offset[m] = self.step[m].current() - (origin_mm * self.unitsteps[m]) as i32;
+    }
+
+    pub fn set_unitsteps(&mut self, motor_idx: usize, value: f32) {
+        if let Some(slot) = self.unitsteps.get_mut(motor_idx) {
+            *slot = value;
+        }
+    }
+
+    /// Set a single motor's target from a value in "unit" (mm or turns).
+    /// Out-of-range index is ignored.
+    pub fn set_motor_target(&self, motor_idx: usize, value_u: f32) {
+        if let Some(step) = self.step.get(motor_idx) {
+            step.set_target((value_u * self.unitsteps[motor_idx]) as i32);
+        }
+    }
+
+    /// Raw microstep counters for all motors (m0..m6).
+    pub fn step_counts(&self) -> [i32; board::NUM_MOTORS] {
+        core::array::from_fn(|i| self.step[i].current())
     }
 }

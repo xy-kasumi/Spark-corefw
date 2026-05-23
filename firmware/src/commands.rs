@@ -9,6 +9,7 @@ use embassy_sync::channel;
 use embassy_sync::mutex;
 use model::coordstate;
 use model::gcode;
+use model::motion;
 use model::pstate;
 
 pub use model::command::Command;
@@ -18,7 +19,6 @@ use crate::canceler;
 use crate::drivers::tmc2209;
 use crate::homing;
 use crate::line_tx;
-use crate::motion;
 use crate::pulser;
 use crate::settings;
 use crate::wirefeed;
@@ -41,7 +41,8 @@ pub async fn exec(
     cmd: Command,
     cont_prev: bool,
     cont_next: bool,
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motion: &crate::SharedMotion,
+    motors: &crate::SharedMotors,
     tmc: &settings::SharedTmc,
     pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
@@ -54,31 +55,24 @@ pub async fn exec(
 ) {
     match cmd {
         Command::Gcode(gcode::Parsed::Rapid(spec)) => {
-            {
-                // Lock order motion -> coord (matches signals.rs) to avoid deadlock.
-                let mut m = motion.lock().await;
-                let here = m.current_position();
-                let target = coord.lock().await.resolve_move(&spec, here);
-                m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
-            }
+            let here = motors.lock().await.current();
+            let target = coord.lock().await.resolve_move(&spec, here);
+            motion
+                .lock()
+                .await
+                .start_rapid(target, RAPID_SPEED_MM_PER_S);
             // Block until the rapid finishes; otherwise the next queued command
             // would overwrite this still-running move.
             wait_move_end(motion, pulser, cont_next).await;
         }
         Command::Gcode(gcode::Parsed::Feed(spec)) => {
-            let (target, chaining) = {
-                let m = motion.lock().await;
-                let here = m.current_position();
-                let target = coord.lock().await.resolve_move(&spec, here);
-                // Only chain onto a still-running EDM move; a cancel drops it to
-                // Idle and breaks the chain even if cont_prev was set.
-                (
-                    target,
-                    cont_prev && m.mode() == model::motion::Mode::EdmMove,
-                )
-            };
+            let here = motors.lock().await.current();
+            let target = coord.lock().await.resolve_move(&spec, here);
+            // Only chain onto a still-running EDM move; a cancel drops it to
+            // Idle and breaks the chain even if cont_prev was set.
+            let chaining = cont_prev && motion.lock().await.mode() == motion::Mode::EdmMove;
             if chaining {
-                motion.lock().await.state().enqueue_edm(target, cont_next);
+                motion.lock().await.enqueue_edm(target, cont_next);
             } else {
                 pulser
                     .lock()
@@ -90,16 +84,13 @@ pub async fn exec(
                         pulser_cfg.duty_pct,
                     )
                     .await;
-                motion.lock().await.state().start_edm(target, cont_next);
+                motion.lock().await.start_edm(target, cont_next);
             }
             wait_move_end(motion, pulser, cont_next).await;
         }
         Command::Gcode(gcode::Parsed::Probe(spec)) => {
-            let target = {
-                let m = motion.lock().await;
-                let here = m.current_position();
-                coord.lock().await.resolve_move(&spec, here)
-            };
+            let here = motors.lock().await.current();
+            let target = coord.lock().await.resolve_move(&spec, here);
             pulser
                 .lock()
                 .await
@@ -113,12 +104,11 @@ pub async fn exec(
             motion
                 .lock()
                 .await
-                .state()
                 .start_probe(target, PROBE_SPEED_MM_PER_S);
             wait_move_end(motion, pulser, false).await;
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
-            exec_home(target, motion, homing).await;
+            exec_home(target, motion, motors, homing).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
             coord.lock().await.select(a);
@@ -150,9 +140,7 @@ pub async fn exec(
             };
         }
         Command::Set(key, val) => {
-            if let Err(e) =
-                settings::write(repo, &key, val, motion, tmc, coord, wirefeed, homing).await
-            {
+            if let Err(e) = settings::write(repo, &key, val, motors, tmc, coord, homing).await {
                 let line = match e {
                     settings::Error::UnknownKey => pstate::ErrorLine::new()
                         .msg(format_args!("unknown key {}", key.as_str()))
@@ -168,7 +156,7 @@ pub async fn exec(
             dump_settings(line_tx, repo).await;
         }
         Command::Stat => {
-            dump_stat(line_tx, motion, tmc, pulser, wirefeed).await;
+            dump_stat(line_tx, motion, motors, tmc, pulser, wirefeed).await;
         }
     }
 }
@@ -178,7 +166,7 @@ pub async fn exec(
 /// With `cont_next`, return once the path can accept the next chained segment
 /// (pulser stays energized); otherwise wait for full stop and de-energize.
 async fn wait_move_end(
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motion: &crate::SharedMotion,
     pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
     cont_next: bool,
 ) {
@@ -187,7 +175,7 @@ async fn wait_move_end(
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
     } else {
-        while motion.lock().await.mode() != model::motion::Mode::Idle {
+        while motion.lock().await.mode() != motion::Mode::Idle {
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         pulser.lock().await.deenergize().await;
@@ -199,7 +187,8 @@ async fn wait_move_end(
 /// sensing is dead on this board, so the move always stops at target.
 async fn exec_home(
     target: gcode::HomeSpec,
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motion: &crate::SharedMotion,
+    motors: &crate::SharedMotors,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) {
     // Snapshot once; homing params don't change mid-home.
@@ -220,23 +209,30 @@ async fn exec_home(
 
         let cfg = homing.axis(axis);
         let watch = canceler::CANCELER.watch();
-        {
-            let mut m = motion.lock().await;
-            let mut target = m.current_position();
-            match axis {
-                model::settings::Axis::X => target.x += cfg.side * cfg.travel,
-                model::settings::Axis::Y => target.y += cfg.side * cfg.travel,
-                model::settings::Axis::Z => target.z += cfg.side * cfg.travel,
-            }
-            m.state().start_rapid(target, RAPID_SPEED_MM_PER_S);
+        let mut target = motors.lock().await.current();
+        match axis {
+            model::settings::Axis::X => target.x += cfg.side * cfg.travel,
+            model::settings::Axis::Y => target.y += cfg.side * cfg.travel,
+            model::settings::Axis::Z => target.z += cfg.side * cfg.travel,
         }
-        while motion.lock().await.mode() != model::motion::Mode::Idle {
+        motion
+            .lock()
+            .await
+            .start_rapid(target, RAPID_SPEED_MM_PER_S);
+        while motion.lock().await.mode() != motion::Mode::Idle {
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         if watch.cancelled() {
             break; // cancelled mid-home: do not re-anchor to a bogus origin
         }
-        motion.lock().await.finish_home(axis, cfg.origin);
+        // Re-anchor motors to the configured origin, then sync motion's tracked
+        // position to the new physical reading.
+        let here = {
+            let mut m = motors.lock().await;
+            m.reanchor(axis, cfg.origin);
+            m.current()
+        };
+        motion.lock().await.set_position(here);
     }
 }
 
@@ -255,13 +251,12 @@ async fn dump_settings(line_tx: &line_tx::LineTx, repo: &model::settings::Repo) 
         .await;
 }
 
-/// Emit one `stat` p-state framed by `stat <` / `stat >`, one kv line per per-module field.
-///
-/// Slow: each TMC register read awaits a UART roundtrip + 10 ms settle, so polling all 7
-/// drivers across 4 registers takes several hundred ms.
+/// Emit one big `stat` p-state for debugging.
+/// It is slow takes several hundred ms. (esp TMC register dump)
 async fn dump_stat(
     line_tx: &line_tx::LineTx,
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motion: &crate::SharedMotion,
+    motors: &crate::SharedMotors,
     tmc: &settings::SharedTmc,
     pulser: &mutex::Mutex<raw::NoopRawMutex, board::Pulser>,
     wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
@@ -270,15 +265,13 @@ async fn dump_stat(
         .send(pstate::Line::new(pstate::PsType::Stat).begin())
         .await;
 
-    let (mode, steps) = {
-        let m = motion.lock().await;
-        (m.mode(), m.motor_step_counts())
-    };
+    let mode = motion.lock().await.mode();
+    let steps = motors.lock().await.step_counts();
     let mode_name = match mode {
-        model::motion::Mode::Idle => "idle",
-        model::motion::Mode::Rapid => "rapid",
-        model::motion::Mode::EdmMove => "edm",
-        model::motion::Mode::Probing => "probe",
+        motion::Mode::Idle => "idle",
+        motion::Mode::Rapid => "rapid",
+        motion::Mode::EdmMove => "edm",
+        motion::Mode::Probing => "probe",
     };
     line_tx
         .send(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name))

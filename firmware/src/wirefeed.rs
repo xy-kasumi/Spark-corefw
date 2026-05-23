@@ -1,17 +1,14 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Wire feed: integrates a feedrate into motor6's step target, one step per tick.
-
-use crate::board;
+//! Wire feed: integrates a feedrate into a wire-spool position, advanced one
+//! step per tick.
 
 /// 1 ms tick period (the orchestrator ticks at 1 kHz).
 const TICK_PERIOD_S: f32 = 0.001;
-const DEFAULT_UNITSTEPS: f32 = 200.0;
 
+#[derive(Default)]
 pub struct Wirefeed {
-    step: board::MotorStepping,
-    unitsteps: f32,
     feeding: bool,
     pos_mm: f32,
     mm_per_tick: f32,
@@ -19,15 +16,8 @@ pub struct Wirefeed {
 }
 
 impl Wirefeed {
-    pub fn new(step: board::MotorStepping) -> Self {
-        Self {
-            step,
-            unitsteps: DEFAULT_UNITSTEPS,
-            feeding: false,
-            pos_mm: 0.0,
-            mm_per_tick: 0.0,
-            rate_mm_per_min: 0.0,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn start(&mut self, rate_mm_per_min: f32) {
@@ -40,17 +30,14 @@ impl Wirefeed {
         self.feeding = false;
     }
 
-    pub fn set_unitsteps(&mut self, unitsteps: f32) {
-        self.unitsteps = unitsteps;
-    }
-
-    /// Advance one tick: integrate position and update motor6's step target.
-    pub fn tick(&mut self) {
+    /// Advance one tick. Returns the new wire position in mm when feeding, else
+    /// `None` (no advance this tick).
+    pub fn tick(&mut self) -> Option<f32> {
         if !self.feeding {
-            return;
+            return None;
         }
         self.pos_mm += self.mm_per_tick;
-        self.step.set_target((self.pos_mm * self.unitsteps) as i32);
+        Some(self.pos_mm)
     }
 
     pub fn feeding(&self) -> bool {

@@ -15,8 +15,7 @@ use model::settings;
 use crate::board;
 use crate::homing;
 use crate::line_tx;
-use crate::motion;
-use crate::wirefeed;
+use crate::motor;
 
 pub type SharedTmc = mutex::Mutex<raw::NoopRawMutex, [board::MotorConfig; board::NUM_MOTORS]>;
 
@@ -37,10 +36,9 @@ fn motor_idx(s: &str) -> Result<usize, Error> {
 async fn dispatch(
     key: &str,
     val: f32,
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motors: &mutex::Mutex<raw::NoopRawMutex, motor::Motors>,
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
-    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     let mut parts: [&str; settings::STG_KEY_SEGS_CAP] = [""; settings::STG_KEY_SEGS_CAP];
@@ -76,16 +74,8 @@ async fn dispatch(
             }
             Ok(())
         }
-        ["m", "6", "unitsteps"] => {
-            wirefeed.lock().await.set_unitsteps(val);
-            Ok(())
-        }
         ["m", i, "unitsteps"] => {
-            // m0..=m3 feed Motion's per-axis calibration; m4/m5 have no target.
-            motion
-                .lock()
-                .await
-                .set_motor_unitsteps(motor_idx(i)? as u8, val);
+            motors.lock().await.set_unitsteps(motor_idx(i)?, val);
             Ok(())
         }
         ["cs", c, "pos", a] => {
@@ -111,35 +101,29 @@ pub async fn write(
     repo: &mut settings::Repo,
     key: &str,
     val: settings::Value,
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motors: &mutex::Mutex<raw::NoopRawMutex, motor::Motors>,
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
-    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
 ) -> Result<(), Error> {
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
     }
-    dispatch(key, val.get(), motion, tmc, coord, wirefeed, homing).await?;
+    dispatch(key, val.get(), motors, tmc, coord, homing).await?;
     let _ = repo.set(key, val); // infallible: key present
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn apply_all(
     repo: &settings::Repo,
-    motion: &mutex::Mutex<raw::NoopRawMutex, motion::Motion>,
+    motors: &mutex::Mutex<raw::NoopRawMutex, motor::Motors>,
     tmc: &SharedTmc,
     coord: &mutex::Mutex<raw::NoopRawMutex, coordstate::CoordState>,
-    wirefeed: &mutex::Mutex<raw::NoopRawMutex, wirefeed::Wirefeed>,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
     line_tx: &line_tx::LineTx,
 ) -> bool {
     for (key, v) in repo.iter() {
-        if dispatch(key, v, motion, tmc, coord, wirefeed, homing)
-            .await
-            .is_err()
-        {
+        if dispatch(key, v, motors, tmc, coord, homing).await.is_err() {
             let _ = line_tx
                 .try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", false));
             let _ = line_tx
