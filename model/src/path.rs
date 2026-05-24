@@ -32,8 +32,7 @@ pub struct PathBuffer<const N: usize> {
     curr_seg_src: coords::PosPhys,
     curr_seg_dst: coords::PosPhys,
 
-    next_seg_avail: bool,
-    next_pos: coords::PosPhys,
+    next_pos: Option<coords::PosPhys>,
 
     fraction: f32,
 
@@ -50,8 +49,7 @@ impl<const N: usize> PathBuffer<N> {
             curr_seg_d: 0.0,
             curr_seg_src: src,
             curr_seg_dst: dst,
-            next_seg_avail: false,
-            next_pos: src,
+            next_pos: None,
             fraction: 0.0,
             cum_notches: 0,
         }
@@ -70,24 +68,19 @@ impl<const N: usize> PathBuffer<N> {
             return false;
         }
         let curr = self.pos_history[self.ix_history];
-        let end = if self.next_seg_avail {
-            self.next_pos
-        } else {
-            self.curr_seg_dst
-        };
+        let end = self.next_pos.unwrap_or(self.curr_seg_dst);
         curr.distance_to(&end) <= RESOLUTION_MM
     }
 
     /// True if [`extend`](Self::extend) can be called without overwriting the queued segment.
     pub fn can_extend(&self) -> bool {
-        !self.next_seg_avail
+        self.next_pos.is_none()
     }
 
     /// Append the next path segment endpoint. If called when not [`can_extend`](Self::can_extend),
     /// the previously queued endpoint is overwritten.
     pub fn extend(&mut self, next: coords::PosPhys) {
-        self.next_pos = next;
-        self.next_seg_avail = true;
+        self.next_pos = Some(next);
     }
 
     /// Move the cursor by `d` mm. Negative `d` retracts.
@@ -105,43 +98,44 @@ impl<const N: usize> PathBuffer<N> {
         self.fraction -= d_notches as f32 * RESOLUTION_MM;
 
         if d_notches < 0 {
+            let want_retract = -d_notches;
             let available = self.num_history as i32 - self.notches_retract - 1;
-            if d_notches < -available {
-                self.notches_retract += available;
-                self.cum_notches -= available;
-                return Err(MoveError::RetractLimitExceeded);
+            let actual_retract = want_retract.min(available);
+            self.notches_retract += actual_retract;
+            self.cum_notches -= actual_retract;
+            return if want_retract > available {
+                Err(MoveError::RetractLimitExceeded)
             } else {
-                self.notches_retract += -d_notches;
-                self.cum_notches -= -d_notches;
-                return Ok(());
-            }
-        } else if self.notches_retract > d_notches {
-            self.notches_retract -= d_notches;
-            self.cum_notches += d_notches;
-            return Ok(());
-        } else {
-            d_notches -= self.notches_retract;
-            self.cum_notches += self.notches_retract;
-            self.notches_retract = 0;
+                Ok(())
+            };
         }
 
-        // d_notches > 0: advance forward along the path.
-        for _ in 0..d_notches {
-            let mut clipped = false;
-            let seg_len = self.curr_seg_src.distance_to(&self.curr_seg_dst);
+        // d_notches > 0: consume any retract debt first, then advance along the path.
+        let consume_retract = d_notches.min(self.notches_retract);
+        self.notches_retract -= consume_retract;
+        self.cum_notches += consume_retract;
+        d_notches -= consume_retract;
 
+        for _ in 0..d_notches {
+            let seg_len = self.curr_seg_src.distance_to(&self.curr_seg_dst);
             self.curr_seg_d += RESOLUTION_MM;
-            if self.curr_seg_d >= seg_len {
-                if !self.next_seg_avail {
-                    self.curr_seg_d = seg_len;
-                    clipped = true;
-                } else {
-                    self.curr_seg_d -= seg_len;
-                    self.curr_seg_src = self.curr_seg_dst;
-                    self.curr_seg_dst = self.next_pos;
-                    self.next_seg_avail = false;
+
+            let clipped = if self.curr_seg_d >= seg_len {
+                match self.next_pos.take() {
+                    Some(next) => {
+                        self.curr_seg_d -= seg_len;
+                        self.curr_seg_src = self.curr_seg_dst;
+                        self.curr_seg_dst = next;
+                        false
+                    }
+                    None => {
+                        self.curr_seg_d = seg_len;
+                        true
+                    }
                 }
-            }
+            } else {
+                false
+            };
 
             let pos = if seg_len < RESOLUTION_MM {
                 self.curr_seg_src
@@ -170,8 +164,8 @@ impl<const N: usize> PathBuffer<N> {
     /// Forward distance available before hitting the end of the written path.
     pub fn forward_buffer(&self) -> f32 {
         let mut d_segs_in_buf = self.curr_seg_src.distance_to(&self.curr_seg_dst);
-        if self.next_seg_avail {
-            d_segs_in_buf += self.curr_seg_dst.distance_to(&self.next_pos);
+        if let Some(next) = self.next_pos {
+            d_segs_in_buf += self.curr_seg_dst.distance_to(&next);
         }
         if self.notches_retract == 0 {
             d_segs_in_buf - self.curr_seg_d
