@@ -166,9 +166,6 @@ pub async fn exec(
             core.lock().await.wirefeed.stop();
         }
         Command::Gcode(gcode::Parsed::SetPulse(params)) => {
-            // Modal: the pulser command only updates the config the next feed/probe
-            // energizes with. Omitted P/Q/R resolve to the spec defaults here, in the
-            // executor — the parser stays free of pulser policy.
             let d = pulser::Config::default();
             *pulser_cfg = pulser::Config {
                 tool_negative: params.tool_negative,
