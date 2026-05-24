@@ -27,9 +27,9 @@ pub const CMD_QUEUE_CAP: usize = 64;
 
 pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
 
-/// Commands popped from [`CmdQueue`] but not yet finished — covers the running
-/// command and the one in the executor's peek buffer.
-/// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field.
+/// Set to 1 while the executor is processing a popped command, 0 otherwise.
+/// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field, which the
+/// host treats as a "machine idle" indicator (num == 0 ⇒ idle).
 pub static OUTSTANDING: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
 /// Rapid feed, also used for homing moves.
@@ -40,8 +40,7 @@ const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 #[allow(clippy::too_many_arguments)]
 pub async fn exec(
     cmd: Command,
-    cont_prev: bool,
-    cont_next: bool,
+    cmd_queue: &CmdQueue,
     core: &SharedCore,
     tmc: &settings::SharedTmc,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
@@ -50,36 +49,77 @@ pub async fn exec(
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut pulser::Config,
 ) {
+    // Take a cancel snapshot at exec entry. The new wait-then-dispatch shape
+    // (most commands wait for motion idle before issuing) means a cancel landing
+    // during the wait would otherwise resurrect motion the operator just stopped.
+    // Each dispatch site re-checks `watch.cancelled()` after the prerequisite
+    // wait — and, for motion-touching commands, under the dispatch lock so
+    // there's no yield between check and issue.
+    let watch = canceler.watch();
     match cmd {
         Command::Gcode(gcode::Parsed::Rapid(spec)) => {
+            settle_for_non_edm(core).await;
             {
                 let mut c = core.lock().await;
+                if watch.cancelled() {
+                    return;
+                }
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
                 c.motion.start_rapid(target, RAPID_SPEED_MM_PER_S);
             }
-            // Block until the rapid finishes; otherwise the next queued command
-            // would overwrite this still-running move.
-            wait_move_end(core, cont_next).await;
+            wait_until_idle(core).await;
         }
         Command::Gcode(gcode::Parsed::Feed(spec)) => {
-            let (target, chaining) = {
+            // Wait until motion can accept this segment (Idle, or EdmMove with a
+            // free extension slot); then dispatch in one lock so the mode read
+            // and `do_edm` see the same state.
+            loop {
                 let mut c = core.lock().await;
+                if watch.cancelled() {
+                    return;
+                }
+                if !c.motion.ready_for_edm() {
+                    drop(c);
+                    embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
+                    continue;
+                }
+                let starting_fresh = c.motion.mode() == motion::Mode::Idle;
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
-                // Only chain onto a still-running EDM move; a cancel drops it to
-                // Idle and breaks the chain even if cont_prev was set.
-                let chaining = cont_prev && c.motion.mode() == motion::Mode::EdmMove;
-                if chaining {
-                    c.motion.enqueue_edm(target, cont_next);
+                if starting_fresh {
+                    // Pulser carve-out: I²C writes hold Core across .await.
+                    c.pulser
+                        .energize(
+                            pulser_cfg.tool_negative,
+                            pulser_cfg.pulse_us,
+                            pulser_cfg.current_a,
+                            pulser_cfg.duty_pct,
+                        )
+                        .await;
                 }
-                (target, chaining)
-            };
-            if !chaining {
+                c.motion.do_edm(target);
+                break;
+            }
+            // Settle: keep this command "outstanding" until either the next
+            // command is queued (it'll chain or transition the chain) or motion
+            // drains to Idle (chain ended naturally — or cancelled). This
+            // preserves the `?queue` num==0 ⇔ machine idle contract.
+            while cmd_queue.is_empty() && core.lock().await.motion.mode() != motion::Mode::Idle {
+                embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
+            }
+        }
+        Command::Gcode(gcode::Parsed::Probe(spec)) => {
+            wait_until_idle(core).await;
+            {
+                let mut c = core.lock().await;
+                if watch.cancelled() {
+                    return;
+                }
+                let here = c.motors.current();
+                let target = c.coord.resolve_move(&spec, here);
                 // Pulser carve-out: I²C writes hold Core across .await.
-                core.lock()
-                    .await
-                    .pulser
+                c.pulser
                     .energize(
                         pulser_cfg.tool_negative,
                         pulser_cfg.pulse_us,
@@ -87,53 +127,56 @@ pub async fn exec(
                         pulser_cfg.duty_pct,
                     )
                     .await;
-                core.lock().await.motion.start_edm(target, cont_next);
+                c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
             }
-            wait_move_end(core, cont_next).await;
-        }
-        Command::Gcode(gcode::Parsed::Probe(spec)) => {
-            let target = {
-                let mut c = core.lock().await;
-                let here = c.motors.current();
-                c.coord.resolve_move(&spec, here)
-            };
-            // Pulser carve-out: I²C writes hold Core across .await.
-            core.lock()
-                .await
-                .pulser
-                .energize(
-                    pulser_cfg.tool_negative,
-                    pulser_cfg.pulse_us,
-                    pulser_cfg.current_a,
-                    pulser_cfg.duty_pct,
-                )
-                .await;
-            core.lock()
-                .await
-                .motion
-                .start_probe(target, PROBE_SPEED_MM_PER_S);
-            wait_move_end(core, false).await;
+            wait_until_idle(core).await;
+            // Pulser carve-out: I²C write holds Core across .await.
+            core.lock().await.pulser.deenergize().await;
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             exec_home(target, core, homing, canceler).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             core.lock().await.coord.select(a);
         }
         Command::Gcode(gcode::Parsed::PumpOn) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             core.lock().await.pump.set_enable(true);
             wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::PumpOff) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             core.lock().await.pump.set_enable(false);
             wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             core.lock().await.wirefeed.start(rate);
             // Wait 2 s for wire tension to stabilize.
             embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             core.lock().await.wirefeed.stop();
         }
         Command::Gcode(gcode::Parsed::SetPulse(params)) => {
@@ -149,6 +192,10 @@ pub async fn exec(
             };
         }
         Command::Set(key, val) => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             if let Err(e) = settings::write(repo, &key, val, core, tmc, homing).await {
                 let line = match e {
                     settings::Error::UnknownKey => pstate::ErrorLine::new()
@@ -162,29 +209,38 @@ pub async fn exec(
             }
         }
         Command::Get => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             dump_settings(line_tx, repo).await;
         }
         Command::Stat => {
+            settle_for_non_edm(core).await;
+            if watch.cancelled() {
+                return;
+            }
             dump_stat(line_tx, core, tmc).await;
         }
     }
 }
 
-/// Wait for the current move to finish, polling on the tick cadence while the
-/// tick loop concurrently advances motion.
-/// With `cont_next`, return once the path can accept the next chained segment
-/// (pulser stays energized); otherwise wait for full stop and de-energize.
-async fn wait_move_end(core: &SharedCore, cont_next: bool) {
-    if cont_next {
-        while !core.lock().await.motion.can_enqueue() {
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
-        }
-    } else {
-        while core.lock().await.motion.mode() != motion::Mode::Idle {
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
-        }
+/// Poll until motion reaches Idle, on the tick cadence.
+async fn wait_until_idle(core: &SharedCore) {
+    while core.lock().await.motion.mode() != motion::Mode::Idle {
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
+    }
+}
+
+/// Wait for motion idle and ensure the pulser is de-energized — the precondition
+/// for any command that is not part of an EDM chain. Deenergize is lazy so
+/// commands that don't follow an EDM chain pay no I²C cost.
+async fn settle_for_non_edm(core: &SharedCore) {
+    wait_until_idle(core).await;
+    let mut c = core.lock().await;
+    if c.pulser.energized() {
         // Pulser carve-out: I²C write holds Core across .await.
-        core.lock().await.pulser.deenergize().await;
+        c.pulser.deenergize().await;
     }
 }
 

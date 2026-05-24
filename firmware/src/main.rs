@@ -27,7 +27,6 @@ use embassy_sync::channel;
 use embassy_sync::mutex;
 use model::command;
 use model::coordstate;
-use model::gcode;
 use model::linecomm;
 use model::motion;
 use model::pstate;
@@ -266,9 +265,9 @@ struct RxBatch {
     fastsets: heapless::Vec<command::FastKey, TICK_FS_CAP>,
 }
 
-/// Pops parsed [`Command`]s from the queue and runs each. Carries a one-slot peek
-/// buffer so the executor can see the next command before committing — used to
-/// detect Feed-chain continuity (`cont_next`).
+/// Pops parsed [`Command`]s from the queue and runs each. Feed-chain continuity
+/// is decided inside `exec` by observing motion state (`ready_for_edm`) and the
+/// queue depth — no peek buffer or `cont_*` flags are tracked here.
 async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
     core: &SharedCore,
@@ -280,38 +279,14 @@ async fn cmd_loop(
     let mut repo = model::settings::Repo::defaults();
     let mut pulser_cfg = pulser::Config::default();
 
-    let mut peek_buf: Option<command::Command> = None;
-    // Tracks whether the previous command was a feed with a following feed (cont_next).
-    let mut last_has_cont = false;
     loop {
         // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
         // `await` as the only yield point means the signal reader can't observe a torn count.
-        let curr = match peek_buf.take() {
-            Some(c) => c,
-            None => {
-                let c = cmd_queue.receive().await;
-                commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
-                c
-            }
-        };
-        let peek = match cmd_queue.try_receive() {
-            Ok(c) => {
-                commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
-                Some(c)
-            }
-            Err(_) => None,
-        };
-        // Chain consecutive feeds: cont_next is set when both this and the peeked
-        // command are feeds. cont_prev carries the previous iteration's cont_next.
-        let cont_next = is_feed(&curr) && peek.as_ref().map_or(false, is_feed);
-        // The lookahead is already pulled out of the channel, so a cancel's queue
-        // drain (signals::exec) can't reach it. Watch the canceler and drop the
-        // held lookahead ourselves if a cancel landed during this command.
-        let watch = canceler.watch();
+        let curr = cmd_queue.receive().await;
+        commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
         commands::exec(
             curr,
-            last_has_cont,
-            cont_next,
+            cmd_queue,
             core,
             tmc,
             homing,
@@ -322,16 +297,6 @@ async fn cmd_loop(
         )
         .await;
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
-        if watch.cancelled() {
-            if peek.is_some() {
-                commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
-            }
-            last_has_cont = false;
-            peek_buf = None;
-        } else {
-            last_has_cont = cont_next;
-            peek_buf = peek;
-        }
     }
 }
 
@@ -349,8 +314,4 @@ async fn capture_stats(core: &SharedCore) -> signals::MachineStats {
         open_rate: ratio.open,
         short_rate: ratio.short,
     }
-}
-
-fn is_feed(cmd: &command::Command) -> bool {
-    matches!(cmd, command::Command::Gcode(gcode::Parsed::Feed(_)))
 }

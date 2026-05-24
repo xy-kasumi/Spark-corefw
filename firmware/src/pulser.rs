@@ -192,6 +192,10 @@ impl<B: Bus> Device<B> {
         self.last_ratio.good > 0.0 || self.last_ratio.short > 0.0
     }
 
+    pub fn energized(&self) -> bool {
+        self.energized
+    }
+
     /// Gather a [`PulserStat`] snapshot for the `stat` command. Reads the config
     /// registers fresh (the board, not this struct, holds them). Must finish
     /// before the caller emits lines, so no `line_tx` here — see [`PulserStat`].

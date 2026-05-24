@@ -54,9 +54,6 @@ pub struct MotionState<const N: usize> {
     mode: Mode,
     path: path::PathBuffer<N>,
     feed_mm_per_s: f32,
-    /// EDM move only: stop when the path end is reached. False while more
-    /// segments may still be chained (continuation).
-    edm_stop_at_target: bool,
     /// Furthest net distance reached since the current move began. Reset at each
     /// move start, updated every moving tick. Reported by `?edm`.
     distance_max: f32,
@@ -68,7 +65,6 @@ impl<const N: usize> MotionState<N> {
             mode: Mode::Idle,
             path: path::PathBuffer::new(start, start),
             feed_mm_per_s: 0.0,
-            edm_stop_at_target: true,
             distance_max: 0.0,
         }
     }
@@ -92,30 +88,41 @@ impl<const N: usize> MotionState<N> {
         self.mode = Mode::Probing;
     }
 
-    /// Begin an EDM-controlled move toward `target`. When `has_cont`, the move
-    /// does not stop at the path end — a following segment is expected.
-    pub fn start_edm(&mut self, target: coords::PosPhys, has_cont: bool) {
-        let here = self.path.position();
-        self.path = path::PathBuffer::new(here, target);
-        self.feed_mm_per_s = 0.0;
-        self.edm_stop_at_target = !has_cont;
-        self.distance_max = 0.0;
-        self.mode = Mode::EdmMove;
-    }
-
-    /// Append the next EDM segment endpoint to the running move. When `has_cont`
-    /// is false this is the last segment, so the move stops once it is reached.
-    pub fn enqueue_edm(&mut self, target: coords::PosPhys, has_cont: bool) {
-        self.path.extend(target);
-        if !has_cont {
-            self.edm_stop_at_target = true;
+    /// Dispatch an EDM segment endpoint. Starts a fresh chain when [`Idle`], or
+    /// extends the running chain when [`EdmMove`]. The caller must ensure
+    /// [`ready_for_edm`](Self::ready_for_edm); calling from any other state is
+    /// a contract violation.
+    ///
+    /// The chain ends naturally when no further segment is appended before the
+    /// current one finishes; motion then transitions to [`Idle`] and the next
+    /// `do_edm` resets `distance_max`.
+    ///
+    /// [`Idle`]: Mode::Idle
+    /// [`EdmMove`]: Mode::EdmMove
+    pub fn do_edm(&mut self, target: coords::PosPhys) {
+        match self.mode {
+            Mode::Idle => {
+                let here = self.path.position();
+                self.path = path::PathBuffer::new(here, target);
+                self.feed_mm_per_s = 0.0;
+                self.distance_max = 0.0;
+                self.mode = Mode::EdmMove;
+            }
+            Mode::EdmMove => {
+                self.path.extend(target);
+            }
+            _ => panic!("do_edm requires Idle or EdmMove"),
         }
     }
 
-    /// True when a further EDM segment can be appended without overwriting one
-    /// already queued.
-    pub fn can_enqueue(&self) -> bool {
-        self.path.can_extend()
+    /// True when [`do_edm`](Self::do_edm) can be called: either Idle (starts a
+    /// fresh chain) or EdmMove with a free extension slot.
+    pub fn ready_for_edm(&self) -> bool {
+        match self.mode {
+            Mode::Idle => true,
+            Mode::EdmMove => self.path.can_extend(),
+            _ => false,
+        }
     }
 
     /// Reset the controller to hold at `here` (degenerate path, Idle). Used for
@@ -156,7 +163,7 @@ impl<const N: usize> MotionState<N> {
                 } else if input.short_rate > EDM_SHORT_RATE_THRESH {
                     self.path.move_by(EDM_RETRACT_MM);
                 }
-                if self.edm_stop_at_target && self.path.at_dst() {
+                if self.path.at_dst() {
                     self.mode = Mode::Idle;
                 }
             }
