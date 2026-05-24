@@ -181,9 +181,8 @@ async fn tick_loop(
 
         {
             let mut c = core.lock().await;
-            if let Ok(o) = c.motion.tick(input) {
-                c.motors.set_target(o.target);
-            }
+            let o = c.motion.tick(input);
+            c.motors.set_target(o.target);
             if let Some(pos_mm) = c.wirefeed.tick() {
                 c.motors.set_motor_target(M_WIREFEED, pos_mm);
             }

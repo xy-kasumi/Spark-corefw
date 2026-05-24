@@ -14,8 +14,6 @@ const EDM_RETRACT_MM: f32 = -5e-3; // -5 µm/tick when too close (short)
 pub struct MotionOutputs {
     /// Target axis position in machine mm to be commanded to motors this tick.
     pub target: coords::PosPhys,
-    /// True once the controller reaches the end of the written path.
-    pub at_end: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -135,10 +133,10 @@ impl<const N: usize> MotionState<N> {
     }
 
     /// Advance the controller one tick.
-    pub fn tick(&mut self, input: MotionInputs) -> Result<MotionOutputs, path::MoveError> {
+    pub fn tick(&mut self, input: MotionInputs) -> MotionOutputs {
         match self.mode {
             Mode::Rapid => {
-                self.path.move_by(self.feed_mm_per_s * input.dt)?;
+                self.path.move_by(self.feed_mm_per_s * input.dt);
                 if self.path.at_end() {
                     self.mode = Mode::Idle;
                 }
@@ -147,18 +145,17 @@ impl<const N: usize> MotionState<N> {
                 if input.discharge {
                     self.mode = Mode::Idle;
                 } else {
-                    self.path.move_by(self.feed_mm_per_s * input.dt)?;
+                    self.path.move_by(self.feed_mm_per_s * input.dt);
                     if self.path.at_end() {
                         self.mode = Mode::Idle;
                     }
                 }
             }
             Mode::EdmMove => {
-                // Retraction can hit the history limit; clamp and continue.
                 if input.open_rate > EDM_OPEN_RATE_THRESH {
-                    let _ = self.path.move_by(EDM_ADVANCE_MM);
+                    self.path.move_by(EDM_ADVANCE_MM);
                 } else if input.short_rate > EDM_SHORT_RATE_THRESH {
-                    let _ = self.path.move_by(EDM_RETRACT_MM);
+                    self.path.move_by(EDM_RETRACT_MM);
                 }
                 if self.edm_stop_at_target && self.path.at_end() {
                     self.mode = Mode::Idle;
@@ -171,10 +168,9 @@ impl<const N: usize> MotionState<N> {
         if self.mode != Mode::Idle {
             self.distance_max = self.distance_max.max(self.path.distance());
         }
-        Ok(MotionOutputs {
+        MotionOutputs {
             target: self.path.position(),
-            at_end: self.path.at_end(),
-        })
+        }
     }
 
     pub fn mode(&self) -> Mode {
