@@ -111,18 +111,18 @@ impl<B: Bus> Device<B> {
         self.init_ok
     }
 
-    /// Energize with the given parameters.
+    /// Energize with the given config.
     ///
     /// `pulse_us` 100-1000, `current_a` 0-20 (0 → minimum), `duty_pct` 1-95.
-    /// `negative` selects tool-negative (polarity 2) vs tool-positive (polarity 1).
-    pub async fn energize(&mut self, negative: bool, pulse_us: f32, current_a: f32, duty_pct: f32) {
-        let pulse_dur_10us = (pulse_us * 0.1) as u8;
-        let mut pulse_current_100ma = (current_a * 10.0) as u8;
+    /// `tool_negative` selects tool-negative (polarity 2) vs tool-positive (polarity 1).
+    pub async fn energize(&mut self, cfg: &Config) {
+        let pulse_dur_10us = (cfg.pulse_us * 0.1) as u8;
+        let mut pulse_current_100ma = (cfg.current_a * 10.0) as u8;
         if pulse_current_100ma == 0 {
             pulse_current_100ma = 1; // 100mA minimum
         }
-        let duty = duty_pct as u8;
-        let polarity = if negative { 2 } else { 1 };
+        let duty = cfg.duty_pct as u8;
+        let polarity = if cfg.tool_negative { 2 } else { 1 };
 
         // Polarity last, so all parameters are set before the hardware activates.
         self.write_with_retry(pulser::REG_PULSE_CURRENT, pulse_current_100ma)

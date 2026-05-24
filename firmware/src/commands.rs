@@ -89,14 +89,7 @@ pub async fn exec(
                 let target = c.coord.resolve_move(&spec, here);
                 if starting_fresh {
                     // Pulser carve-out: I²C writes hold Core across .await.
-                    c.pulser
-                        .energize(
-                            pulser_cfg.tool_negative,
-                            pulser_cfg.pulse_us,
-                            pulser_cfg.current_a,
-                            pulser_cfg.duty_pct,
-                        )
-                        .await;
+                    c.pulser.energize(pulser_cfg).await;
                 }
                 c.motion.do_edm(target);
                 break;
@@ -119,14 +112,7 @@ pub async fn exec(
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
                 // Pulser carve-out: I²C writes hold Core across .await.
-                c.pulser
-                    .energize(
-                        pulser_cfg.tool_negative,
-                        pulser_cfg.pulse_us,
-                        pulser_cfg.current_a,
-                        pulser_cfg.duty_pct,
-                    )
-                    .await;
+                c.pulser.energize(pulser_cfg).await;
                 c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
             }
             wait_until_idle(core).await;
