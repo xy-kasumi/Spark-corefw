@@ -45,8 +45,7 @@ pub enum Mode {
 pub struct EdmState {
     pub has_edm_data: bool,
     pub is_moving: bool,
-    pub forward_buffer: f32,
-    pub backward_buffer: f32,
+    pub retract_remaining: f32,
     pub distance: f32,
     pub distance_max: f32,
 }
@@ -137,7 +136,7 @@ impl<const N: usize> MotionState<N> {
         match self.mode {
             Mode::Rapid => {
                 self.path.move_by(self.feed_mm_per_s * input.dt);
-                if self.path.at_end() {
+                if self.path.at_dst() {
                     self.mode = Mode::Idle;
                 }
             }
@@ -146,7 +145,7 @@ impl<const N: usize> MotionState<N> {
                     self.mode = Mode::Idle;
                 } else {
                     self.path.move_by(self.feed_mm_per_s * input.dt);
-                    if self.path.at_end() {
+                    if self.path.at_dst() {
                         self.mode = Mode::Idle;
                     }
                 }
@@ -157,7 +156,7 @@ impl<const N: usize> MotionState<N> {
                 } else if input.short_rate > EDM_SHORT_RATE_THRESH {
                     self.path.move_by(EDM_RETRACT_MM);
                 }
-                if self.edm_stop_at_target && self.path.at_end() {
+                if self.edm_stop_at_target && self.path.at_dst() {
                     self.mode = Mode::Idle;
                 }
             }
@@ -177,14 +176,9 @@ impl<const N: usize> MotionState<N> {
         self.mode
     }
 
-    /// Forward path distance left before the written path end. (`?edm` pb_f)
-    pub fn forward_buffer(&self) -> f32 {
-        self.path.forward_buffer()
-    }
-
-    /// Backward path distance left before the retraction limit. (`?edm` pb_b)
-    pub fn backward_buffer(&self) -> f32 {
-        self.path.backward_buffer()
+    /// Distance available to retract before hitting the history limit. (`?edm` retr_rem)
+    pub fn retract_remaining(&self) -> f32 {
+        self.path.retract_remaining()
     }
 
     /// Net distance traveled from the move's start point. (`?edm` dist)
@@ -202,8 +196,7 @@ impl<const N: usize> MotionState<N> {
         EdmState {
             has_edm_data: self.mode == Mode::EdmMove,
             is_moving: self.mode != Mode::Idle,
-            forward_buffer: self.forward_buffer(),
-            backward_buffer: self.backward_buffer(),
+            retract_remaining: self.retract_remaining(),
             distance: self.distance(),
             distance_max: self.distance_max(),
         }

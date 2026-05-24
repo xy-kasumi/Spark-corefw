@@ -88,8 +88,7 @@ pub fn exec_query(
             if edm.is_moving {
                 let _ = line_tx.try_send(
                     pstate::Line::new(pstate::PsType::Edm)
-                        .float("pb_f", edm.forward_buffer)
-                        .float("pb_b", edm.backward_buffer)
+                        .float("retr_rem", edm.retract_remaining)
                         .float("dist", edm.distance)
                         .float("dist_max", edm.distance_max),
                 );

@@ -9,14 +9,8 @@ pub const RESOLUTION_MM: f32 = 0.005;
 /// Streamable line-segment path with retractable current position, notch-aligned at
 /// `RESOLUTION_MM`.
 ///
-/// `N` is the history capacity (in notches). Maximum retraction distance is
+/// `N` is the retract buffer capacity (in notches). Maximum retraction distance is
 /// `(N - 1) * RESOLUTION_MM`.
-///
-/// The path is extended via [`extend`](Self::extend); the cursor is moved via
-/// [`move_by`](Self::move_by). The cursor cannot escape the written path or the
-/// retraction limit — over-runs in either direction clip silently and update state
-/// to the limit. Callers detect end via [`at_end`](Self::at_end) and retract
-/// clipping via [`backward_buffer`](Self::backward_buffer).
 pub struct PathBuffer<const N: usize> {
     pos_history: [coords::PosPhys; N],
     ix_history: usize,
@@ -51,15 +45,14 @@ impl<const N: usize> PathBuffer<N> {
         }
     }
 
-    /// Current (notch-aligned) position.
+    /// Current (notch-aligned) cursor position.
     pub fn position(&self) -> coords::PosPhys {
         let ix = (self.ix_history + N - self.notches_retract as usize) % N;
         self.pos_history[ix]
     }
 
-    /// True iff the furthest-reached position is at the end of the written path.
-    /// Returns false while retracted, even if the furthest point was the end.
-    pub fn at_end(&self) -> bool {
+    /// Returns true if cursor is at the destination.
+    pub fn at_dst(&self) -> bool {
         if self.notches_retract > 0 {
             return false;
         }
@@ -68,21 +61,31 @@ impl<const N: usize> PathBuffer<N> {
         curr.distance_to(&end) <= RESOLUTION_MM
     }
 
-    /// True if [`extend`](Self::extend) can be called.
+    /// Returns whether [`extend`](Self::extend) can be called.
     pub fn can_extend(&self) -> bool {
         self.next_pos.is_none()
     }
 
-    /// Append the next path segment endpoint.
+    /// Extend the path by one more line segment.
     /// [`can_extend`](Self::can_extend) must be true.
-    pub fn extend(&mut self, next: coords::PosPhys) {
+    pub fn extend(&mut self, dst: coords::PosPhys) {
         assert!(self.next_pos.is_none(), "next segment already queued");
-        self.next_pos = Some(next);
+        self.next_pos = Some(dst);
     }
 
-    /// Move the cursor by `d` mm. Negative `d` retracts. Over-runs in either
+    /// Distance available to retract before hitting the limit.
+    pub fn retract_remaining(&self) -> f32 {
+        ((self.num_history as i32 - 1) - self.notches_retract) as f32 * RESOLUTION_MM
+    }
+
+    /// Cursor distance from init point along the path.
+    pub fn distance(&self) -> f32 {
+        self.cum_notches as f32 * RESOLUTION_MM + self.fraction
+    }
+
+    /// Advances by `d` mm. Negative `d` retracts. Over-runs in either
     /// direction clip silently to the limit; observe via [`at_end`](Self::at_end)
-    /// or [`backward_buffer`](Self::backward_buffer).
+    /// or [`retract_remaining`](Self::retract_remaining).
     pub fn move_by(&mut self, d: f32) {
         self.fraction += d;
         let mut d_notches = libm::truncf(self.fraction * (1.0 / RESOLUTION_MM)) as i32;
@@ -149,29 +152,6 @@ impl<const N: usize> PathBuffer<N> {
             self.num_history += 1;
         }
     }
-
-    /// Forward distance available before hitting the end of the written path.
-    pub fn forward_buffer(&self) -> f32 {
-        let mut d_segs_in_buf = self.curr_seg_src.distance_to(&self.curr_seg_dst);
-        if let Some(next) = self.next_pos {
-            d_segs_in_buf += self.curr_seg_dst.distance_to(&next);
-        }
-        if self.notches_retract == 0 {
-            d_segs_in_buf - self.curr_seg_d
-        } else {
-            d_segs_in_buf + self.notches_retract as f32 * RESOLUTION_MM
-        }
-    }
-
-    /// Backward distance available before hitting the retraction limit.
-    pub fn backward_buffer(&self) -> f32 {
-        ((self.num_history as i32 - 1) - self.notches_retract) as f32 * RESOLUTION_MM
-    }
-
-    /// Net cumulative distance traveled from init point (forward minus backward).
-    pub fn distance(&self) -> f32 {
-        self.cum_notches as f32 * RESOLUTION_MM + self.fraction
-    }
 }
 
 #[cfg(test)]
@@ -199,7 +179,7 @@ mod tests {
         let pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(10.0, 0.0, 0.0));
         assert!(within(pb.position().x, 0.0, 1e-4));
         assert!(pb.can_extend(), "buffer available after construction");
-        assert!(!pb.at_end(), "initial pos is not end");
+        assert!(!pb.at_dst(), "initial pos is not end");
     }
 
     #[test]
@@ -229,7 +209,7 @@ mod tests {
     fn pb_move_to_end() {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(0.5, 0.0, 0.0));
         pb.move_by(1.0);
-        assert!(pb.at_end(), "should be at end after overshooting");
+        assert!(pb.at_dst(), "should be at end after overshooting");
         assert!(within(pb.position().x, 0.5, POS_TOL));
     }
 
@@ -242,9 +222,9 @@ mod tests {
         let pos = pb.position();
         assert!(within(pos.x, 1.0, POS_TOL));
         assert!(within(pos.y, 0.5, POS_TOL));
-        assert!(!pb.at_end(), "not ended yet (1.5 of 2.0)");
+        assert!(!pb.at_dst(), "not ended yet (1.5 of 2.0)");
         pb.move_by(0.5);
-        assert!(pb.at_end(), "must be ended (2.0 of 2.0)");
+        assert!(pb.at_dst(), "must be ended (2.0 of 2.0)");
     }
 
     #[test]
@@ -256,7 +236,7 @@ mod tests {
         let pos = pb.position();
         assert!(within(pos.x, 1.0, POS_TOL));
         assert!(within(pos.y, 0.0, POS_TOL));
-        assert!(!pb.at_end(), "not ended yet (1.0 of 2.0)");
+        assert!(!pb.at_dst(), "not ended yet (1.0 of 2.0)");
     }
 
     #[test]
@@ -281,7 +261,7 @@ mod tests {
     fn pb_zero_length_segment() {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(5.0, 5.0, 5.0), p3(5.0, 5.0, 5.0));
         pb.move_by(1.0);
-        assert!(pb.at_end(), "zero-length segment should be at end");
+        assert!(pb.at_dst(), "zero-length segment should be at end");
         assert!(within(pb.position().x, 5.0, 1e-4));
     }
 
@@ -297,32 +277,13 @@ mod tests {
     }
 
     #[test]
-    fn pb_get_buffers() {
+    fn pb_get_buffer() {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
-        assert!(within(pb.forward_buffer(), 1.0, RESOLUTION_MM));
-        assert!(within(pb.backward_buffer(), 0.0, RESOLUTION_MM));
+        assert!(within(pb.retract_remaining(), 0.0, RESOLUTION_MM));
         pb.move_by(0.25);
-        assert!(within(pb.forward_buffer(), 0.75, RESOLUTION_MM));
-        assert!(within(pb.backward_buffer(), 0.25, RESOLUTION_MM));
+        assert!(within(pb.retract_remaining(), 0.25, RESOLUTION_MM));
         pb.move_by(0.75);
-        assert!(within(pb.forward_buffer(), 0.0, RESOLUTION_MM));
-        assert!(within(pb.backward_buffer(), 1.0, RESOLUTION_MM));
-    }
-
-    #[test]
-    fn pb_get_buffers_added() {
-        let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
-        pb.extend(p3(1.0, 1.0, 0.0));
-        assert!(within(pb.forward_buffer(), 2.0, RESOLUTION_MM));
-        assert!(within(pb.backward_buffer(), 0.0, RESOLUTION_MM));
-        pb.move_by(1.5);
-        assert!(within(pb.forward_buffer(), 0.5, RESOLUTION_MM));
-        // History capped at N - 1 = 200 notches = 1.0 mm.
-        assert!(within(
-            pb.backward_buffer(),
-            (N as f32 - 1.0) * RESOLUTION_MM,
-            RESOLUTION_MM
-        ));
+        assert!(within(pb.retract_remaining(), 1.0, RESOLUTION_MM));
     }
 
     #[test]
