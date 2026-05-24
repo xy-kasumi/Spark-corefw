@@ -159,7 +159,7 @@ mod tests {
 
     use super::*;
 
-    /// History size for the tests below (see module note).
+    /// History size for the tests.
     const N: usize = 201;
     const RETRACT_LIMIT: f32 = ((N - 1) as f32) * RESOLUTION_MM;
 
@@ -167,8 +167,13 @@ mod tests {
         coords::PosPhys { x, y, z, c: 0.0 }
     }
 
-    fn within(a: f32, b: f32, tol: f32) -> bool {
-        (a - b).abs() < tol
+    #[track_caller]
+    fn assert_within(observed: f32, expected: f32, tol: f32) {
+        let diff = (observed - expected).abs();
+        assert!(
+            diff < tol,
+            "expected={expected} observed={observed} tol={tol} diff={diff}"
+        );
     }
 
     /// Position tolerance: one resolution step plus a small epsilon.
@@ -177,7 +182,7 @@ mod tests {
     #[test]
     fn pb_init_basic() {
         let pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(10.0, 0.0, 0.0));
-        assert!(within(pb.position().x, 0.0, 1e-4));
+        assert_within(pb.position().x, 0.0, 1e-4);
         assert!(pb.can_extend(), "buffer available after construction");
         assert!(!pb.at_dst(), "initial pos is not end");
     }
@@ -186,7 +191,7 @@ mod tests {
     fn pb_move_forward_simple() {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
         pb.move_by(0.5);
-        assert!(within(pb.position().x, 0.5, POS_TOL));
+        assert_within(pb.position().x, 0.5, POS_TOL);
     }
 
     #[test]
@@ -194,7 +199,7 @@ mod tests {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
         pb.move_by(0.5);
         pb.move_by(-0.2);
-        assert!(within(pb.position().x, 0.3, POS_TOL));
+        assert_within(pb.position().x, 0.3, POS_TOL);
     }
 
     #[test]
@@ -202,7 +207,7 @@ mod tests {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(10.0, 0.0, 0.0));
         pb.move_by(5.0);
         pb.move_by(-10.0);
-        assert!(within(pb.position().x, 5.0 - RETRACT_LIMIT, POS_TOL));
+        assert_within(pb.position().x, 5.0 - RETRACT_LIMIT, POS_TOL);
     }
 
     #[test]
@@ -210,7 +215,7 @@ mod tests {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(0.5, 0.0, 0.0));
         pb.move_by(1.0);
         assert!(pb.at_dst(), "should be at end after overshooting");
-        assert!(within(pb.position().x, 0.5, POS_TOL));
+        assert_within(pb.position().x, 0.5, POS_TOL);
     }
 
     #[test]
@@ -220,8 +225,8 @@ mod tests {
         pb.extend(p3(1.0, 1.0, 0.0));
         pb.move_by(1.5);
         let pos = pb.position();
-        assert!(within(pos.x, 1.0, POS_TOL));
-        assert!(within(pos.y, 0.5, POS_TOL));
+        assert_within(pos.x, 1.0, POS_TOL);
+        assert_within(pos.y, 0.5, POS_TOL);
         assert!(!pb.at_dst(), "not ended yet (1.5 of 2.0)");
         pb.move_by(0.5);
         assert!(pb.at_dst(), "must be ended (2.0 of 2.0)");
@@ -234,8 +239,8 @@ mod tests {
         pb.extend(p3(1.0, 1.0, 0.0));
         pb.move_by(1.0);
         let pos = pb.position();
-        assert!(within(pos.x, 1.0, POS_TOL));
-        assert!(within(pos.y, 0.0, POS_TOL));
+        assert_within(pos.x, 1.0, POS_TOL);
+        assert_within(pos.y, 0.0, POS_TOL);
         assert!(!pb.at_dst(), "not ended yet (1.0 of 2.0)");
     }
 
@@ -254,7 +259,7 @@ mod tests {
         let before = pb.position();
         pb.move_by(RESOLUTION_MM * 0.5);
         let after = pb.position();
-        assert!(within(before.x, after.x, 1e-4));
+        assert_within(after.x, before.x, 1e-4);
     }
 
     #[test]
@@ -262,7 +267,7 @@ mod tests {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(5.0, 5.0, 5.0), p3(5.0, 5.0, 5.0));
         pb.move_by(1.0);
         assert!(pb.at_dst(), "zero-length segment should be at end");
-        assert!(within(pb.position().x, 5.0, 1e-4));
+        assert_within(pb.position().x, 5.0, 1e-4);
     }
 
     #[test]
@@ -279,31 +284,27 @@ mod tests {
     #[test]
     fn pb_get_buffer() {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
-        assert!(within(pb.retract_remaining(), 0.0, RESOLUTION_MM));
+        assert_within(pb.retract_remaining(), 0.0, RESOLUTION_MM);
         pb.move_by(0.25);
-        assert!(within(pb.retract_remaining(), 0.25, RESOLUTION_MM));
+        assert_within(pb.retract_remaining(), 0.25, RESOLUTION_MM);
         pb.move_by(0.75);
-        assert!(within(pb.retract_remaining(), 1.0, RESOLUTION_MM));
+        assert_within(pb.retract_remaining(), 1.0, RESOLUTION_MM);
     }
 
     #[test]
     fn pb_get_distance() {
         let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
-        assert!(within(pb.distance(), 0.0, RESOLUTION_MM));
+        assert_within(pb.distance(), 0.0, RESOLUTION_MM);
         pb.move_by(0.5);
-        assert!(within(pb.distance(), 0.5, RESOLUTION_MM));
+        assert_within(pb.distance(), 0.5, RESOLUTION_MM);
         pb.move_by(-0.25);
-        assert!(within(pb.distance(), 0.25, RESOLUTION_MM));
+        assert_within(pb.distance(), 0.25, RESOLUTION_MM);
         pb.extend(p3(1.0, 1.0, 0.0));
         pb.move_by(1.0);
-        assert!(within(pb.distance(), 1.25, RESOLUTION_MM));
+        assert_within(pb.distance(), 1.25, RESOLUTION_MM);
         pb.move_by(100.0); // clipped at end
-        assert!(within(pb.distance(), 2.0, RESOLUTION_MM));
+        assert_within(pb.distance(), 2.0, RESOLUTION_MM);
         pb.move_by(-50.0); // hits retract limit
-        assert!(within(
-            pb.distance(),
-            2.0 - (N as f32 - 1.0) * RESOLUTION_MM,
-            RESOLUTION_MM
-        ));
+        assert_within(pb.distance(), 2.0 - RETRACT_LIMIT, RESOLUTION_MM);
     }
 }
