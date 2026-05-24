@@ -12,43 +12,34 @@ pub const RESOLUTION_MM: f32 = 0.005;
 /// `N` is the retract buffer capacity (in notches). Maximum retraction distance is
 /// `(N - 1) * RESOLUTION_MM`.
 pub struct PathBuffer<const N: usize> {
-    pos_history: [coords::PosPhys; N],
-    ix_history: usize,
-    num_history: usize,
+    /// cursor pos = notch pos + cursor_offset. subnotch is in (-RESOLUTON_MM, RESOLUTION_MM).
+    cursor_offset: f32,
 
-    notches_retract: i32,
+    /// discretized history + current pos in forward buffer.
+    forward: SegmentBuf,
+    history: heapless::HistoryBuffer<coords::PosPhys, N>,
+    /// 0=traversed frontier.
+    notches_retract: usize,
 
-    curr_seg_d: f32,
-    curr_seg_src: coords::PosPhys,
-    curr_seg_dst: coords::PosPhys,
-
-    next_pos: Option<coords::PosPhys>,
-
-    fraction: f32,
-
-    cum_notches: i32,
+    cum_notches: usize,
 }
 
 impl<const N: usize> PathBuffer<N> {
-    pub const fn new(src: coords::PosPhys, dst: coords::PosPhys) -> Self {
+    pub fn new(src: coords::PosPhys, dst: coords::PosPhys) -> Self {
+        let mut history = heapless::HistoryBuffer::new();
+        history.write(src);
         Self {
-            pos_history: [src; N],
-            ix_history: 0,
-            num_history: 1,
+            cursor_offset: 0.0,
+            forward: SegmentBuf::new(src, dst),
+            history,
             notches_retract: 0,
-            curr_seg_d: 0.0,
-            curr_seg_src: src,
-            curr_seg_dst: dst,
-            next_pos: None,
-            fraction: 0.0,
             cum_notches: 0,
         }
     }
 
     /// Current (notch-aligned) cursor position.
     pub fn position(&self) -> coords::PosPhys {
-        let ix = (self.ix_history + N - self.notches_retract as usize) % N;
-        self.pos_history[ix]
+        self.back(self.notches_retract as usize)
     }
 
     /// Returns true if cursor is at the destination.
@@ -56,100 +47,151 @@ impl<const N: usize> PathBuffer<N> {
         if self.notches_retract > 0 {
             return false;
         }
-        let curr = self.pos_history[self.ix_history];
-        let end = self.next_pos.unwrap_or(self.curr_seg_dst);
-        curr.distance_to(&end) <= RESOLUTION_MM
+        self.back(0).distance_to(&self.forward.final_dst()) <= RESOLUTION_MM
     }
 
     /// Returns whether [`extend`](Self::extend) can be called.
     pub fn can_extend(&self) -> bool {
-        self.next_pos.is_none()
+        self.forward.can_extend()
     }
 
     /// Extend the path by one more line segment.
     /// [`can_extend`](Self::can_extend) must be true.
     pub fn extend(&mut self, dst: coords::PosPhys) {
-        assert!(self.next_pos.is_none(), "next segment already queued");
-        self.next_pos = Some(dst);
+        assert!(self.forward.can_extend(), "next segment already queued");
+        self.forward.extend(dst);
     }
 
     /// Distance available to retract before hitting the limit.
     pub fn retract_remaining(&self) -> f32 {
-        ((self.num_history as i32 - 1) - self.notches_retract) as f32 * RESOLUTION_MM
+        (self.history.len() - 1 - self.notches_retract) as f32 * RESOLUTION_MM
     }
 
     /// Cursor distance from init point along the path.
     pub fn distance(&self) -> f32 {
-        self.cum_notches as f32 * RESOLUTION_MM + self.fraction
+        self.cum_notches as f32 * RESOLUTION_MM + self.cursor_offset
     }
 
     /// Advances by `d` mm. Negative `d` retracts. Over-runs in either
     /// direction clip silently to the limit; observe via [`at_end`](Self::at_end)
     /// or [`retract_remaining`](Self::retract_remaining).
+    /// Takes O(|d|/RESOLUTION_MM) time in worst case.
     pub fn move_by(&mut self, d: f32) {
-        self.fraction += d;
-        let mut d_notches = libm::truncf(self.fraction * (1.0 / RESOLUTION_MM)) as i32;
+        self.cursor_offset += d;
+        let d_notches = libm::truncf(self.cursor_offset * (1.0 / RESOLUTION_MM)) as i32;
         if d_notches == 0 {
             return;
         }
-        self.fraction -= d_notches as f32 * RESOLUTION_MM;
+        self.cursor_offset -= d_notches as f32 * RESOLUTION_MM;
 
         if d_notches < 0 {
-            let want_retract = -d_notches;
-            let available = self.num_history as i32 - self.notches_retract - 1;
-            let actual_retract = want_retract.min(available);
-            self.notches_retract += actual_retract;
-            self.cum_notches -= actual_retract;
-            return;
-        }
-
-        // d_notches > 0: consume any retract debt first, then advance along the path.
-        let consume_retract = d_notches.min(self.notches_retract);
-        self.notches_retract -= consume_retract;
-        self.cum_notches += consume_retract;
-        d_notches -= consume_retract;
-
-        for _ in 0..d_notches {
-            let seg_len = self.curr_seg_src.distance_to(&self.curr_seg_dst);
-            self.curr_seg_d += RESOLUTION_MM;
-
-            let clipped = if self.curr_seg_d >= seg_len {
-                match self.next_pos.take() {
-                    Some(next) => {
-                        self.curr_seg_d -= seg_len;
-                        self.curr_seg_src = self.curr_seg_dst;
-                        self.curr_seg_dst = next;
-                        false
-                    }
-                    None => {
-                        self.curr_seg_d = seg_len;
-                        true
-                    }
-                }
-            } else {
-                false
-            };
-
-            let pos = if seg_len < RESOLUTION_MM {
-                self.curr_seg_src
-            } else {
-                self.curr_seg_src
-                    .interp(&self.curr_seg_dst, self.curr_seg_d / seg_len)
-            };
-            self.push_history(pos);
-            self.cum_notches += 1;
-
-            if clipped {
-                break;
-            }
+            self.cum_notches -= self.retract_by_notches((-d_notches) as usize);
+        } else {
+            self.cum_notches += self.advance_by_notches(d_notches as usize);
         }
     }
 
-    fn push_history(&mut self, pos: coords::PosPhys) {
-        self.ix_history = (self.ix_history + 1) % N;
-        self.pos_history[self.ix_history] = pos;
-        if self.num_history < N {
-            self.num_history += 1;
+    /// Walk the cursor back by up to `n` notches, clipped at the retract limit.
+    /// Returns the count actually retracted.
+    fn retract_by_notches(&mut self, n: usize) -> usize {
+        let available = self.history.len() - self.notches_retract - 1;
+        let actual = n.min(available);
+        self.notches_retract += actual;
+        actual
+    }
+
+    /// Walk the cursor forward by up to `n`` notches.
+    /// Consume retract history first, then drive the segment generator.
+    /// Returns the count actually advanced (may be less than `n` if the path ends).
+    fn advance_by_notches(&mut self, n: usize) -> usize {
+        let n_history = n.min(self.notches_retract);
+        self.notches_retract -= n_history;
+
+        let mut advanced_by_fwd = 0;
+        for _ in 0..(n - n_history) {
+            match self.forward.try_step(RESOLUTION_MM) {
+                Some(pos) => {
+                    self.history.write(pos);
+                    advanced_by_fwd += 1;
+                }
+                None => break,
+            }
+        }
+        n_history + advanced_by_fwd
+    }
+
+    /// `n`-th most recent history entry (n=0 is the latest write).
+    fn back(&self, n: usize) -> coords::PosPhys {
+        let (older, newer) = self.history.as_slices();
+        debug_assert!(n < older.len() + newer.len());
+        if n < newer.len() {
+            newer[newer.len() - 1 - n]
+        } else {
+            older[older.len() - 1 - (n - newer.len())]
+        }
+    }
+}
+
+/// Represents 1 (src-dst) or 2 (src-dst-next) line segments, and cursor on it.
+struct SegmentBuf {
+    src: coords::PosPhys,
+    dst: coords::PosPhys,
+    next: Option<coords::PosPhys>,
+    /// Distance from src in src-dst segment. [0, |dst-src|].
+    cursor: f32,
+}
+
+impl SegmentBuf {
+    fn new(src: coords::PosPhys, dst: coords::PosPhys) -> Self {
+        Self {
+            src,
+            dst,
+            next: None,
+            cursor: 0.0,
+        }
+    }
+
+    fn can_extend(&self) -> bool {
+        self.next.is_none()
+    }
+
+    fn extend(&mut self, dst: coords::PosPhys) {
+        debug_assert!(self.next.is_none());
+        self.next = Some(dst);
+    }
+
+    /// Ultimate path endpoint.
+    fn final_dst(&self) -> coords::PosPhys {
+        self.next.unwrap_or(self.dst)
+    }
+
+    /// Advance cursor by exactly `d` (>=0) if possible.
+    /// Returns new position, or None if not possible (won't fit in the segment).
+    fn try_step(&mut self, d: f32) -> Option<coords::PosPhys> {
+        let seg_len = self.src.distance_to(&self.dst) - self.cursor;
+        if d <= seg_len {
+            self.cursor += d;
+            return Some(self.pos());
+        }
+        let next = self.next?;
+        let next_d = d - seg_len;
+        let next_seg_len = self.dst.distance_to(&next);
+        if next_d <= next_seg_len {
+            (self.src, self.dst, self.next) = (self.dst, next, None);
+            self.cursor = next_d;
+            return Some(self.pos());
+        }
+        None
+    }
+
+    /// Current cursor position.
+    fn pos(&self) -> coords::PosPhys {
+        let seg_len = self.src.distance_to(&self.dst);
+        // avoid divide-by-zero (caused by tiny line segment)
+        if seg_len > 0.0 {
+            self.src.interp(&self.dst, self.cursor / seg_len)
+        } else {
+            self.src
         }
     }
 }

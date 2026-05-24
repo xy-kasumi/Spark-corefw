@@ -63,7 +63,7 @@ pub struct MotionState<const N: usize> {
 }
 
 impl<const N: usize> MotionState<N> {
-    pub const fn new(start: coords::PosPhys) -> Self {
+    pub fn new(start: coords::PosPhys) -> Self {
         Self {
             mode: Mode::Idle,
             path: path::PathBuffer::new(start, start),
