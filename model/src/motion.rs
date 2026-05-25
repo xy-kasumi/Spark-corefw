@@ -52,12 +52,8 @@ pub enum Mode {
     Probing,
 }
 
-/// Snapshot of motion state backing the `?edm` query. `has_edm_data` is set
-/// only during an EDM-controlled move; `is_moving` covers any active move.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct EdmState {
-    pub has_edm_data: bool,
-    pub is_moving: bool,
+#[derive(Clone, Copy, Debug)]
+pub struct EdmReport {
     pub retract_remaining: f32,
     pub distance: f32,
     pub distance_max: f32,
@@ -67,8 +63,6 @@ pub struct MotionState<const N: usize> {
     mode: Mode,
     path: path::PathBuffer<N>,
     feed_mm_per_s: f32,
-    /// Furthest net distance reached since the current move began. Reset at each
-    /// move start, updated every moving tick. Reported by `?edm`.
     distance_max: f32,
 }
 
@@ -211,14 +205,14 @@ impl<const N: usize> MotionState<N> {
         self.distance_max
     }
 
-    /// Snapshot for the `?edm` query.
-    pub fn edm_state(&self) -> EdmState {
-        EdmState {
-            has_edm_data: self.mode == Mode::EdmMove,
-            is_moving: self.mode != Mode::Idle,
+    pub fn edm_state(&self) -> Option<EdmReport> {
+        if self.mode != Mode::EdmMove {
+            return None;
+        }
+        Some(EdmReport {
             retract_remaining: self.retract_remaining(),
             distance: self.distance(),
             distance_max: self.distance_max(),
-        }
+        })
     }
 }

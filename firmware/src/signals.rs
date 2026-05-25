@@ -20,7 +20,7 @@ use crate::pulser;
 #[derive(Clone, Copy)]
 pub struct MachineStats {
     pub pos: coords::PosPhys,
-    pub edm: motion::EdmState,
+    pub edm: Option<motion::EdmReport>,
     pub active: coords::CoordSys,
     pub offset: coords::PosPhys,
     pub smooth_pulse_ratio: pulser::PulseRatio,
@@ -74,17 +74,14 @@ pub fn exec_query(
         }
         command::QuerySignal::Edm => {
             // Motion and pulser fields come from the same tick snapshot.
-            let edm = stats.edm;
             let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).begin());
-            if edm.has_edm_data {
+            if let Some(edm) = stats.edm {
                 let _ = line_tx.try_send(
                     pstate::Line::new(pstate::PsType::Edm)
                         .float("eff_duty", stats.smooth_pulse_ratio.good)
                         .float("open", stats.smooth_pulse_ratio.open)
                         .float("short", stats.smooth_pulse_ratio.short),
                 );
-            }
-            if edm.is_moving {
                 let _ = line_tx.try_send(
                     pstate::Line::new(pstate::PsType::Edm)
                         .float("retr_rem", edm.retract_remaining)
