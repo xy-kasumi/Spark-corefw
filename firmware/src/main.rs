@@ -110,6 +110,12 @@ async fn main(spawner: embassy_executor::Spawner) {
         .try_send(pstate::Line::new(pstate::PsType::Init).bool("ok", pulser_ok && settings_ok));
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).end());
 
+    let _ = line_tx.try_send(
+        pstate::Line::new(pstate::PsType::Sys)
+            .str_val("ev", "boot")
+            .end(),
+    );
+
     join::join(
         tick_loop(board.serial, cmd_queue, core, line_tx, canceler),
         cmd_loop(cmd_queue, core, tmc, homing, line_tx, canceler),

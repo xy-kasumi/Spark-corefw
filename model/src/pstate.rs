@@ -14,25 +14,31 @@ pub const LINE_CAP: usize = 128;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PsType {
-    Error,
+    Sys,
     Queue,
+    Settings,
+
     Pos,
+
     Edm,
     Init,
-    Settings,
     Stat,
+    Error,
 }
 
 impl PsType {
     fn tag(self) -> &'static [u8] {
         match self {
-            PsType::Error => b"error",
+            PsType::Sys => b"sys",
             PsType::Queue => b"queue",
+            PsType::Settings => b"stg",
+
             PsType::Pos => b"pos",
+
             PsType::Edm => b"edm",
             PsType::Init => b"init",
-            PsType::Settings => b"stg",
             PsType::Stat => b"stat",
+            PsType::Error => b"error",
         }
     }
 }
