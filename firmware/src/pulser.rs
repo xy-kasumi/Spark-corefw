@@ -66,8 +66,6 @@ pub struct Device<B: Bus> {
     dev: pulser::Device<B>,
     init_ok: bool,
     energized: bool,
-    /// Discard the first checkpoint after energize — it holds stale pre-energize data.
-    first_after_energize: bool,
     /// Raw last-tick ratio. Consumed by the 1 ms control loop.
     last_ratio: PulseRatio,
     /// EWMA-smoothed ratio. Consumed by `?edm` reporting.
@@ -84,7 +82,6 @@ impl<B: Bus> Device<B> {
             dev,
             init_ok: false,
             energized: false,
-            first_after_energize: true,
             last_ratio: PulseRatio::ALL_OPEN,
             smoothed_ratio: PulseRatio::ALL_OPEN,
             num_i2c_write: 0,
@@ -141,7 +138,6 @@ impl<B: Bus> Device<B> {
         self.write_with_retry(pulser::REG_POLARITY, polarity).await;
 
         self.energized = true;
-        self.first_after_energize = true;
         self.smoothed_ratio = PulseRatio::ALL_OPEN;
     }
 
@@ -156,7 +152,6 @@ impl<B: Bus> Device<B> {
     /// smoothed effective duty. Driven by the orchestrator at ~1 ms.
     pub async fn tick(&mut self) {
         if !self.energized {
-            self.first_after_energize = true;
             return;
         }
 
@@ -169,25 +164,18 @@ impl<B: Bus> Device<B> {
             }
         };
 
-        if self.first_after_energize {
-            self.first_after_energize = false;
-        } else {
-            let raw = PulseRatio {
-                good,
-                short,
-                open: 1.0 - (good + short),
-            };
-            self.last_ratio = raw;
-            // EWMA is linear, so the smoothed components keep summing to 1.
-            self.smoothed_ratio = PulseRatio {
-                good: self.smoothed_ratio.good
-                    + RATIO_ALPHA * (raw.good - self.smoothed_ratio.good),
-                short: self.smoothed_ratio.short
-                    + RATIO_ALPHA * (raw.short - self.smoothed_ratio.short),
-                open: self.smoothed_ratio.open
-                    + RATIO_ALPHA * (raw.open - self.smoothed_ratio.open),
-            };
-        }
+        let raw = PulseRatio {
+            good,
+            short,
+            open: 1.0 - (good + short),
+        };
+        self.last_ratio = raw;
+        // EWMA is linear, so the smoothed components keep summing to 1.
+        self.smoothed_ratio = PulseRatio {
+            good: ema(self.smoothed_ratio.good, raw.good, RATIO_ALPHA),
+            short: ema(self.smoothed_ratio.short, raw.short, RATIO_ALPHA),
+            open: ema(self.smoothed_ratio.open, raw.open, RATIO_ALPHA),
+        };
     }
 
     /// Raw last-tick ratio. For the 1 ms control loop. open=1 when non-energized.
@@ -244,4 +232,9 @@ impl<B: Bus> Device<B> {
         }
         self.init_ok = false;
     }
+}
+
+/// Exponential moving average.
+fn ema(cum: f32, new: f32, alpha: f32) -> f32 {
+    cum + alpha * (new - cum)
 }
