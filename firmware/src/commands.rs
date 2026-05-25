@@ -361,13 +361,25 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
         line_tx
             .send(
                 pstate::Line::new(pstate::PsType::Stat)
-                    .int("pulser.poll_count", stat.poll_count as i32),
+                    .int("pulser.i2c_write", stat.i2c_write as i32),
             )
             .await;
         line_tx
             .send(
                 pstate::Line::new(pstate::PsType::Stat)
-                    .int("pulser.i2c_fail", stat.i2c_fail as i32),
+                    .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
+            )
+            .await;
+        line_tx
+            .send(
+                pstate::Line::new(pstate::PsType::Stat)
+                    .int("pulser.i2c_read", stat.i2c_read as i32),
+            )
+            .await;
+        line_tx
+            .send(
+                pstate::Line::new(pstate::PsType::Stat)
+                    .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
             )
             .await;
         line_tx

@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! EDM pulser: stateful API over the I2C device driver. Owns no poll loop —
-//! the orchestrator calls [`Pulser::tick`] on its 1 ms cadence.
+//! stateful API for pulser over the I2C device driver.
+
 #![allow(dead_code)]
 
 use model::pstate;
@@ -42,8 +42,10 @@ impl Default for Config {
 pub struct Stat {
     pub init_ok: bool,
     pub energized: bool,
-    pub poll_count: u32,
-    pub i2c_fail: u32,
+    pub i2c_write: u32,
+    pub i2c_write_fail: u32,
+    pub i2c_read: u32,
+    pub i2c_read_fail: u32,
     pub ratio: PulseRatio,
     pub pulse_current_a: Option<f32>,
     pub pulse_dur_us: Option<f32>,
@@ -75,8 +77,10 @@ pub struct Device<B: Bus> {
     first_after_energize: bool,
     last_ratio: PulseRatio,
     eff_duty: f32,
-    poll_count: u32,
-    num_i2c_fail: u32,
+    num_i2c_write: u32,
+    num_i2c_write_fail: u32,
+    num_i2c_read: u32,
+    num_i2c_read_fail: u32,
 }
 
 impl<B: Bus> Device<B> {
@@ -88,8 +92,10 @@ impl<B: Bus> Device<B> {
             first_after_energize: true,
             last_ratio: PulseRatio::ALL_OPEN,
             eff_duty: 0.0,
-            poll_count: 0,
-            num_i2c_fail: 0,
+            num_i2c_write: 0,
+            num_i2c_write_fail: 0,
+            num_i2c_read: 0,
+            num_i2c_read_fail: 0,
         }
     }
 
@@ -98,8 +104,7 @@ impl<B: Bus> Device<B> {
         self.init_ok = false;
         for _ in 0..5 {
             // Verify comm with safe register read.
-            let ok = self.dev.read_register(pulser::REG_POLARITY).await.is_ok();
-            if ok {
+            if self.read_reg_counted(pulser::REG_POLARITY).await.is_some() {
                 self.init_ok = true;
                 break;
             }
@@ -157,14 +162,14 @@ impl<B: Bus> Device<B> {
     pub async fn tick(&mut self) {
         if !self.energized {
             self.first_after_energize = true;
-            self.poll_count += 1;
             return;
         }
 
+        self.num_i2c_read += 1;
         let (good, short) = match self.dev.read_ckp_ps().await {
             Some((val_p, val_s)) => (val_p as f32 / 15.0, val_s as f32 / 15.0),
             None => {
-                self.num_i2c_fail += 1;
+                self.num_i2c_read_fail += 1;
                 return;
             }
         };
@@ -179,7 +184,6 @@ impl<B: Bus> Device<B> {
             };
             self.eff_duty += EFF_DUTY_ALPHA * (good - self.eff_duty);
         }
-        self.poll_count += 1;
     }
 
     /// Latest pulse ratio. open=1 when non-energized.
@@ -212,8 +216,10 @@ impl<B: Bus> Device<B> {
             return Stat {
                 init_ok: false,
                 energized: false,
-                poll_count: self.poll_count,
-                i2c_fail: self.num_i2c_fail,
+                i2c_write: self.num_i2c_write,
+                i2c_write_fail: self.num_i2c_write_fail,
+                i2c_read: self.num_i2c_read,
+                i2c_read_fail: self.num_i2c_read_fail,
                 ratio: PulseRatio::ALL_OPEN,
                 pulse_current_a: None,
                 pulse_dur_us: None,
@@ -222,28 +228,24 @@ impl<B: Bus> Device<B> {
         }
         // Config registers are held by the board, not cached — read them back.
         let pulse_current_a = self
-            .dev
-            .read_register(pulser::REG_PULSE_CURRENT)
+            .read_reg_counted(pulser::REG_PULSE_CURRENT)
             .await
-            .ok()
             .map(|v| v as f32 * 0.1);
         let pulse_dur_us = self
-            .dev
-            .read_register(pulser::REG_PULSE_DUR)
+            .read_reg_counted(pulser::REG_PULSE_DUR)
             .await
-            .ok()
             .map(|v| v as f32 * 10.0);
         let max_duty_pct = self
-            .dev
-            .read_register(pulser::REG_MAX_DUTY)
+            .read_reg_counted(pulser::REG_MAX_DUTY)
             .await
-            .ok()
             .map(|v| v as f32);
         Stat {
             init_ok: true,
             energized: self.energized,
-            poll_count: self.poll_count,
-            i2c_fail: self.num_i2c_fail,
+            i2c_write: self.num_i2c_write,
+            i2c_write_fail: self.num_i2c_write_fail,
+            i2c_read: self.num_i2c_read,
+            i2c_read_fail: self.num_i2c_read_fail,
             ratio: self.last_ratio,
             pulse_current_a,
             pulse_dur_us,
@@ -251,14 +253,26 @@ impl<B: Bus> Device<B> {
         }
     }
 
+    async fn read_reg_counted(&mut self, reg: u8) -> Option<u8> {
+        self.num_i2c_read += 1;
+        match self.dev.read_register(reg).await {
+            Ok(v) => Some(v),
+            Err(_) => {
+                self.num_i2c_read_fail += 1;
+                None
+            }
+        }
+    }
+
     /// Write a critical register, retrying briefly; a total failure marks the
     /// device state unknown.
     async fn write_with_retry(&mut self, reg: u8, val: u8) {
         for _ in 0..WRITE_RETRIES {
+            self.num_i2c_write += 1;
             if self.dev.write_register(reg, val).await.is_ok() {
                 return;
             }
-            self.num_i2c_fail += 1;
+            self.num_i2c_write_fail += 1;
             embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
         }
         self.init_ok = false;
