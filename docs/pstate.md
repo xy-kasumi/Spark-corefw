@@ -30,9 +30,9 @@ Keys
 `edm` reports current EDM status.
 
 Keys
-* `eff_duty` (float | undef): [0, 1] effective duty ratio (successful pulse duration ratio). Undef if unavailable.
-* `open` (float | undef): [0, 1] open time ratio. Undef if data is unavailable (not in EDM mode).
-* `short` (float | undef): [0, 1] short time ratio. Undef if data is unavailable (not in EDM mode).
+* `eff_duty` (float | undef): [0, 1] effective duty ratio (successful pulse duration ratio) (1sec-smoothed). Undef if unavailable.
+* `open` (float | undef): [0, 1] open time ratio (1sec-smoothed). Undef if data is unavailable (not in EDM mode).
+* `short` (float | undef): [0, 1] short time ratio (1sec-smoothed). Undef if data is unavailable (not in EDM mode).
 * `retr_rem` (float | undef): Distance (mm) available to retract before hitting the history limit. Undef if unavailable (not moving).
 * `dist` (float | undef): Cumulative distance from current current continuous motion start. Undef if unavailable (not moving).
 * `dist_max` (float | undef): Furthest traveled cumulative distance from current continuous motion start. Undef if unavailable (not moving).

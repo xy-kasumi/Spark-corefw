@@ -174,7 +174,7 @@ async fn tick_loop(
         let input = {
             let mut c = core.lock().await;
             c.pulser.tick().await;
-            let r = c.pulser.pulse_ratio();
+            let r = c.pulser.last_ratio();
             motion::MotionInputs {
                 dt: TICK_DT_S,
                 open_rate: r.open,
@@ -331,14 +331,11 @@ async fn cmd_loop(
 async fn capture_stats(core: &SharedCore) -> signals::MachineStats {
     let c = core.lock().await;
     let active = c.coord.active();
-    let ratio = c.pulser.pulse_ratio();
     signals::MachineStats {
         pos: c.motors.current(),
         edm: c.motion.edm_state(),
         active,
         offset: c.coord.offset_of(active),
-        eff_duty: c.pulser.eff_duty(),
-        open_rate: ratio.open,
-        short_rate: ratio.short,
+        smooth_pulse_ratio: c.pulser.smoothed_ratio(),
     }
 }

@@ -14,6 +14,7 @@ use model::pstate;
 
 use crate::commands;
 use crate::line_tx;
+use crate::pulser;
 
 /// Snapshot of machine (enough to answer [`QuerySignal`])
 #[derive(Clone, Copy)]
@@ -22,9 +23,7 @@ pub struct MachineStats {
     pub edm: motion::EdmState,
     pub active: coords::CoordSys,
     pub offset: coords::PosPhys,
-    pub eff_duty: f32,
-    pub open_rate: f32,
-    pub short_rate: f32,
+    pub smooth_pulse_ratio: pulser::PulseRatio,
 }
 
 pub fn exec_query(
@@ -80,9 +79,9 @@ pub fn exec_query(
             if edm.has_edm_data {
                 let _ = line_tx.try_send(
                     pstate::Line::new(pstate::PsType::Edm)
-                        .float("eff_duty", stats.eff_duty)
-                        .float("open", stats.open_rate)
-                        .float("short", stats.short_rate),
+                        .float("eff_duty", stats.smooth_pulse_ratio.good)
+                        .float("open", stats.smooth_pulse_ratio.open)
+                        .float("short", stats.smooth_pulse_ratio.short),
                 );
             }
             if edm.is_moving {

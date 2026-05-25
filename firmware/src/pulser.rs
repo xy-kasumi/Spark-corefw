@@ -10,8 +10,8 @@ use model::pstate;
 use crate::drivers::pulser::{self, Bus};
 use crate::line_tx;
 
-/// EWMA coefficient for eff_duty: ~1 s time constant at 1 ms polling.
-const EFF_DUTY_ALPHA: f32 = 0.001;
+/// EWMA coefficient for the smoothed pulse ratio: ~1 s time constant at 1 ms polling.
+const RATIO_ALPHA: f32 = 0.001;
 
 /// Retries for a critical register write before declaring the device lost.
 const WRITE_RETRIES: u32 = 5;
@@ -35,10 +35,7 @@ impl Default for Config {
     }
 }
 
-/// Snapshot for the `stat` command: cached counters/rates plus a fresh read-back
-/// of the config registers. `None` config fields mean that register read failed.
-/// Built under the pulser lock so the caller can format and emit lines after
-/// releasing it.
+/// Diagnostic stats.
 pub struct Stat {
     pub init_ok: bool,
     pub energized: bool,
@@ -46,10 +43,6 @@ pub struct Stat {
     pub i2c_write_fail: u32,
     pub i2c_read: u32,
     pub i2c_read_fail: u32,
-    pub ratio: PulseRatio,
-    pub pulse_current_a: Option<f32>,
-    pub pulse_dur_us: Option<f32>,
-    pub max_duty_pct: Option<f32>,
 }
 
 /// Pulse ratio. Each field is in [0, 1] and they add up to 1.
@@ -75,8 +68,10 @@ pub struct Device<B: Bus> {
     energized: bool,
     /// Discard the first checkpoint after energize — it holds stale pre-energize data.
     first_after_energize: bool,
+    /// Raw last-tick ratio. Consumed by the 1 ms control loop.
     last_ratio: PulseRatio,
-    eff_duty: f32,
+    /// EWMA-smoothed ratio. Consumed by `?edm` reporting.
+    smoothed_ratio: PulseRatio,
     num_i2c_write: u32,
     num_i2c_write_fail: u32,
     num_i2c_read: u32,
@@ -91,7 +86,7 @@ impl<B: Bus> Device<B> {
             energized: false,
             first_after_energize: true,
             last_ratio: PulseRatio::ALL_OPEN,
-            eff_duty: 0.0,
+            smoothed_ratio: PulseRatio::ALL_OPEN,
             num_i2c_write: 0,
             num_i2c_write_fail: 0,
             num_i2c_read: 0,
@@ -147,13 +142,13 @@ impl<B: Bus> Device<B> {
 
         self.energized = true;
         self.first_after_energize = true;
-        self.eff_duty = 0.0;
+        self.smoothed_ratio = PulseRatio::ALL_OPEN;
     }
 
     pub async fn deenergize(&mut self) {
         self.energized = false;
         self.last_ratio = PulseRatio::ALL_OPEN;
-        self.eff_duty = 0.0;
+        self.smoothed_ratio = PulseRatio::ALL_OPEN;
         self.write_with_retry(pulser::REG_POLARITY, 0).await;
     }
 
@@ -177,27 +172,32 @@ impl<B: Bus> Device<B> {
         if self.first_after_energize {
             self.first_after_energize = false;
         } else {
-            self.last_ratio = PulseRatio {
+            let raw = PulseRatio {
                 good,
                 short,
                 open: 1.0 - (good + short),
             };
-            self.eff_duty += EFF_DUTY_ALPHA * (good - self.eff_duty);
+            self.last_ratio = raw;
+            // EWMA is linear, so the smoothed components keep summing to 1.
+            self.smoothed_ratio = PulseRatio {
+                good: self.smoothed_ratio.good
+                    + RATIO_ALPHA * (raw.good - self.smoothed_ratio.good),
+                short: self.smoothed_ratio.short
+                    + RATIO_ALPHA * (raw.short - self.smoothed_ratio.short),
+                open: self.smoothed_ratio.open
+                    + RATIO_ALPHA * (raw.open - self.smoothed_ratio.open),
+            };
         }
     }
 
-    /// Latest pulse ratio. open=1 when non-energized.
-    pub fn pulse_ratio(&self) -> PulseRatio {
+    /// Raw last-tick ratio. For the 1 ms control loop. open=1 when non-energized.
+    pub fn last_ratio(&self) -> PulseRatio {
         self.last_ratio
     }
 
-    /// Smoothed effective duty [0, 1]; 0 when not energized.
-    pub fn eff_duty(&self) -> f32 {
-        if self.energized {
-            self.eff_duty
-        } else {
-            0.0
-        }
+    /// EWMA-smoothed ratio. For `?edm` reporting. open=1 when non-energized.
+    pub fn smoothed_ratio(&self) -> PulseRatio {
+        self.smoothed_ratio
     }
 
     pub fn has_discharge(&self) -> bool {
@@ -208,48 +208,15 @@ impl<B: Bus> Device<B> {
         self.energized
     }
 
-    /// Gather a [`PulserStat`] snapshot for the `stat` command. Reads the config
-    /// registers fresh (the board, not this struct, holds them). Must finish
-    /// before the caller emits lines, so no `line_tx` here — see [`PulserStat`].
-    pub async fn read_stat(&mut self) -> Stat {
-        if !self.init_ok {
-            return Stat {
-                init_ok: false,
-                energized: false,
-                i2c_write: self.num_i2c_write,
-                i2c_write_fail: self.num_i2c_write_fail,
-                i2c_read: self.num_i2c_read,
-                i2c_read_fail: self.num_i2c_read_fail,
-                ratio: PulseRatio::ALL_OPEN,
-                pulse_current_a: None,
-                pulse_dur_us: None,
-                max_duty_pct: None,
-            };
-        }
-        // Config registers are held by the board, not cached — read them back.
-        let pulse_current_a = self
-            .read_reg_counted(pulser::REG_PULSE_CURRENT)
-            .await
-            .map(|v| v as f32 * 0.1);
-        let pulse_dur_us = self
-            .read_reg_counted(pulser::REG_PULSE_DUR)
-            .await
-            .map(|v| v as f32 * 10.0);
-        let max_duty_pct = self
-            .read_reg_counted(pulser::REG_MAX_DUTY)
-            .await
-            .map(|v| v as f32);
+    /// Gather a [`Stat`] snapshot for the `stat` command.
+    pub fn read_stat(&self) -> Stat {
         Stat {
-            init_ok: true,
+            init_ok: self.init_ok,
             energized: self.energized,
             i2c_write: self.num_i2c_write,
             i2c_write_fail: self.num_i2c_write_fail,
             i2c_read: self.num_i2c_read,
             i2c_read_fail: self.num_i2c_read_fail,
-            ratio: self.last_ratio,
-            pulse_current_a,
-            pulse_dur_us,
-            max_duty_pct,
         }
     }
 

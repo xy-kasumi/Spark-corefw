@@ -348,8 +348,7 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
 
     // Snapshot under the lock, then emit: holding Core across a `line_tx.send().await`
     // could deadlock the tick loop (its sole TX drainer) when the TX queue is full.
-    // Pulser carve-out: I²C reads hold Core across .await.
-    let stat = core.lock().await.pulser.read_stat().await;
+    let stat = core.lock().await.pulser.read_stat();
     if !stat.init_ok {
         line_tx
             .send(pstate::Line::new(pstate::PsType::Stat).str_val("pulser.status", "init failed"))
@@ -382,25 +381,6 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
                     .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
             )
             .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_good", stat.ratio.good),
-            )
-            .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat)
-                    .float("pulser.edm.r_short", stat.ratio.short),
-            )
-            .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat).float("pulser.edm.r_open", stat.ratio.open),
-            )
-            .await;
-        send_stat_f32(line_tx, "pulser.pulse_current_a", stat.pulse_current_a).await;
-        send_stat_f32(line_tx, "pulser.pulse_dur_us", stat.pulse_dur_us).await;
-        send_stat_f32(line_tx, "pulser.max_duty_pct", stat.max_duty_pct).await;
     }
 
     let (feeding, pos, rate) = {
@@ -420,13 +400,4 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
     line_tx
         .send(pstate::Line::new(pstate::PsType::Stat).end())
         .await;
-}
-
-/// Send a `stat` float field, or `key:"error"` when the value is absent.
-async fn send_stat_f32(line_tx: &line_tx::LineTx, key: &str, value: Option<f32>) {
-    let line = match value {
-        Some(v) => pstate::Line::new(pstate::PsType::Stat).float(key, v),
-        None => pstate::Line::new(pstate::PsType::Stat).str_val(key, "error"),
-    };
-    line_tx.send(line).await;
 }
