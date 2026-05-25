@@ -93,11 +93,19 @@ impl<B: Bus> Device<B> {
         }
     }
 
-    /// Verify communication by reading a control register, emitting the
-    /// `pulser.ok` line (and `pulser.msg` on failure) into the caller's open
-    /// `init` p-state group. The caller owns the group's `begin`/`end`.
     pub async fn init(&mut self, line_tx: &line_tx::LineTx) -> bool {
-        self.init_ok = self.dev.read_register(pulser::REG_POLARITY).await.is_ok();
+        // Check comm. Wait up to 500ms (pulser power bring up might take time).
+        self.init_ok = false;
+        for _ in 0..5 {
+            // Verify comm with safe register read.
+            let ok = self.dev.read_register(pulser::REG_POLARITY).await.is_ok();
+            if ok {
+                self.init_ok = true;
+                break;
+            }
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+        }
+
         if self.init_ok {
             let _ =
                 line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("pulser.ok", true));
