@@ -33,6 +33,14 @@ pub enum QuerySignal {
 pub enum FastKey {
     /// `ov.pump_en`: true forces the pump on; false lets G-code control it.
     PumpEn(bool),
+    /// `ov.edm.retr_thresh`
+    EdmRetrThresh(Option<f32>),
+    /// `ov.edm.adv_thresh`
+    EdmAdvThresh(Option<f32>),
+    /// `ov.edm.retr_speed`
+    EdmRetrSpeed(Option<f32>),
+    /// `ov.edm.adv_speed`
+    EdmAdvSpeed(Option<f32>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,9 +125,14 @@ fn parse_fset(rest: &str) -> Option<FastKey> {
     if !tail.trim_start_matches(is_ws).is_empty() {
         return None;
     }
-    let value = parse_bool(value_str)?;
+    let parse_thresh = |s| parse_float_or_none(s, |v| (0.0..=1.0).contains(&v));
+    let parse_speed = |s| parse_float_or_none(s, |v| v > 0.0);
     match key {
-        "ov.pump_en" => Some(FastKey::PumpEn(value)),
+        "ov.pump_en" => parse_bool(value_str).map(FastKey::PumpEn),
+        "ov.edm.retr_thresh" => parse_thresh(value_str).map(FastKey::EdmRetrThresh),
+        "ov.edm.adv_thresh" => parse_thresh(value_str).map(FastKey::EdmAdvThresh),
+        "ov.edm.retr_speed" => parse_speed(value_str).map(FastKey::EdmRetrSpeed),
+        "ov.edm.adv_speed" => parse_speed(value_str).map(FastKey::EdmAdvSpeed),
         _ => None,
     }
 }
@@ -130,6 +143,18 @@ fn parse_bool(s: &str) -> Option<bool> {
         "false" => Some(false),
         _ => None,
     }
+}
+
+/// finite float that satisfies `pred`, or "none". (or error)
+fn parse_float_or_none(s: &str, pred: impl Fn(f32) -> bool) -> Option<Option<f32>> {
+    if s == "none" {
+        return Some(None);
+    }
+    let v = s.parse::<f32>().ok()?;
+    if !v.is_finite() {
+        return None;
+    }
+    pred(v).then_some(Some(v))
 }
 
 fn is_ws(c: char) -> bool {
@@ -156,5 +181,31 @@ mod tests {
             parse(b"fset ov.pump_en false"),
             Parsed::FastSet(FastKey::PumpEn(false))
         );
+    }
+
+    #[test]
+    fn fset_edm_accepts_none() {
+        assert_eq!(
+            parse(b"fset ov.edm.retr_thresh none"),
+            Parsed::FastSet(FastKey::EdmRetrThresh(None))
+        );
+        assert_eq!(
+            parse(b"fset ov.edm.adv_speed none"),
+            Parsed::FastSet(FastKey::EdmAdvSpeed(None))
+        );
+    }
+
+    #[test]
+    fn fset_edm_rejects_thresh_outofrange() {
+        assert_eq!(parse(b"fset ov.edm.retr_thresh 50"), Parsed::Error);
+        assert_eq!(parse(b"fset ov.edm.adv_thresh 50"), Parsed::Error);
+    }
+
+    #[test]
+    fn fset_edm_rejects_speed_outofrange() {
+        assert_eq!(parse(b"fset ov.edm.retr_speed 0"), Parsed::Error);
+        assert_eq!(parse(b"fset ov.edm.retr_speed -1"), Parsed::Error);
+        assert_eq!(parse(b"fset ov.edm.adv_speed 0"), Parsed::Error);
+        assert_eq!(parse(b"fset ov.edm.adv_speed -1"), Parsed::Error);
     }
 }

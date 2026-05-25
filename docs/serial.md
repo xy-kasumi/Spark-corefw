@@ -55,11 +55,16 @@ Everything other than `?...` will be ignored in this window.
 `set` & `get` shares same settings namespace (addressed by hierarchical key).
 See [settings.md](./settings.md).
 
-`fset` operates on special fs namespace.
-Currently only one is
-```
-fset ov.pump_en true ; true enables pump, false respects M8/M9. default: false
-```
+`fset` operates on special fs namespace, and it runs immedaitely (unlike `set` which will be queued).
+* `ov.pump_en true`, `ov.pump_en false`: true enables pump, false respects M8/M9. default: false
+* `ov.edm.{retr_thresh, adv_thresh, retr_speed, adv_speed} <float or "none">`:
+  * `retr_thresh`: [0, 1]. when short_rate is exceeding this, retract
+  * `retr_speed`: positive number. retraction speed in mm/s.
+  * all 4 fields are `none` (use firmware default) on boot.
+
+`stat` dumps whatever data that is useful for debugging.
+Output is in p-state, but content is free to change.
+
 
 ### Response (P-State)
 pstate examples

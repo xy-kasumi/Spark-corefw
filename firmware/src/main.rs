@@ -128,6 +128,7 @@ async fn tick_loop(
     let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1));
     let mut framer = linecomm::Framer::new();
     let mut tx_state = line_tx::DrainState::new();
+    let mut edm_ov = EdmOverrides::default();
 
     loop {
         let stats = capture_stats(core).await;
@@ -162,6 +163,10 @@ async fn tick_loop(
         for fs in &rx.fastsets {
             match fs {
                 command::FastKey::PumpEn(on) => core.lock().await.pump.set_override(*on),
+                command::FastKey::EdmRetrThresh(v) => edm_ov.retr_thresh = *v,
+                command::FastKey::EdmAdvThresh(v) => edm_ov.adv_thresh = *v,
+                command::FastKey::EdmRetrSpeed(v) => edm_ov.retr_speed = *v,
+                command::FastKey::EdmAdvSpeed(v) => edm_ov.adv_speed = *v,
             }
         }
 
@@ -180,7 +185,9 @@ async fn tick_loop(
 
         {
             let mut c = core.lock().await;
-            let o = c.motion.tick(input);
+            let o = c
+                .motion
+                .tick(input, edm_ov.apply(motion::DEFAULT_CONTROL_PARAMS));
             c.motors.set_target(o.target);
             if let Some(pos_mm) = c.wirefeed.tick() {
                 c.motors.set_motor_target(M_WIREFEED, pos_mm);
@@ -263,6 +270,26 @@ const TICK_FS_CAP: usize = 8;
 struct RxBatch {
     cancel_seen: bool,
     fastsets: heapless::Vec<command::FastKey, TICK_FS_CAP>,
+}
+
+/// `ov.edm.*` values (for fset command). Corresponds to [`motion::EdmControlParams`].
+#[derive(Default)]
+struct EdmOverrides {
+    retr_thresh: Option<f32>,
+    adv_thresh: Option<f32>,
+    retr_speed: Option<f32>,
+    adv_speed: Option<f32>,
+}
+
+impl EdmOverrides {
+    fn apply(&self, base: motion::EdmControlParams) -> motion::EdmControlParams {
+        motion::EdmControlParams {
+            retr_thresh: self.retr_thresh.unwrap_or(base.retr_thresh),
+            adv_thresh: self.adv_thresh.unwrap_or(base.adv_thresh),
+            retr_speed: self.retr_speed.unwrap_or(base.retr_speed),
+            adv_speed: self.adv_speed.unwrap_or(base.adv_speed),
+        }
+    }
 }
 
 /// Pops parsed [`Command`]s from the queue and runs each. Feed-chain continuity

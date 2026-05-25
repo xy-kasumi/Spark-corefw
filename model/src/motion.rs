@@ -4,11 +4,24 @@
 use crate::coords;
 use crate::path;
 
-/// EDM control thresholds and per-tick step sizes.
-const EDM_OPEN_RATE_THRESH: f32 = 0.78;
-const EDM_SHORT_RATE_THRESH: f32 = 0.5;
-const EDM_ADVANCE_MM: f32 = 1e-3; // +1 µm/tick when too far (open)
-const EDM_RETRACT_MM: f32 = -5e-3; // -5 µm/tick when too close (short)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdmControlParams {
+    /// Retract when `short_rate > retr_thresh`. [0, 1].
+    pub retr_thresh: f32,
+    /// Advance when `open_rate > adv_thresh`. [0, 1].
+    pub adv_thresh: f32,
+    /// Retraction speed (>0), mm/s.
+    pub retr_speed: f32,
+    /// Advance speed (>0), mm/s.
+    pub adv_speed: f32,
+}
+
+pub const DEFAULT_CONTROL_PARAMS: EdmControlParams = EdmControlParams {
+    retr_thresh: 0.5,
+    adv_thresh: 0.78,
+    retr_speed: 5.0,
+    adv_speed: 1.0,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MotionOutputs {
@@ -139,7 +152,7 @@ impl<const N: usize> MotionState<N> {
     }
 
     /// Advance the controller one tick.
-    pub fn tick(&mut self, input: MotionInputs) -> MotionOutputs {
+    pub fn tick(&mut self, input: MotionInputs, params: EdmControlParams) -> MotionOutputs {
         match self.mode {
             Mode::Rapid => {
                 self.path.move_by(self.feed_mm_per_s * input.dt);
@@ -158,10 +171,10 @@ impl<const N: usize> MotionState<N> {
                 }
             }
             Mode::EdmMove => {
-                if input.open_rate > EDM_OPEN_RATE_THRESH {
-                    self.path.move_by(EDM_ADVANCE_MM);
-                } else if input.short_rate > EDM_SHORT_RATE_THRESH {
-                    self.path.move_by(EDM_RETRACT_MM);
+                if input.open_rate > params.adv_thresh {
+                    self.path.move_by(params.adv_speed * input.dt);
+                } else if input.short_rate > params.retr_thresh {
+                    self.path.move_by(params.retr_speed * input.dt);
                 }
                 if self.path.at_dst() {
                     self.mode = Mode::Idle;
