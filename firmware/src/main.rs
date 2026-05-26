@@ -69,7 +69,6 @@ pub(crate) struct Core {
 }
 
 pub(crate) type SharedCore = mutex::Mutex<raw::NoopRawMutex, Core>;
-type SharedHoming = mutex::Mutex<raw::NoopRawMutex, homing::Config>;
 
 #[embassy_executor::main]
 async fn main(spawner: embassy_executor::Spawner) {
@@ -97,9 +96,6 @@ async fn main(spawner: embassy_executor::Spawner) {
     static CMD_QUEUE_CELL: static_cell::StaticCell<commands::CmdQueue> =
         static_cell::StaticCell::new();
     let cmd_queue: &'static commands::CmdQueue = CMD_QUEUE_CELL.init(channel::Channel::new());
-    static HOMING_CELL: static_cell::StaticCell<SharedHoming> = static_cell::StaticCell::new();
-    let homing: &'static SharedHoming =
-        HOMING_CELL.init(mutex::Mutex::new(homing::Config::default()));
     static CANCELER_CELL: static_cell::StaticCell<canceler::Canceler> =
         static_cell::StaticCell::new();
     let canceler: &'static canceler::Canceler = CANCELER_CELL.init(canceler::Canceler::new());
@@ -110,7 +106,8 @@ async fn main(spawner: embassy_executor::Spawner) {
     // init phase
     core.lock().await.pulser.init().await;
     let defaults = model::settings::Repo::defaults();
-    let settings_result = settings::apply_all(&defaults, core, tmc, homing).await;
+    let mut homing = homing::Config::default();
+    let settings_result = settings::apply_all(&defaults, core, tmc, &mut homing).await;
     let mut init_out: outbox::OutputBuf<256> = outbox::OutputBuf::new();
     if let Err(key) = settings_result {
         init_out.push_error(format_args!("failed to apply setting {}", key));
@@ -362,7 +359,7 @@ async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
     core: &SharedCore,
     tmc: &settings::SharedTmc,
-    homing: &SharedHoming,
+    mut homing: homing::Config,
     outbox: &outbox::Outbox<OUTBOX_CAP>,
     canceler: &canceler::Canceler,
 ) {
@@ -380,7 +377,7 @@ async fn cmd_loop(
             cmd_queue,
             core,
             tmc,
-            homing,
+            &mut homing,
             canceler,
             &mut repo,
             &mut pulser_cfg,

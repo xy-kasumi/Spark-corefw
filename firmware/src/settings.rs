@@ -35,7 +35,7 @@ async fn dispatch(
     val: f32,
     core: &SharedCore,
     tmc: &SharedTmc,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
+    homing: &mut homing::Config,
 ) -> Result<(), Error> {
     let mut parts: [&str; settings::STG_KEY_SEGS_CAP] = [""; settings::STG_KEY_SEGS_CAP];
     let mut n = 0;
@@ -82,11 +82,7 @@ async fn dispatch(
         }
         ["a", a, "home", prop] => {
             let axis = settings::axis_parse(a).ok_or(Error::UnknownKey)?;
-            homing
-                .lock()
-                .await
-                .set(axis, prop, val)
-                .map_err(|_| Error::UnknownKey)
+            homing.set(axis, prop, val).map_err(|_| Error::UnknownKey)
         }
         _ => Err(Error::UnknownKey),
     }
@@ -98,7 +94,7 @@ pub async fn write(
     val: settings::Value,
     core: &SharedCore,
     tmc: &SharedTmc,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
+    homing: &mut homing::Config,
 ) -> Result<(), Error> {
     if !repo.contains(key) {
         return Err(Error::UnknownKey);
@@ -113,7 +109,7 @@ pub async fn apply_all<'a>(
     repo: &'a settings::Repo,
     core: &SharedCore,
     tmc: &SharedTmc,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
+    homing: &mut homing::Config,
 ) -> Result<(), &'a str> {
     for (key, v) in repo.iter() {
         if dispatch(key, v, core, tmc, homing).await.is_err() {

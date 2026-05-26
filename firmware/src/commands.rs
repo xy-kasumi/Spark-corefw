@@ -6,7 +6,6 @@ use core::sync::atomic;
 
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::channel;
-use embassy_sync::mutex;
 use model::coords;
 use model::gcode;
 use model::motion;
@@ -55,7 +54,7 @@ pub async fn exec(
     cmd_queue: &CmdQueue,
     core: &SharedCore,
     tmc: &settings::SharedTmc,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
+    homing: &mut homing::Config,
     canceler: &canceler::Canceler,
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut pulser::Config,
@@ -267,12 +266,9 @@ async fn wait_pump_settled(core: &SharedCore) {
 async fn exec_home(
     target: gcode::HomeSpec,
     core: &SharedCore,
-    homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
+    homing: &homing::Config,
     canceler: &canceler::Canceler,
 ) {
-    // Snapshot once; homing params don't change mid-home.
-    let homing = *homing.lock().await;
-
     let mut order = [coords::Axis::X, coords::Axis::Y, coords::Axis::Z];
     order.sort_unstable_by(|a, b| homing.axis(*a).phase.total_cmp(&homing.axis(*b).phase));
     for axis in order {
