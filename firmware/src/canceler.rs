@@ -9,6 +9,10 @@
 //! bytes still in flight from the host. The generation lets the executor tell a
 //! command that finished normally from one a cancel landed on, since its
 //! lookahead is already pulled out of the queue and the drain can't reach it.
+//!
+//! Fault is a sticky one-way variant of cancel. Once entered, never clears;
+//! [`active`](Canceler::active) stays true forever so the RX gate silences all
+//! writes for the rest of this power cycle.
 
 use core::sync::atomic;
 
@@ -23,6 +27,7 @@ const CANCEL_TICKS: u16 = 500;
 pub struct Canceler {
     gen: atomic::AtomicU32,
     ticks_left: atomic::AtomicU16,
+    fault: atomic::AtomicBool,
 }
 
 impl Canceler {
@@ -30,6 +35,7 @@ impl Canceler {
         Self {
             gen: atomic::AtomicU32::new(0),
             ticks_left: atomic::AtomicU16::new(0),
+            fault: atomic::AtomicBool::new(false),
         }
     }
 
@@ -40,6 +46,33 @@ impl Canceler {
             .store(CANCEL_TICKS, atomic::Ordering::Relaxed);
     }
 
+    /// Latch the fault flag. Returns `true` on the entering transition, `false`
+    /// if already in fault. Also bumps the generation and arms the drain window
+    /// so in-flight watchers fire one more time.
+    pub fn enter_fault(&self) -> bool {
+        if self
+            .fault
+            .compare_exchange(
+                false,
+                true,
+                atomic::Ordering::Relaxed,
+                atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        self.gen.fetch_add(1, atomic::Ordering::Relaxed);
+        self.ticks_left
+            .store(CANCEL_TICKS, atomic::Ordering::Relaxed);
+        true
+    }
+
+    /// True once the fault latch is set; stays true until power-cycle.
+    pub fn faulted(&self) -> bool {
+        self.fault.load(atomic::Ordering::Relaxed)
+    }
+
     /// Age the drain window by one tick. Call once per orchestrator tick.
     pub fn tick(&self) {
         let left = self.ticks_left.load(atomic::Ordering::Relaxed);
@@ -48,9 +81,10 @@ impl Canceler {
         }
     }
 
-    /// True while the drain window is open: incoming commands should be discarded.
+    /// True while the drain window is open or the fault latch is set:
+    /// incoming write commands should be discarded.
     pub fn active(&self) -> bool {
-        self.ticks_left.load(atomic::Ordering::Relaxed) > 0
+        self.faulted() || self.ticks_left.load(atomic::Ordering::Relaxed) > 0
     }
 
     /// Snapshot the cancel generation. Pair with [`Watcher::cancelled`] to

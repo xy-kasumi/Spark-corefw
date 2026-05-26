@@ -97,7 +97,7 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     // init phase
     let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).begin());
-    let pulser_ok = core.lock().await.pulser.init(line_tx).await;
+    core.lock().await.pulser.init().await;
     let settings_ok = settings::apply_all(
         &model::settings::Repo::defaults(),
         core,
@@ -106,21 +106,66 @@ async fn main(spawner: embassy_executor::Spawner) {
         line_tx,
     )
     .await;
-    let _ = line_tx
-        .try_send(pstate::Line::new(pstate::PsType::Init).bool("ok", pulser_ok && settings_ok));
-    let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).end());
 
     let _ = line_tx.try_send(
         pstate::Line::new(pstate::PsType::Sys)
             .str_val("ev", "boot")
             .end(),
     );
+    // TODO: Maybe discard rx until this point (might be leftover commands from previous power cycle).
+
+    if core.lock().await.pulser.fault() {
+        enter_fault(core, cmd_queue, canceler, line_tx).await;
+    }
+    if !settings_ok {
+        enter_fault(core, cmd_queue, canceler, line_tx).await;
+    }
 
     join::join(
         tick_loop(board.serial, cmd_queue, core, line_tx, canceler),
         cmd_loop(cmd_queue, core, tmc, homing, line_tx, canceler),
     )
     .await;
+}
+
+/// Drop hardware to its safe defaults: stop motion, hold position, disable pump
+/// and wirefeed, de-energize the pulser, and drain queued commands. Shared by
+/// the cancel and fault paths. Holds `Core` only across pulser I²C per the
+/// documented carve-out.
+async fn soft_stop(core: &SharedCore, cmd_queue: &commands::CmdQueue) {
+    {
+        let mut c = core.lock().await;
+        let here = c.motors.current();
+        c.motion.cancel(here);
+        c.motors.set_target(here);
+        c.coord.cancel();
+        c.pump.cancel();
+        c.wirefeed.stop();
+    }
+    // Pulser carve-out: I²C write holds Core across .await. Error here is
+    // ignored — we may already be entering fault, and re-firing on a stuck
+    // I²C bus is pointless. The idempotent fault latch handles re-entry.
+    let _ = core.lock().await.pulser.deenergize().await;
+    while cmd_queue.try_receive().is_ok() {}
+}
+
+/// Latch the fault state, emit `sys ev:"fault"`, and run the safe-stop teardown.
+/// Idempotent: re-entries are no-ops after the first.
+pub(crate) async fn enter_fault(
+    core: &SharedCore,
+    cmd_queue: &commands::CmdQueue,
+    canceler: &canceler::Canceler,
+    line_tx: &line_tx::LineTx,
+) {
+    if !canceler.enter_fault() {
+        return;
+    }
+    let _ = line_tx.try_send(
+        pstate::Line::new(pstate::PsType::Sys)
+            .str_val("ev", "fault")
+            .end(),
+    );
+    soft_stop(core, cmd_queue).await;
 }
 
 /// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
@@ -152,19 +197,8 @@ async fn tick_loop(
             &stats,
         );
 
-        if rx.cancel_seen {
-            {
-                let mut c = core.lock().await;
-                let here = c.motors.current();
-                c.motion.cancel(here);
-                c.motors.set_target(here);
-                c.coord.cancel();
-                c.pump.cancel();
-                c.wirefeed.stop();
-            }
-            // Pulser carve-out: I²C write holds Core across .await.
-            core.lock().await.pulser.deenergize().await;
-            while cmd_queue.try_receive().is_ok() {}
+        if rx.cancel_seen && !canceler.faulted() {
+            soft_stop(core, cmd_queue).await;
         }
         for fs in &rx.fastsets {
             match fs {
@@ -229,7 +263,7 @@ fn handle_rx(
             continue;
         };
         match command::parse(bytes) {
-            command::Parsed::Cancel => {
+            command::Parsed::Cancel if !canceler.faulted() => {
                 canceler.cancel();
                 batch.cancel_seen = true;
             }

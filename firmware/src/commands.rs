@@ -58,7 +58,12 @@ pub async fn exec(
     let watch = canceler.watch();
     match cmd {
         Command::Gcode(gcode::Parsed::Rapid(spec)) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             {
                 let mut c = core.lock().await;
                 if watch.cancelled() {
@@ -89,7 +94,11 @@ pub async fn exec(
                 let target = c.coord.resolve_move(&spec, here);
                 if starting_fresh {
                     // Pulser carve-out: I²C writes hold Core across .await.
-                    c.pulser.energize(pulser_cfg).await;
+                    if c.pulser.energize(pulser_cfg).await.is_err() {
+                        drop(c);
+                        crate::enter_fault(core, cmd_queue, canceler, line_tx).await;
+                        return;
+                    }
                 }
                 c.motion.do_edm(target);
                 break;
@@ -112,29 +121,53 @@ pub async fn exec(
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
                 // Pulser carve-out: I²C writes hold Core across .await.
-                c.pulser.energize(pulser_cfg).await;
+                if c.pulser.energize(pulser_cfg).await.is_err() {
+                    drop(c);
+                    crate::enter_fault(core, cmd_queue, canceler, line_tx).await;
+                    return;
+                }
                 c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
             }
             wait_until_idle(core).await;
-            // Pulser carve-out: I²C write holds Core across .await.
-            core.lock().await.pulser.deenergize().await;
+            // Pulser carve-out: I²C write holds Core across .await. Bind the
+            // result so the lock guard drops before any fault re-acquires it.
+            let deenergize_result = core.lock().await.pulser.deenergize().await;
+            if deenergize_result.is_err() {
+                crate::enter_fault(core, cmd_queue, canceler, line_tx).await;
+                return;
+            }
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
             exec_home(target, core, homing, canceler).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
             core.lock().await.coord.select(a);
         }
         Command::Gcode(gcode::Parsed::PumpOn) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
@@ -142,7 +175,12 @@ pub async fn exec(
             wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::PumpOff) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
@@ -150,7 +188,12 @@ pub async fn exec(
             wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
@@ -159,7 +202,12 @@ pub async fn exec(
             embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
@@ -175,7 +223,12 @@ pub async fn exec(
             };
         }
         Command::Set(key, val) => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
@@ -192,14 +245,24 @@ pub async fn exec(
             }
         }
         Command::Get => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
             dump_settings(line_tx, repo).await;
         }
         Command::Stat => {
-            settle_for_non_edm(core).await;
+            if settle_for_non_edm(core, cmd_queue, canceler, line_tx)
+                .await
+                .is_err()
+            {
+                return;
+            }
             if watch.cancelled() {
                 return;
             }
@@ -217,14 +280,28 @@ async fn wait_until_idle(core: &SharedCore) {
 
 /// Wait for motion idle and ensure the pulser is de-energized — the precondition
 /// for any command that is not part of an EDM chain. Deenergize is lazy so
-/// commands that don't follow an EDM chain pay no I²C cost.
-async fn settle_for_non_edm(core: &SharedCore) {
+/// commands that don't follow an EDM chain pay no I²C cost. On deenergize
+/// failure, latches fault and returns `Err(())` so the caller can bail.
+async fn settle_for_non_edm(
+    core: &SharedCore,
+    cmd_queue: &CmdQueue,
+    canceler: &canceler::Canceler,
+    line_tx: &line_tx::LineTx,
+) -> Result<(), ()> {
     wait_until_idle(core).await;
-    let mut c = core.lock().await;
-    if c.pulser.energized() {
-        // Pulser carve-out: I²C write holds Core across .await.
-        c.pulser.deenergize().await;
+    let result = {
+        let mut c = core.lock().await;
+        if c.pulser.energized() {
+            // Pulser carve-out: I²C write holds Core across .await.
+            c.pulser.deenergize().await
+        } else {
+            Ok(())
+        }
+    };
+    if result.is_err() {
+        crate::enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
+    result
 }
 
 /// Wait for the pump's settle countdown to drain on the tick cadence.
@@ -349,39 +426,32 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
     // Snapshot under the lock, then emit: holding Core across a `line_tx.send().await`
     // could deadlock the tick loop (its sole TX drainer) when the TX queue is full.
     let stat = core.lock().await.pulser.read_stat();
-    if !stat.init_ok {
-        line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).str_val("pulser.status", "init failed"))
-            .await;
-    } else {
-        line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized))
-            .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat)
-                    .int("pulser.i2c_write", stat.i2c_write as i32),
-            )
-            .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat)
-                    .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
-            )
-            .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat)
-                    .int("pulser.i2c_read", stat.i2c_read as i32),
-            )
-            .await;
-        line_tx
-            .send(
-                pstate::Line::new(pstate::PsType::Stat)
-                    .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
-            )
-            .await;
-    }
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.fault", stat.fault))
+        .await;
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized))
+        .await;
+    line_tx
+        .send(
+            pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_write", stat.i2c_write as i32),
+        )
+        .await;
+    line_tx
+        .send(
+            pstate::Line::new(pstate::PsType::Stat)
+                .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
+        )
+        .await;
+    line_tx
+        .send(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_read", stat.i2c_read as i32))
+        .await;
+    line_tx
+        .send(
+            pstate::Line::new(pstate::PsType::Stat)
+                .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
+        )
+        .await;
 
     let (feeding, pos, rate) = {
         let c = core.lock().await;
