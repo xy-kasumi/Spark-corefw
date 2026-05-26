@@ -55,9 +55,9 @@ pub(crate) const PB_CAPACITY: usize = 2001;
 
 /// All state shared between tick_loop and cmd_loop. One Mutex, no lock order.
 ///
-/// Discipline: do not `.await` while holding the guard — except `pulser.*`
-/// methods, which do bounded I²C transactions (~150µs–1ms). Tick jitter
-/// during those calls matches the pre-fold behavior.
+/// Discipline: do not `.await` while holding the guard — except `pulser.tick`,
+/// which does bounded I²C transactions (~150µs–1ms) and is the sole place that
+/// hardware-converges the pulser toward its requested state.
 pub(crate) struct Core {
     pub motors: motor::Motors,
     pub pulser: board::Pulser,
@@ -122,12 +122,12 @@ async fn main(spawner: embassy_executor::Spawner) {
     if core.lock().await.pulser.fault() {
         init_out.push_error(format_args!("fault: pulser"));
         outbox.flush(&mut init_out).await;
-        enter_fault(core, cmd_queue, canceler, outbox).await;
+        enter_fault(canceler, outbox).await;
     }
     if settings_result.is_err() {
         init_out.push_error(format_args!("fault: settings"));
         outbox.flush(&mut init_out).await;
-        enter_fault(core, cmd_queue, canceler, outbox).await;
+        enter_fault(canceler, outbox).await;
     }
 
     join::join(
@@ -137,32 +137,11 @@ async fn main(spawner: embassy_executor::Spawner) {
     .await;
 }
 
-/// Drop hardware to its safe defaults: stop motion, hold position, disable pump
-/// and wirefeed, de-energize the pulser, and drain queued commands. Shared by
-/// the cancel and fault paths. Holds `Core` only across pulser I²C per the
-/// documented carve-out.
-async fn soft_stop(core: &SharedCore, cmd_queue: &commands::CmdQueue) {
-    {
-        let mut c = core.lock().await;
-        let here = c.motors.current();
-        c.motion.cancel(here);
-        c.motors.set_target(here);
-        c.coord.cancel();
-        c.pump.cancel();
-        c.wirefeed.stop();
-    }
-    // Pulser carve-out: I²C write holds Core across .await. Error here is
-    // ignored — we may already be entering fault, and re-firing on a stuck
-    // I²C bus is pointless. The idempotent fault latch handles re-entry.
-    let _ = core.lock().await.pulser.deenergize().await;
-    while cmd_queue.try_receive().is_ok() {}
-}
-
-/// Latch the fault state, emit `sys ev:"fault"`, and run the safe-stop teardown.
-/// Idempotent: re-entries are no-ops after the first.
+/// Latch the fault state and emit `sys ev:"fault"`. Idempotent: re-entries
+/// are no-ops after the first. Hardware safe-state is driven by [`tick_loop`]'s
+/// cancel sweep: the sticky fault latch keeps `canceler.active()` true forever,
+/// so each subsequent tick re-runs the level-triggered cancel block.
 pub(crate) async fn enter_fault(
-    core: &SharedCore,
-    cmd_queue: &commands::CmdQueue,
     canceler: &canceler::Canceler,
     outbox: &outbox::Outbox<OUTBOX_CAP>,
 ) {
@@ -172,7 +151,6 @@ pub(crate) async fn enter_fault(
     let mut out: outbox::OutputBuf<64> = outbox::OutputBuf::new();
     out.push(pstate::Line::new(pstate::PsType::Sys).str_val("ev", "fault"));
     outbox.flush(&mut out).await;
-    soft_stop(core, cmd_queue).await;
 }
 
 /// Drives RX framing/dispatch, line-TX draining, and the motion tick at [`TICK_HZ`].
@@ -192,50 +170,59 @@ async fn tick_loop(
         ticker.next().await; // spent in ohter places & idling.
         let t_begin = embassy_time::Instant::now();
 
-        canceler.tick();
+        // Pulser I/O
+        core.lock().await.pulser.tick().await;
 
+        // Sync logic
         let mut out: outbox::OutputBuf<TICK_OUT_CAP> = outbox::OutputBuf::new();
-        let stats = capture_stats(core).await;
-
+        canceler.tick();
         let tx_idle = outbox.is_idle(&tx_state);
-        let rx = handle_rx(
-            serial,
-            &mut framer,
-            tx_idle,
-            &mut out,
-            cmd_queue,
-            canceler,
-            &stats,
-        );
-
-        if rx.cancel_seen && !canceler.faulted() {
-            soft_stop(core, cmd_queue).await;
-        }
-        for fs in &rx.fastsets {
-            match fs {
-                command::FastKey::PumpEn(on) => core.lock().await.pump.set_override(*on),
-                command::FastKey::EdmRetrThresh(v) => edm_ov.retr_thresh = *v,
-                command::FastKey::EdmAdvThresh(v) => edm_ov.adv_thresh = *v,
-                command::FastKey::EdmRetrSpeed(v) => edm_ov.retr_speed = *v,
-                command::FastKey::EdmAdvSpeed(v) => edm_ov.adv_speed = *v,
-            }
-        }
-
-        // Pulser carve-out: refresh I²C holds Core across .await.
-        let input = {
+        {
             let mut c = core.lock().await;
-            c.pulser.tick().await;
+            let active = c.coord.active();
+            let stats = signals::MachineStats {
+                pos: c.motors.current(),
+                edm: c.motion.edm_state(),
+                active,
+                offset: c.coord.offset_of(active),
+                smooth_pulse_ratio: c.pulser.smoothed_ratio(),
+            };
+            let rx = handle_rx(
+                serial,
+                &mut framer,
+                tx_idle,
+                &mut out,
+                cmd_queue,
+                canceler,
+                &stats,
+            );
+            for fs in &rx.fastsets {
+                match fs {
+                    command::FastKey::PumpEn(on) => c.pump.set_override(*on),
+                    command::FastKey::EdmRetrThresh(v) => edm_ov.retr_thresh = *v,
+                    command::FastKey::EdmAdvThresh(v) => edm_ov.adv_thresh = *v,
+                    command::FastKey::EdmRetrSpeed(v) => edm_ov.retr_speed = *v,
+                    command::FastKey::EdmAdvSpeed(v) => edm_ov.adv_speed = *v,
+                }
+            }
+            // Level-triggered safe-state sweep. Subsystems' cancel/stop methods
+            // are idempotent, so re-running every tick while the canceler is
+            // active is a no-op after the first.
+            if canceler.active() {
+                let here = c.motors.current();
+                c.motion.cancel(here);
+                c.coord.cancel();
+                c.pump.cancel();
+                c.wirefeed.stop();
+                c.pulser.request_deenergize();
+            }
             let r = c.pulser.last_ratio();
-            motion::MotionInputs {
+            let input = motion::MotionInputs {
                 dt: TICK_DT_S,
                 open_rate: r.open,
                 short_rate: r.short,
                 discharge: c.pulser.has_discharge(),
-            }
-        };
-
-        {
-            let mut c = core.lock().await;
+            };
             let o = c
                 .motion
                 .tick(input, edm_ov.apply(motion::DEFAULT_CONTROL_PARAMS));
@@ -367,11 +354,15 @@ async fn cmd_loop(
     let mut pulser_cfg = pulser::Config::default();
 
     loop {
-        let mut out: commands::OutputBuf = outbox::OutputBuf::new();
-        // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
-        // `await` as the only yield point means the signal reader can't observe a torn count.
         let curr = cmd_queue.receive().await;
+        if canceler.active() {
+            // discard if in cancel state
+            continue;
+        }
+
+        // exec command
         commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
+        let mut out: commands::OutputBuf = outbox::OutputBuf::new();
         let result = commands::exec(
             curr,
             cmd_queue,
@@ -388,20 +379,7 @@ async fn cmd_loop(
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
 
         if result.is_err() {
-            enter_fault(core, cmd_queue, canceler, outbox).await;
+            enter_fault(canceler, outbox).await;
         }
-    }
-}
-
-/// Snapshot the query-visible state under one lock take, reading cached getters only.
-async fn capture_stats(core: &SharedCore) -> signals::MachineStats {
-    let c = core.lock().await;
-    let active = c.coord.active();
-    signals::MachineStats {
-        pos: c.motors.current(),
-        edm: c.motion.edm_state(),
-        active,
-        offset: c.coord.offset_of(active),
-        smooth_pulse_ratio: c.pulser.smoothed_ratio(),
     }
 }

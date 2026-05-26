@@ -59,7 +59,11 @@ impl PulseRatio {
 pub struct Device<B: Bus> {
     dev: pulser::Device<B>,
     fault: bool,
-    energized: bool,
+    /// `Some(cfg)` requests Energized; `None` requests Deenergized. Set sync;
+    /// the async [`Self::tick`] reconciles the hardware toward this.
+    desired: Option<Config>,
+    /// Whether the hardware is currently energized (last successful transition).
+    current_energized: bool,
     /// Raw last-tick ratio. Consumed by the 1 ms control loop.
     last_ratio: PulseRatio,
     /// EWMA-smoothed ratio. Consumed by `?edm` reporting.
@@ -75,7 +79,8 @@ impl<B: Bus> Device<B> {
         Self {
             dev,
             fault: true,
-            energized: false,
+            desired: None,
+            current_energized: false,
             last_ratio: PulseRatio::ALL_OPEN,
             smoothed_ratio: PulseRatio::ALL_OPEN,
             num_i2c_write: 0,
@@ -102,14 +107,32 @@ impl<B: Bus> Device<B> {
         self.fault
     }
 
-    /// Energize with the given config.
-    ///
-    /// `pulse_us` 100-1000, `current_a` 0-20 (0 → minimum), `duty_pct` 1-95.
-    /// `tool_negative` selects tool-negative (polarity 2) vs tool-positive (polarity 1).
-    ///
-    /// Returns `Err(())` on any I²C write failure; caller should escalate to
-    /// fault. `energized` is only set on the success path.
-    pub async fn energize(&mut self, cfg: &Config) -> Result<(), ()> {
+    /// Request that the hardware be energized with `cfg`.
+    /// Next [`Self::tick`] performs the I²C writes.
+    pub fn request_energize(&mut self, cfg: &Config) {
+        self.desired = Some(*cfg);
+    }
+
+    /// Request that the hardware be de-energized.
+    /// Next [`Self::tick`] performs the I²C writes.
+    pub fn request_deenergize(&mut self) {
+        self.desired = None;
+    }
+
+    /// One polling step.
+    /// Execute pending energize state reconciliation & do stats update (if energized).
+    pub async fn tick(&mut self) {
+        match self.desired {
+            Some(cfg) if !self.current_energized => self.energize(cfg).await,
+            None if self.current_energized => self.deenergize().await,
+            Some(_) => self.poll().await,
+            None => {} // Idle.
+        }
+    }
+
+    /// Transition Deenergized → Energized. Polarity is written last so all
+    /// parameters are set before the hardware activates.
+    async fn energize(&mut self, cfg: Config) {
         let pulse_dur_10us = (cfg.pulse_us * 0.1) as u8;
         let mut pulse_current_100ma = (cfg.current_a * 10.0) as u8;
         if pulse_current_100ma == 0 {
@@ -117,39 +140,39 @@ impl<B: Bus> Device<B> {
         }
         let duty = cfg.duty_pct as u8;
         let polarity = if cfg.tool_negative { 2 } else { 1 };
-
-        // Polarity last, so all parameters are set before the hardware activates.
-        self.write_reg_counted(pulser::REG_PULSE_CURRENT, pulse_current_100ma)
-            .await?;
-        self.write_reg_counted(pulser::REG_PULSE_DUR, pulse_dur_10us)
-            .await?;
-        self.write_reg_counted(pulser::REG_MAX_DUTY, duty).await?;
-        self.write_reg_counted(pulser::REG_POLARITY, polarity)
-            .await?;
-
-        self.energized = true;
-        self.smoothed_ratio = PulseRatio::ALL_OPEN;
-        Ok(())
-    }
-
-    /// De-energize. Clears local state unconditionally; the returned `Err(())`
-    /// surfaces an I²C failure so the caller can escalate to fault. From the
-    /// cancel teardown path, callers ignore the error — fault entry has its
-    /// own idempotent latch and a failed deenergize there shouldn't re-fire it.
-    pub async fn deenergize(&mut self) -> Result<(), ()> {
-        self.energized = false;
-        self.last_ratio = PulseRatio::ALL_OPEN;
-        self.smoothed_ratio = PulseRatio::ALL_OPEN;
-        self.write_reg_counted(pulser::REG_POLARITY, 0).await
-    }
-
-    /// One polling step: when energized, refresh the pulse/short/open rates and
-    /// smoothed effective duty. Driven by the orchestrator at ~1 ms.
-    pub async fn tick(&mut self) {
-        if !self.energized {
+        if self
+            .write_reg_counted(pulser::REG_PULSE_CURRENT, pulse_current_100ma)
+            .await
+            .is_err()
+            || self
+                .write_reg_counted(pulser::REG_PULSE_DUR, pulse_dur_10us)
+                .await
+                .is_err()
+            || self
+                .write_reg_counted(pulser::REG_MAX_DUTY, duty)
+                .await
+                .is_err()
+            || self
+                .write_reg_counted(pulser::REG_POLARITY, polarity)
+                .await
+                .is_err()
+        {
             return;
         }
+        self.current_energized = true;
+        self.smoothed_ratio = PulseRatio::ALL_OPEN;
+    }
 
+    /// Transition Energized → Deenergized.
+    async fn deenergize(&mut self) {
+        self.current_energized = false;
+        self.last_ratio = PulseRatio::ALL_OPEN;
+        self.smoothed_ratio = PulseRatio::ALL_OPEN;
+        let _ = self.write_reg_counted(pulser::REG_POLARITY, 0).await;
+    }
+
+    /// Steady-state poll: refresh raw and smoothed pulse/short/open ratios.
+    async fn poll(&mut self) {
         self.num_i2c_read += 1;
         let (good, short) = match self.dev.read_ckp_ps().await {
             Some((val_p, val_s)) => (val_p as f32 / 15.0, val_s as f32 / 15.0),
@@ -158,7 +181,6 @@ impl<B: Bus> Device<B> {
                 return;
             }
         };
-
         let raw = PulseRatio {
             good,
             short,
@@ -188,14 +210,19 @@ impl<B: Bus> Device<B> {
     }
 
     pub fn energized(&self) -> bool {
-        self.energized
+        self.current_energized
+    }
+
+    /// True when the hardware state matches the most recent request.
+    pub fn settled(&self) -> bool {
+        self.desired.is_some() == self.current_energized
     }
 
     /// Gather a [`Stat`] snapshot for the `stat` command.
     pub fn read_stat(&self) -> Stat {
         Stat {
             fault: self.fault,
-            energized: self.energized,
+            energized: self.current_energized,
             i2c_write: self.num_i2c_write,
             i2c_write_fail: self.num_i2c_write_fail,
             i2c_read: self.num_i2c_read,

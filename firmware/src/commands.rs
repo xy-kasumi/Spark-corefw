@@ -99,10 +99,7 @@ pub async fn exec(
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
                 if starting_fresh {
-                    // Pulser carve-out: I²C writes hold Core across .await.
-                    if c.pulser.energize(pulser_cfg).await.is_err() {
-                        return Err(HwFault);
-                    }
+                    c.pulser.request_energize(pulser_cfg);
                 }
                 c.motion.do_edm(target);
                 break;
@@ -124,20 +121,12 @@ pub async fn exec(
                 }
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
-                // Pulser carve-out: I²C writes hold Core across .await.
-                if c.pulser.energize(pulser_cfg).await.is_err() {
-                    return Err(HwFault);
-                }
+                c.pulser.request_energize(pulser_cfg);
                 c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
             }
             wait_until_idle(core).await;
-            // Pulser carve-out: I²C write holds Core across .await.
-            core.lock()
-                .await
-                .pulser
-                .deenergize()
-                .await
-                .map_err(|_| HwFault)?;
+            core.lock().await.pulser.request_deenergize();
+            wait_pulser_settled(core).await?;
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
             settle_for_non_edm(core).await?;
@@ -239,17 +228,27 @@ async fn wait_until_idle(core: &SharedCore) {
     }
 }
 
-/// Wait for motion idle and ensure the pulser is de-energized — the precondition
-/// for any command that is not part of an EDM chain. Deenergize is lazy so
-/// commands that don't follow an EDM chain pay no I²C cost.
+/// Wait for motion idle and ensure the pulser is de-energized.
 async fn settle_for_non_edm(core: &SharedCore) -> Result<(), HwFault> {
     wait_until_idle(core).await;
-    let mut c = core.lock().await;
-    if c.pulser.energized() {
-        // Pulser carve-out: I²C write holds Core across .await.
-        c.pulser.deenergize().await.map_err(|_| HwFault)
-    } else {
-        Ok(())
+    core.lock().await.pulser.request_deenergize();
+    wait_pulser_settled(core).await
+}
+
+/// Poll until the pulser's hardware state matches the most recent request, on
+/// the tick cadence. Errors out if the pulser enters fault while waiting.
+async fn wait_pulser_settled(core: &SharedCore) -> Result<(), HwFault> {
+    loop {
+        {
+            let c = core.lock().await;
+            if c.pulser.fault() {
+                return Err(HwFault);
+            }
+            if c.pulser.settled() {
+                return Ok(());
+            }
+        }
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
     }
 }
 
