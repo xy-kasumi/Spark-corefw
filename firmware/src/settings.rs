@@ -8,12 +8,10 @@
 
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::mutex;
-use model::pstate;
 use model::settings;
 
 use crate::board;
 use crate::homing;
-use crate::line_tx;
 use crate::SharedCore;
 
 pub type SharedTmc = mutex::Mutex<raw::NoopRawMutex, [board::MotorConfig; board::NUM_MOTORS]>;
@@ -110,22 +108,17 @@ pub async fn write(
     Ok(())
 }
 
-pub async fn apply_all(
-    repo: &settings::Repo,
+/// On dispatch failure, returns the offending key (borrowed from `repo`).
+pub async fn apply_all<'a>(
+    repo: &'a settings::Repo,
     core: &SharedCore,
     tmc: &SharedTmc,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
-    line_tx: &line_tx::LineTx,
-) -> bool {
+) -> Result<(), &'a str> {
     for (key, v) in repo.iter() {
         if dispatch(key, v, core, tmc, homing).await.is_err() {
-            let _ = line_tx
-                .try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", false));
-            let _ = line_tx
-                .try_send(pstate::Line::new(pstate::PsType::Init).str_val("settings.msg", key));
-            return false;
+            return Err(key);
         }
     }
-    let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).bool("settings.ok", true));
-    true
+    Ok(())
 }

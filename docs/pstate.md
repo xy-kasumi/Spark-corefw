@@ -78,31 +78,15 @@ Keys
 * `dist` (float | undef): Cumulative distance from current current continuous motion start. Undef if unavailable (not moving).
 * `dist_max` (float | undef): Furthest traveled cumulative distance from current continuous motion start. Undef if unavailable (not moving).
 
-#### "init": Event-driven
-`init` reports core initialization status.
-Triggered just once after every boot.
+#### "error": Event-driven
+`error` reports an error.
 
 Keys
-* `ok`: whether the entire core was succesfully initialized
-* `<module>.ok` (bool): whether the module was succesfully initialized
-* `<module>.msg` (string or undef): error or warning message if available
+* `msg`: human-readable error, target 40 chars or less.
 
-Example
-```
-init < ok:false pulser.ok:true motor.ok:false motor.msg:"Failed to change pin XXX" >
-```
 
 #### "stat": Command-driven
 `stat` reports various modules stats for manual debugging.
 
 Keys
 * `<module>.<anything>`: Parameters of each module
-
-#### "error": Event-driven
-`error` reports latest error.
-
-Keys
-* `src` (optional): line content (w/o newline or hash) that caused the error. Not populated if non-identifiable.
-* `msg`: human-readable error
-
-Note checksum errors are handled by lower-layer, and *not* reported as "error".

@@ -21,7 +21,6 @@ pub enum PsType {
     Pos,
 
     Edm,
-    Init,
     Stat,
     Error,
 }
@@ -36,7 +35,6 @@ impl PsType {
             PsType::Pos => b"pos",
 
             PsType::Edm => b"edm",
-            PsType::Init => b"init",
             PsType::Stat => b"stat",
             PsType::Error => b"error",
         }
@@ -137,8 +135,7 @@ impl Write for Line {
     }
 }
 
-/// Builder for the fixed-shape `error` line:
-/// `error < [src:".."] msg:".." >`. Source is optional and capped at 50 bytes.
+/// Builder for the fixed-shape `error` line: `error < msg:".." >`.
 pub struct ErrorLine {
     line: Line,
 }
@@ -148,14 +145,6 @@ impl ErrorLine {
         Self {
             line: Line::new(PsType::Error).begin(),
         }
-    }
-
-    /// Attach the offending input line. Truncated to 50 bytes.
-    pub fn source(mut self, src: &[u8]) -> Self {
-        let truncated = &src[..src.len().min(50)];
-        self.line.write_key("src");
-        self.line.write_quoted(truncated);
-        self
     }
 
     pub fn msg(mut self, args: core::fmt::Arguments<'_>) -> Self {

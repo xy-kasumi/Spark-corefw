@@ -96,16 +96,16 @@ async fn main(spawner: embassy_executor::Spawner) {
     let line_tx = line_tx::LineTx::init();
 
     // init phase
-    let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Init).begin());
     core.lock().await.pulser.init().await;
-    let settings_ok = settings::apply_all(
-        &model::settings::Repo::defaults(),
-        core,
-        tmc,
-        homing,
-        line_tx,
-    )
-    .await;
+    let defaults = model::settings::Repo::defaults();
+    let settings_result = settings::apply_all(&defaults, core, tmc, homing).await;
+    if let Err(key) = settings_result {
+        let _ = line_tx.try_send(
+            pstate::ErrorLine::new()
+                .msg(format_args!("failed to apply setting {}", key))
+                .finish(),
+        );
+    }
 
     let _ = line_tx.try_send(
         pstate::Line::new(pstate::PsType::Sys)
@@ -117,7 +117,7 @@ async fn main(spawner: embassy_executor::Spawner) {
     if core.lock().await.pulser.fault() {
         enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
-    if !settings_ok {
+    if settings_result.is_err() {
         enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
 
@@ -285,7 +285,6 @@ fn handle_rx(
             command::Parsed::Error if !canceler.active() => {
                 let _ = line_tx.try_send(
                     pstate::ErrorLine::new()
-                        .source(bytes)
                         .msg(format_args!("syntax error"))
                         .finish(),
                 );
