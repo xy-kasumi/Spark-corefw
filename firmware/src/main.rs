@@ -339,9 +339,12 @@ impl EdmOverrides {
     }
 }
 
-/// Pops parsed [`Command`]s from the queue and runs each. Feed-chain continuity
-/// is decided inside `exec` by observing motion state (`ready_for_edm`) and the
-/// queue depth — no peek buffer or `cont_*` flags are tracked here.
+/// Pops parsed [`Command`]s from the queue and runs each. `exec` is called
+/// against guaranteed-clean machine state; after each command, `drain`
+/// settles everything back to clean before popping the next. Feed segments
+/// opt out via [`commands::ExecOutcome::FeedDispatched`], using the chain
+/// bridge below to keep OUTSTANDING raised until either a follow-up command
+/// arrives or motion drains on its own.
 async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
     core: &SharedCore,
@@ -360,12 +363,10 @@ async fn cmd_loop(
             continue;
         }
 
-        // exec command
         commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
         let mut out: commands::OutputBuf = outbox::OutputBuf::new();
         let result = commands::exec(
             curr,
-            cmd_queue,
             core,
             tmc,
             &mut homing,
@@ -376,9 +377,29 @@ async fn cmd_loop(
         )
         .await;
         outbox.flush(&mut out).await;
+
+        let settle = match result {
+            Ok(commands::ExecOutcome::Done) => commands::drain(core).await,
+            Ok(commands::ExecOutcome::FeedDispatched) => {
+                // While motion is ongoing, don't give up chaining.
+                while cmd_queue.is_empty() && core.lock().await.motion.mode() != motion::Mode::Idle
+                {
+                    embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
+                }
+
+                if core.lock().await.motion.mode() == motion::Mode::Idle {
+                    // Chain was not possible.
+                    commands::drain(core).await
+                } else {
+                    // Chained.
+                    Ok(())
+                }
+            }
+            Err(e) => Err(e),
+        };
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
 
-        if result.is_err() {
+        if settle.is_err() {
             enter_fault(canceler, outbox).await;
         }
     }

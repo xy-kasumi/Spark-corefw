@@ -44,14 +44,24 @@ const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
 /// Hardware fault detected during execution. `cmd_loop` will enter fault
-/// state. Cancellation is not an error — it returns `Ok(())`.
+/// state. Cancellation is not an error — it returns `Ok(...)`.
 #[derive(Debug)]
 pub struct HwFault;
 
-#[allow(clippy::too_many_arguments)]
+/// Result of one successful `exec`.
+pub enum ExecOutcome {
+    /// Command is self-contained. Caller of `exec` should [`drain`] after exec. `drain` marks the command completion.
+    Done,
+    /// Feed was dispatched (expecting chaining).
+    /// Caller should check for chain opportunity before calling [`drain`] or declaring command completion.
+    FeedDispatched,
+}
+
+/// Run one command.
+/// Caller must guarantee clean machine state before calling, by using [`drain`].
+/// `canceler` is only checked in long-running commands.
 pub async fn exec(
     cmd: Command,
-    cmd_queue: &CmdQueue,
     core: &SharedCore,
     tmc: &settings::SharedTmc,
     homing: &mut homing::Config,
@@ -59,36 +69,24 @@ pub async fn exec(
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut pulser::Config,
     out: &mut OutputBuf,
-) -> Result<(), HwFault> {
-    // Take a cancel snapshot at exec entry. The new wait-then-dispatch shape
-    // (most commands wait for motion idle before issuing) means a cancel landing
-    // during the wait would otherwise resurrect motion the operator just stopped.
-    // Each dispatch site re-checks `watch.cancelled()` after the prerequisite
-    // wait — and, for motion-touching commands, under the dispatch lock so
-    // there's no yield between check and issue.
-    let watch = canceler.watch();
+) -> Result<ExecOutcome, HwFault> {
     match cmd {
         Command::Gcode(gcode::Parsed::Rapid(spec)) => {
-            settle_for_non_edm(core).await?;
-            {
-                let mut c = core.lock().await;
-                if watch.cancelled() {
-                    return Ok(());
-                }
-                let here = c.motors.current();
-                let target = c.coord.resolve_move(&spec, here);
-                c.motion.start_rapid(target, RAPID_SPEED_MM_PER_S);
-            }
-            wait_until_idle(core).await;
+            let mut c = core.lock().await;
+            let here = c.motors.current();
+            let target = c.coord.resolve_move(&spec, here);
+            c.motion.start_rapid(target, RAPID_SPEED_MM_PER_S);
         }
         Command::Gcode(gcode::Parsed::Feed(spec)) => {
-            // Wait until motion can accept this segment (Idle, or EdmMove with a
-            // free extension slot); then dispatch in one lock so the mode read
-            // and `do_edm` see the same state.
+            // Wait until motion can accept this segment (Idle, or EdmMove with
+            // a free extension slot); then dispatch in one lock so the mode
+            // read and `do_edm` see the same state. This loop yields, so it
+            // honors cancellation explicitly.
+            let watch = canceler.watch();
             loop {
                 let mut c = core.lock().await;
                 if watch.cancelled() {
-                    return Ok(());
+                    return Ok(ExecOutcome::Done);
                 }
                 if !c.motion.ready_for_edm() {
                     drop(c);
@@ -104,74 +102,31 @@ pub async fn exec(
                 c.motion.do_edm(target);
                 break;
             }
-            // Settle: keep this command "outstanding" until either the next
-            // command is queued (it'll chain or transition the chain) or motion
-            // drains to Idle (chain ended naturally — or cancelled). This
-            // preserves the `?queue` num==0 ⇔ machine idle contract.
-            while cmd_queue.is_empty() && core.lock().await.motion.mode() != motion::Mode::Idle {
-                embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
-            }
+            return Ok(ExecOutcome::FeedDispatched);
         }
         Command::Gcode(gcode::Parsed::Probe(spec)) => {
-            wait_until_idle(core).await;
-            {
-                let mut c = core.lock().await;
-                if watch.cancelled() {
-                    return Ok(());
-                }
-                let here = c.motors.current();
-                let target = c.coord.resolve_move(&spec, here);
-                c.pulser.request_energize(pulser_cfg);
-                c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
-            }
-            wait_until_idle(core).await;
-            core.lock().await.pulser.request_deenergize();
-            wait_pulser_settled(core).await?;
+            let mut c = core.lock().await;
+            let here = c.motors.current();
+            let target = c.coord.resolve_move(&spec, here);
+            c.pulser.request_energize(pulser_cfg);
+            c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             exec_home(target, core, homing, canceler).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             core.lock().await.coord.select(a);
         }
         Command::Gcode(gcode::Parsed::PumpOn) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             core.lock().await.pump.set_enable(true);
-            wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::PumpOff) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             core.lock().await.pump.set_enable(false);
-            wait_pump_settled(core).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStart(rate)) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             core.lock().await.wirefeed.start(rate);
-            // Wait 2 s for wire tension to stabilize.
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(2000)).await;
         }
         Command::Gcode(gcode::Parsed::WirefeedStop) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             core.lock().await.wirefeed.stop();
         }
         Command::Gcode(gcode::Parsed::SetPulse(params)) => {
@@ -184,10 +139,6 @@ pub async fn exec(
             };
         }
         Command::Set(key, val) => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             if let Err(e) = settings::write(repo, &key, val, core, tmc, homing).await {
                 match e {
                     settings::Error::UnknownKey => {
@@ -204,57 +155,35 @@ pub async fn exec(
             }
         }
         Command::Get => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             dump_settings(out, repo);
         }
         Command::Stat => {
-            settle_for_non_edm(core).await?;
-            if watch.cancelled() {
-                return Ok(());
-            }
             dump_stat(out, core, tmc).await;
         }
     }
-    Ok(())
+    Ok(ExecOutcome::Done)
 }
 
-/// Poll until motion reaches Idle, on the tick cadence.
-async fn wait_until_idle(core: &SharedCore) {
+/// Universal post-command settle: drain motion to idle, ensure the pulser is
+/// deenergized, and wait pump/wirefeed countdowns. Called by `cmd_loop` after
+/// every [`ExecOutcome::Done`]; also called after a Feed chain ends naturally.
+/// Cheap when the machine is already clean — each `settled()` returns
+/// immediately. Pulser fault during the wait surfaces as [`HwFault`].
+pub async fn drain(core: &SharedCore) -> Result<(), HwFault> {
     while core.lock().await.motion.mode() != motion::Mode::Idle {
         embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
     }
-}
-
-/// Wait for motion idle and ensure the pulser is de-energized.
-async fn settle_for_non_edm(core: &SharedCore) -> Result<(), HwFault> {
-    wait_until_idle(core).await;
     core.lock().await.pulser.request_deenergize();
-    wait_pulser_settled(core).await
-}
-
-/// Poll until the pulser's hardware state matches the most recent request, on
-/// the tick cadence. Errors out if the pulser enters fault while waiting.
-async fn wait_pulser_settled(core: &SharedCore) -> Result<(), HwFault> {
     loop {
         {
             let c = core.lock().await;
             if c.pulser.fault() {
                 return Err(HwFault);
             }
-            if c.pulser.settled() {
+            if c.pulser.settled() && c.pump.settled() && c.wirefeed.settled() {
                 return Ok(());
             }
         }
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
-    }
-}
-
-/// Wait for the pump's settle countdown to drain on the tick cadence.
-async fn wait_pump_settled(core: &SharedCore) {
-    while !core.lock().await.pump.settled() {
         embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
     }
 }
