@@ -109,11 +109,7 @@ async fn main(spawner: embassy_executor::Spawner) {
     if let Err(key) = settings_result {
         init_out.push_error(format_args!("failed to apply setting {}", key));
     }
-    init_out.push(
-        pstate::Line::new(pstate::PsType::Sys)
-            .str_val("ev", "boot")
-            .end(),
-    );
+    init_out.push(pstate::Line::new(pstate::PsType::Sys).str_val("ev", "boot"));
     outbox.flush(&mut init_out).await;
 
     // Discard any RX buffered before boot (likely stale bytes from previous power cycle).
@@ -171,11 +167,7 @@ pub(crate) async fn enter_fault(
         return;
     }
     let mut out: outbox::OutputBuf<64> = outbox::OutputBuf::new();
-    out.push(
-        pstate::Line::new(pstate::PsType::Sys)
-            .str_val("ev", "fault")
-            .end(),
-    );
+    out.push(pstate::Line::new(pstate::PsType::Sys).str_val("ev", "fault"));
     outbox.flush(&mut out).await;
     soft_stop(core, cmd_queue).await;
 }

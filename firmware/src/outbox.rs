@@ -24,16 +24,16 @@ impl<const N: usize> OutputBuf<N> {
     }
 
     pub fn push(&mut self, line: pstate::Line) {
-        if line.overflowed() {
+        let (payload, overflowed) = line.into_payload();
+        if overflowed {
             self.overflowed = true;
         }
-        let payload = line.as_bytes();
         // +1 for trailing LF.
         if self.bytes.len() + payload.len() + 1 > N {
             self.overflowed = true;
             return;
         }
-        let _ = self.bytes.extend_from_slice(payload);
+        let _ = self.bytes.extend_from_slice(&payload);
         let _ = self.bytes.push(b'\n');
     }
 

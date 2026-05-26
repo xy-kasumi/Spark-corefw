@@ -37,10 +37,8 @@ pub fn exec_query<const N: usize>(
             let num = cmd_queue.len() + commands::OUTSTANDING.load(atomic::Ordering::Relaxed);
             out.push(
                 pstate::Line::new(pstate::PsType::Queue)
-                    .begin()
                     .int("cap", commands::CMD_QUEUE_CAP as i32)
-                    .int("num", num as i32)
-                    .end(),
+                    .int("num", num as i32),
             );
         }
         command::QuerySignal::Pos => {
@@ -49,7 +47,6 @@ pub fn exec_query<const N: usize>(
             let off = stats.offset;
 
             let mut line = pstate::Line::new(pstate::PsType::Pos)
-                .begin()
                 .str_val("sys", sys_name(active))
                 .float("m.x", pos.x)
                 .float("m.y", pos.y)
@@ -64,11 +61,11 @@ pub fn exec_query<const N: usize>(
                     .float(&key(p, 'z'), cs.z)
                     .float(&key(p, 'c'), cs.c * 360.0);
             }
-            out.push(line.end());
+            out.push(line);
         }
         command::QuerySignal::Edm => {
             // Motion and pulser fields come from the same tick snapshot.
-            let mut line = pstate::Line::new(pstate::PsType::Edm).begin();
+            let mut line = pstate::Line::new(pstate::PsType::Edm);
             if let Some(edm) = stats.edm {
                 line = line
                     .float("eff_duty", stats.smooth_pulse_ratio.good)
@@ -78,7 +75,7 @@ pub fn exec_query<const N: usize>(
                     .float("dist", edm.distance)
                     .float("dist_max", edm.distance_max);
             }
-            out.push(line.end());
+            out.push(line);
         }
         command::QuerySignal::Unknown => {
             // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.

@@ -5,7 +5,8 @@
 //!
 //! Each builder method appends an element with the spec-mandated leading space.
 //! Output never exceeds [`LINE_CAP`]; if the body would overflow the buffer,
-//! further appends are dropped and [`Line::overflowed`] reports it.
+//! further appends are dropped and the overflow flag returned by
+//! [`Line::into_payload`] reports it.
 
 use core::fmt::Write;
 
@@ -53,17 +54,8 @@ impl Line {
             overflowed: false,
         };
         me.append(ps.tag());
+        me.append(b" <");
         me
-    }
-
-    pub fn begin(mut self) -> Self {
-        self.append(b" <");
-        self
-    }
-
-    pub fn end(mut self) -> Self {
-        self.append(b" >");
-        self
     }
 
     pub fn bool(mut self, k: &str, v: bool) -> Self {
@@ -92,16 +84,25 @@ impl Line {
 
     pub fn str_val(mut self, k: &str, v: &str) -> Self {
         self.write_key(k);
-        self.write_quoted(v.as_bytes());
+        self.append(b"\"");
+        let _ = QuotedWriter(&mut self).write_str(v);
+        self.append(b"\"");
         self
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.buf
+    pub fn str_fmt(mut self, k: &str, args: core::fmt::Arguments<'_>) -> Self {
+        self.write_key(k);
+        self.append(b"\"");
+        let _ = QuotedWriter(&mut self).write_fmt(args);
+        self.append(b"\"");
+        self
     }
 
-    pub fn overflowed(&self) -> bool {
-        self.overflowed
+    /// Closes the body with the trailing `>` and yields the wire payload
+    /// (no LF) plus the overflow flag.
+    pub fn into_payload(mut self) -> (heapless::Vec<u8, LINE_CAP>, bool) {
+        self.append(b" >");
+        (self.buf, self.overflowed)
     }
 
     fn append(&mut self, b: &[u8]) {
@@ -115,17 +116,6 @@ impl Line {
         self.append(k.as_bytes());
         self.append(b":");
     }
-
-    fn write_quoted(&mut self, v: &[u8]) {
-        self.append(b"\"");
-        for &b in v {
-            if b == b'"' || b == b'\\' {
-                self.append(b"\\");
-            }
-            self.append(&[b]);
-        }
-        self.append(b"\"");
-    }
 }
 
 impl Write for Line {
@@ -135,12 +125,22 @@ impl Write for Line {
     }
 }
 
+/// Escapes `"` and `\` on the fly while writing into a [`Line`].
+struct QuotedWriter<'a>(&'a mut Line);
+
+impl<'a> Write for QuotedWriter<'a> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for &b in s.as_bytes() {
+            if b == b'"' || b == b'\\' {
+                self.0.append(b"\\");
+            }
+            self.0.append(&[b]);
+        }
+        Ok(())
+    }
+}
+
 /// Build the fixed-shape `error` line: `error < msg:".." >`.
 pub fn error_msg(args: core::fmt::Arguments<'_>) -> Line {
-    let mut line = Line::new(PsType::Error).begin();
-    line.write_key("msg");
-    line.append(b"\"");
-    let _ = line.write_fmt(args);
-    line.append(b"\"");
-    line.end()
+    Line::new(PsType::Error).str_fmt("msg", args)
 }

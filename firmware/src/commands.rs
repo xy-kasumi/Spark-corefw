@@ -311,17 +311,17 @@ async fn exec_home(
 
 /// Push the `stg` p-state listing every setting.
 fn dump_settings(out: &mut OutputBuf, repo: &model::settings::Repo) {
-    let mut line = pstate::Line::new(pstate::PsType::Settings).begin();
+    let mut line = pstate::Line::new(pstate::PsType::Settings);
     for (key, value) in repo.iter() {
         line = line.float(key, value);
     }
-    out.push(line.end());
+    out.push(line);
 }
 
 /// Push the `stat` p-state for debugging.
 /// Slow — several hundred ms, dominated by the TMC register dump.
 async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::SharedTmc) {
-    let mut line = pstate::Line::new(pstate::PsType::Stat).begin();
+    let mut line = pstate::Line::new(pstate::PsType::Stat);
 
     let (mode, steps) = {
         let c = core.lock().await;
@@ -381,5 +381,5 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
     let max_dt_us = crate::TICK_MAX_DT_US.load(atomic::Ordering::Relaxed);
     line = line.int("tick.max_dt_us", max_dt_us as i32);
 
-    out.push(line.end());
+    out.push(line);
 }
