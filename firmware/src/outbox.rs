@@ -91,14 +91,11 @@ impl<const N: usize> Outbox<N> {
     pub fn drain(&self, serial: &serial::Device, state: &mut DrainState) {
         loop {
             if state.offset >= state.len {
-                state.offset = 0;
                 state.len = match self.pipe.try_read(&mut state.scratch) {
                     Ok(n) => n,
                     Err(_) => return,
                 };
-                if state.len == 0 {
-                    return;
-                }
+                state.offset = 0;
             }
             let pushed = serial.tx_push(&state.scratch[state.offset..state.len]);
             if pushed == 0 {
