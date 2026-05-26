@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Line-atomic TX queue. Producers hand off a whole [`Line`] (≤128 B) as one
-//! message; the tick loop drains each line into the serial TX ring without
-//! splitting across drains, so producers never interleave mid-line on the wire.
-//!
-//! Capacity is in *lines*, not bytes — backpressure drops whole lines.
+//! Line-atomic TX queue. Producers stage whole [`pstate::Line`]s into a local
+//! [`OutputBuf`], then [`LineTx::flush_drop`] (sync, drop-on-full) or
+//! [`LineTx::flush`] (async, awaits room) moves them into the wire queue. The
+//! tick loop drains the wire queue byte-by-byte into the serial TX ring,
+//! never splitting a line across drains.
 
 use embassy_sync::blocking_mutex::raw;
 use embassy_sync::channel;
@@ -14,6 +14,40 @@ use model::pstate;
 use crate::drivers::serial;
 
 pub const TX_LINE_CAP: usize = 100;
+
+/// Per-producer line staging buffer. `push` is infallible; over-capacity lines
+/// silently drop. Each producer declares its own `N` at the call site, sized
+/// to its worst-case burst.
+pub struct OutputBuf<const N: usize> {
+    lines: heapless::Vec<pstate::Line, N>,
+}
+
+impl<const N: usize> OutputBuf<N> {
+    pub const fn new() -> Self {
+        Self {
+            lines: heapless::Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, line: pstate::Line) {
+        let _ = self.lines.push(line);
+    }
+
+    pub fn push_error(&mut self, args: core::fmt::Arguments<'_>) {
+        self.push(pstate::error_msg(args));
+    }
+
+    /// Move the staged lines out for flushing.
+    fn take_lines(&mut self) -> heapless::Vec<pstate::Line, N> {
+        core::mem::take(&mut self.lines)
+    }
+}
+
+impl<const N: usize> Default for OutputBuf<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct LineTx {
     chan: channel::Channel<raw::NoopRawMutex, pstate::Line, TX_LINE_CAP>,
@@ -28,23 +62,21 @@ impl LineTx {
         })
     }
 
-    /// Non-blocking enqueue. On full, returns the line back so the caller can observe drops.
-    /// Use from anywhere that must not stall (signal handlers, tick loop body).
-    pub fn try_send(&self, line: pstate::Line) -> Result<(), pstate::Line> {
-        self.chan.try_send(line).map_err(|e| match e {
-            embassy_sync::channel::TrySendError::Full(l) => l,
-        })
+    /// Sync. Moves each line in `buf` into the wire queue. Lines that don't fit
+    /// (queue full) drop silently; subsequent lines from the same burst are
+    /// still attempted. For producers that can't yield (tick body, init/fault).
+    pub fn flush_drop<const N: usize>(&self, buf: &mut OutputBuf<N>) {
+        for line in buf.take_lines() {
+            let _ = self.chan.try_send(line);
+        }
     }
 
-    /// Awaiting enqueue. Suspends on backpressure — use where pacing the producer
-    /// to UART speed is fine (e.g. command execution).
-    pub async fn send(&self, line: pstate::Line) {
-        self.chan.send(line).await;
-    }
-
-    /// Non-blocking error-line enqueue. Drops on full.
-    pub fn try_send_error(&self, args: core::fmt::Arguments<'_>) {
-        let _ = self.try_send(pstate::error_msg(args));
+    /// Async. Awaits queue room as needed. For producers that pace to UART speed
+    /// (cmd_loop's per-command tail).
+    pub async fn flush<const N: usize>(&self, buf: &mut OutputBuf<N>) {
+        for line in buf.take_lines() {
+            self.chan.send(line).await;
+        }
     }
 
     /// True when no line is queued or mid-drain, so raw bytes (terminal echo)

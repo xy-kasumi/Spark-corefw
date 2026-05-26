@@ -18,6 +18,7 @@ use crate::board;
 use crate::canceler;
 use crate::drivers::tmc2209;
 use crate::homing;
+use crate::line_tx;
 use crate::pulser;
 use crate::settings;
 use crate::SharedCore;
@@ -30,10 +31,10 @@ pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
 /// lines = 66. Round up for headroom. Stat (~47 lines) fits comfortably.
 pub const OUTPUT_CAP: usize = 80;
 
-/// Per-command line buffer: `exec` pushes here, `cmd_loop` drains into `LineTx`.
+/// Per-command line buffer: `exec` pushes here, `cmd_loop` flushes to `LineTx`.
 /// Concentrating max-output cost in this owned buffer lets the static `LineTx`
 /// channel be sized for cross-producer pacing, not for any single command.
-pub type OutputBuf = heapless::Vec<pstate::Line, OUTPUT_CAP>;
+pub type OutputBuf = line_tx::OutputBuf<OUTPUT_CAP>;
 
 /// Set to 1 while the executor is processing a popped command, 0 otherwise.
 /// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field, which the
@@ -202,17 +203,18 @@ pub async fn exec(
                 return Ok(());
             }
             if let Err(e) = settings::write(repo, &key, val, core, tmc, homing).await {
-                let line = match e {
+                match e {
                     settings::Error::UnknownKey => {
-                        pstate::error_msg(format_args!("unknown key {}", key.as_str()))
+                        out.push_error(format_args!("unknown key {}", key.as_str()));
                     }
-                    settings::Error::ApplyFailed => pstate::error_msg(format_args!(
-                        "failed to set {} {}",
-                        key.as_str(),
-                        val.get()
-                    )),
-                };
-                let _ = out.push(line);
+                    settings::Error::ApplyFailed => {
+                        out.push_error(format_args!(
+                            "failed to set {} {}",
+                            key.as_str(),
+                            val.get()
+                        ));
+                    }
+                }
             }
         }
         Command::Get => {
@@ -311,17 +313,17 @@ async fn exec_home(
 
 /// Emit one logical `stg` p-state framed by `stg <` / `stg >`, one kv line per setting.
 fn dump_settings(out: &mut OutputBuf, repo: &model::settings::Repo) {
-    let _ = out.push(pstate::Line::new(pstate::PsType::Settings).begin());
+    out.push(pstate::Line::new(pstate::PsType::Settings).begin());
     for (key, value) in repo.iter() {
-        let _ = out.push(pstate::Line::new(pstate::PsType::Settings).float(key, value));
+        out.push(pstate::Line::new(pstate::PsType::Settings).float(key, value));
     }
-    let _ = out.push(pstate::Line::new(pstate::PsType::Settings).end());
+    out.push(pstate::Line::new(pstate::PsType::Settings).end());
 }
 
 /// Emit one big `stat` p-state for debugging.
 /// It is slow — takes several hundred ms (esp TMC register dump).
 async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::SharedTmc) {
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).begin());
+    out.push(pstate::Line::new(pstate::PsType::Stat).begin());
 
     let (mode, steps) = {
         let c = core.lock().await;
@@ -333,11 +335,11 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
         motion::Mode::EdmMove => "edm",
         motion::Mode::Probing => "probe",
     };
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name));
+    out.push(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name));
     for (i, &steps_i) in steps.iter().enumerate() {
         let mut key: heapless::String<32> = heapless::String::new();
         let _ = write!(&mut key, "motor.m{}.current_steps", i);
-        let _ = out.push(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i));
+        out.push(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i));
     }
 
     const REGS: &[(&str, u8)] = &[
@@ -356,25 +358,23 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
                     Ok(v) => pstate::Line::new(pstate::PsType::Stat).hex32(&key, v),
                     Err(_) => pstate::Line::new(pstate::PsType::Stat).str_val(&key, "error"),
                 };
-                let _ = out.push(line);
+                out.push(line);
             }
         }
     }
 
     let stat = core.lock().await.pulser.read_stat();
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.fault", stat.fault));
-    let _ =
-        out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized));
-    let _ = out.push(
+    out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.fault", stat.fault));
+    out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized));
+    out.push(
         pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_write", stat.i2c_write as i32),
     );
-    let _ = out.push(
+    out.push(
         pstate::Line::new(pstate::PsType::Stat)
             .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
     );
-    let _ = out
-        .push(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_read", stat.i2c_read as i32));
-    let _ = out.push(
+    out.push(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_read", stat.i2c_read as i32));
+    out.push(
         pstate::Line::new(pstate::PsType::Stat)
             .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
     );
@@ -383,9 +383,9 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
         let c = core.lock().await;
         (c.wirefeed.feeding(), c.wirefeed.pos_mm(), c.wirefeed.rate())
     };
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding));
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.pos", pos));
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate));
+    out.push(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding));
+    out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.pos", pos));
+    out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate));
 
-    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).end());
+    out.push(pstate::Line::new(pstate::PsType::Stat).end());
 }

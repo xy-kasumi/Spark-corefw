@@ -26,21 +26,22 @@ pub struct MachineStats {
     pub smooth_pulse_ratio: pulser::PulseRatio,
 }
 
-pub fn exec_query(
+pub fn exec_query<const N: usize>(
     sig: command::QuerySignal,
     stats: &MachineStats,
     cmd_queue: &commands::CmdQueue,
-    line_tx: &line_tx::LineTx,
+    out: &mut line_tx::OutputBuf<N>,
 ) {
     match sig {
         command::QuerySignal::Queue => {
             let num = cmd_queue.len() + commands::OUTSTANDING.load(atomic::Ordering::Relaxed);
-            let line = pstate::Line::new(pstate::PsType::Queue)
-                .begin()
-                .int("cap", commands::CMD_QUEUE_CAP as i32)
-                .int("num", num as i32)
-                .end();
-            let _ = line_tx.try_send(line);
+            out.push(
+                pstate::Line::new(pstate::PsType::Queue)
+                    .begin()
+                    .int("cap", commands::CMD_QUEUE_CAP as i32)
+                    .int("num", num as i32)
+                    .end(),
+            );
         }
         command::QuerySignal::Pos => {
             let pos = stats.pos;
@@ -56,13 +57,13 @@ pub fn exec_query(
                 .float("m.z", pos.z)
                 .float("m.c", pos.c * 360.0);
             if active == CoordSys::Machine {
-                let _ = line_tx.try_send(line1.end());
+                out.push(line1.end());
             } else {
                 // Leave line 1 open; line 2 carries the active-system position.
-                let _ = line_tx.try_send(line1);
+                out.push(line1);
                 let cs = pos.with_offset_removed(off);
                 let p = pos_prefix(active);
-                let _ = line_tx.try_send(
+                out.push(
                     pstate::Line::new(pstate::PsType::Pos)
                         .float(&key(p, 'x'), cs.x)
                         .float(&key(p, 'y'), cs.y)
@@ -74,22 +75,22 @@ pub fn exec_query(
         }
         command::QuerySignal::Edm => {
             // Motion and pulser fields come from the same tick snapshot.
-            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).begin());
+            out.push(pstate::Line::new(pstate::PsType::Edm).begin());
             if let Some(edm) = stats.edm {
-                let _ = line_tx.try_send(
+                out.push(
                     pstate::Line::new(pstate::PsType::Edm)
                         .float("eff_duty", stats.smooth_pulse_ratio.good)
                         .float("open", stats.smooth_pulse_ratio.open)
                         .float("short", stats.smooth_pulse_ratio.short),
                 );
-                let _ = line_tx.try_send(
+                out.push(
                     pstate::Line::new(pstate::PsType::Edm)
                         .float("retr_rem", edm.retract_remaining)
                         .float("dist", edm.distance)
                         .float("dist_max", edm.distance_max),
                 );
             }
-            let _ = line_tx.try_send(pstate::Line::new(pstate::PsType::Edm).end());
+            out.push(pstate::Line::new(pstate::PsType::Edm).end());
         }
         command::QuerySignal::Unknown => {
             // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.

@@ -99,24 +99,29 @@ async fn main(spawner: embassy_executor::Spawner) {
     core.lock().await.pulser.init().await;
     let defaults = model::settings::Repo::defaults();
     let settings_result = settings::apply_all(&defaults, core, tmc, homing).await;
+    let mut init_out: line_tx::OutputBuf<4> = line_tx::OutputBuf::new();
     if let Err(key) = settings_result {
-        line_tx.try_send_error(format_args!("failed to apply setting {}", key));
+        init_out.push_error(format_args!("failed to apply setting {}", key));
     }
-    let _ = line_tx.try_send(
+    init_out.push(
         pstate::Line::new(pstate::PsType::Sys)
             .str_val("ev", "boot")
             .end(),
     );
+    line_tx.flush_drop(&mut init_out);
+
     // Discard any RX buffered before boot (likely stale bytes from previous power cycle).
     let mut drain = [0u8; serial::RX_CAP];
     while !board.serial.rx_get(&mut drain).is_empty() {}
 
     if core.lock().await.pulser.fault() {
-        line_tx.try_send_error(format_args!("fault: pulser"));
+        init_out.push_error(format_args!("fault: pulser"));
+        line_tx.flush_drop(&mut init_out);
         enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
     if settings_result.is_err() {
-        line_tx.try_send_error(format_args!("fault: settings"));
+        init_out.push_error(format_args!("fault: settings"));
+        line_tx.flush_drop(&mut init_out);
         enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
 
@@ -159,11 +164,13 @@ pub(crate) async fn enter_fault(
     if !canceler.enter_fault() {
         return;
     }
-    let _ = line_tx.try_send(
+    let mut out: line_tx::OutputBuf<1> = line_tx::OutputBuf::new();
+    out.push(
         pstate::Line::new(pstate::PsType::Sys)
             .str_val("ev", "fault")
             .end(),
     );
+    line_tx.flush_drop(&mut out);
     soft_stop(core, cmd_queue).await;
 }
 
@@ -179,6 +186,7 @@ async fn tick_loop(
     let mut framer = linecomm::Framer::new();
     let mut tx_state = line_tx::DrainState::new();
     let mut edm_ov = EdmOverrides::default();
+    let mut out: line_tx::OutputBuf<TICK_OUT_CAP> = line_tx::OutputBuf::new();
 
     loop {
         let stats = capture_stats(core).await;
@@ -186,11 +194,12 @@ async fn tick_loop(
         ticker.next().await;
         canceler.tick();
 
+        let tx_idle = line_tx.is_idle(&tx_state);
         let rx = handle_rx(
             serial,
             &mut framer,
-            &tx_state,
-            line_tx,
+            tx_idle,
+            &mut out,
             cmd_queue,
             canceler,
             &stats,
@@ -234,19 +243,20 @@ async fn tick_loop(
             c.pump.tick();
         }
 
+        line_tx.flush_drop(&mut out);
         line_tx.drain(serial, &mut tx_state);
     }
 }
 
 /// Serial-side phase of one tick: echo, frame, parse, immediate-dispatch.
-/// Touches `serial`, `line_tx`, `cmd_queue`, and `canceler` — never `Core`.
-/// Anything that needs `Core` (the cancel block, fset applies) is returned via
-/// [`RxBatch`] for the caller's Core-touching pass.
-fn handle_rx(
+/// Touches `serial`, `cmd_queue`, `canceler`, and the producer-side `out` buf —
+/// never `Core`. Anything that needs `Core` (the cancel block, fset applies)
+/// is returned via [`RxBatch`] for the caller's Core-touching pass.
+fn handle_rx<const N: usize>(
     serial: &serial::Device,
     framer: &mut linecomm::Framer,
-    tx_state: &line_tx::DrainState,
-    line_tx: &line_tx::LineTx,
+    tx_idle: bool,
+    out: &mut line_tx::OutputBuf<N>,
     cmd_queue: &commands::CmdQueue,
     canceler: &canceler::Canceler,
     stats: &signals::MachineStats,
@@ -257,7 +267,7 @@ fn handle_rx(
     };
     let mut chunk = [0u8; TICK_RX_BYTES];
     for &b in serial.rx_get(&mut chunk) {
-        interactive::echo(b, framer.line_len(), line_tx.is_idle(tx_state), serial);
+        interactive::echo(b, framer.line_len(), tx_idle, serial);
         let Some(bytes) = framer.feed(b) else {
             continue;
         };
@@ -267,18 +277,18 @@ fn handle_rx(
                 batch.cancel_seen = true;
             }
             command::Parsed::Query(q) => {
-                signals::exec_query(q, stats, cmd_queue, line_tx);
+                signals::exec_query(q, stats, cmd_queue, out);
             }
             command::Parsed::FastSet(fs) if !canceler.active() => {
                 let _ = batch.fastsets.push(fs);
             }
             command::Parsed::Command(c) if !canceler.active() => {
-                if let Err(_dropped) = cmd_queue.try_send(c) {
-                    line_tx.try_send_error(format_args!("queue full"));
+                if cmd_queue.try_send(c).is_err() {
+                    out.push_error(format_args!("queue full"));
                 }
             }
             command::Parsed::Error if !canceler.active() => {
-                line_tx.try_send_error(format_args!("syntax error"));
+                out.push_error(format_args!("syntax error"));
             }
             _ => {}
         }
@@ -295,6 +305,12 @@ const TICK_RX_BYTES: usize = 32;
 /// Max "fset" to process per tick.
 /// Must be larger than TICK_RX_BYTES / (min "fset" command size).
 const TICK_FS_CAP: usize = 8;
+
+/// Per-tick line-output buffer capacity. Worst case ≈ TICK_RX_BYTES / 2
+/// (alternating data-byte + LF) × max lines per dispatch (4, for `?edm`).
+/// Oversized: 32 covers heavy query bursts; over-flow drops silently and the
+/// next tick recovers (signals are queryable; errors are advisory).
+const TICK_OUT_CAP: usize = 32;
 
 /// Per-tick output of serial RX parsing.
 struct RxBatch {
@@ -335,7 +351,7 @@ async fn cmd_loop(
 ) {
     let mut repo = model::settings::Repo::defaults();
     let mut pulser_cfg = pulser::Config::default();
-    let mut out: commands::OutputBuf = heapless::Vec::new();
+    let mut out: commands::OutputBuf = line_tx::OutputBuf::new();
 
     loop {
         // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
@@ -354,11 +370,9 @@ async fn cmd_loop(
             &mut out,
         )
         .await;
-        for line in core::mem::take(&mut out) {
-            line_tx.send(line).await;
-        }
+        line_tx.flush(&mut out).await;
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
-        
+
         if result.is_err() {
             enter_fault(core, cmd_queue, canceler, line_tx).await;
         }
