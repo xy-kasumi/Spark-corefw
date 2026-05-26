@@ -100,11 +100,7 @@ async fn main(spawner: embassy_executor::Spawner) {
     let defaults = model::settings::Repo::defaults();
     let settings_result = settings::apply_all(&defaults, core, tmc, homing).await;
     if let Err(key) = settings_result {
-        let _ = line_tx.try_send(
-            pstate::ErrorLine::new()
-                .msg(format_args!("failed to apply setting {}", key))
-                .finish(),
-        );
+        line_tx.try_send_error(format_args!("failed to apply setting {}", key));
     }
     let _ = line_tx.try_send(
         pstate::Line::new(pstate::PsType::Sys)
@@ -116,9 +112,11 @@ async fn main(spawner: embassy_executor::Spawner) {
     while !board.serial.rx_get(&mut drain).is_empty() {}
 
     if core.lock().await.pulser.fault() {
+        line_tx.try_send_error(format_args!("fault: pulser"));
         enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
     if settings_result.is_err() {
+        line_tx.try_send_error(format_args!("fault: settings"));
         enter_fault(core, cmd_queue, canceler, line_tx).await;
     }
 
@@ -276,19 +274,11 @@ fn handle_rx(
             }
             command::Parsed::Command(c) if !canceler.active() => {
                 if let Err(_dropped) = cmd_queue.try_send(c) {
-                    let _ = line_tx.try_send(
-                        pstate::ErrorLine::new()
-                            .msg(format_args!("queue full"))
-                            .finish(),
-                    );
+                    line_tx.try_send_error(format_args!("queue full"));
                 }
             }
             command::Parsed::Error if !canceler.active() => {
-                let _ = line_tx.try_send(
-                    pstate::ErrorLine::new()
-                        .msg(format_args!("syntax error"))
-                        .finish(),
-                );
+                line_tx.try_send_error(format_args!("syntax error"));
             }
             _ => {}
         }

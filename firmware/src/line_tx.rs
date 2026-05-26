@@ -42,6 +42,11 @@ impl LineTx {
         self.chan.send(line).await;
     }
 
+    /// Non-blocking error-line enqueue. Drops on full.
+    pub fn try_send_error(&self, args: core::fmt::Arguments<'_>) {
+        let _ = self.try_send(pstate::error_msg(args));
+    }
+
     /// True when no line is queued or mid-drain, so raw bytes (terminal echo)
     /// can be pushed to the wire without landing inside a protocol line.
     pub fn is_idle(&self, state: &DrainState) -> bool {

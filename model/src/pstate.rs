@@ -135,33 +135,12 @@ impl Write for Line {
     }
 }
 
-/// Builder for the fixed-shape `error` line: `error < msg:".." >`.
-pub struct ErrorLine {
-    line: Line,
-}
-
-impl ErrorLine {
-    pub fn new() -> Self {
-        Self {
-            line: Line::new(PsType::Error).begin(),
-        }
-    }
-
-    pub fn msg(mut self, args: core::fmt::Arguments<'_>) -> Self {
-        self.line.write_key("msg");
-        self.line.append(b"\"");
-        let _ = self.line.write_fmt(args);
-        self.line.append(b"\"");
-        self
-    }
-
-    pub fn finish(self) -> Line {
-        self.line.end()
-    }
-}
-
-impl Default for ErrorLine {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Build the fixed-shape `error` line: `error < msg:".." >`.
+pub fn error_msg(args: core::fmt::Arguments<'_>) -> Line {
+    let mut line = Line::new(PsType::Error).begin();
+    line.write_key("msg");
+    line.append(b"\"");
+    let _ = line.write_fmt(args);
+    line.append(b"\"");
+    line.end()
 }

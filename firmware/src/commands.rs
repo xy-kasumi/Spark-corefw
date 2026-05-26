@@ -191,15 +191,18 @@ pub async fn exec(
                 return Ok(());
             }
             if let Err(e) = settings::write(repo, &key, val, core, tmc, homing).await {
-                let line = match e {
-                    settings::Error::UnknownKey => pstate::ErrorLine::new()
-                        .msg(format_args!("unknown key {}", key.as_str()))
-                        .finish(),
-                    settings::Error::ApplyFailed => pstate::ErrorLine::new()
-                        .msg(format_args!("failed to set {} {}", key.as_str(), val.get()))
-                        .finish(),
-                };
-                let _ = line_tx.try_send(line);
+                match e {
+                    settings::Error::UnknownKey => {
+                        line_tx.try_send_error(format_args!("unknown key {}", key.as_str()));
+                    }
+                    settings::Error::ApplyFailed => {
+                        line_tx.try_send_error(format_args!(
+                            "failed to set {} {}",
+                            key.as_str(),
+                            val.get()
+                        ));
+                    }
+                }
             }
         }
         Command::Get => {
