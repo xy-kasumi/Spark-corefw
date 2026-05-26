@@ -379,7 +379,10 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
         .float("wirefeed.rate", rate);
 
     let max_dt_us = crate::TICK_MAX_DT_US.load(atomic::Ordering::Relaxed);
-    line = line.int("tick.max_dt_us", max_dt_us as i32);
+    let late_count = crate::TICK_LATE_COUNT.load(atomic::Ordering::Relaxed);
+    line = line
+        .int("tick.max_dt_us", max_dt_us as i32)
+        .int("tick.late_count", late_count as i32);
 
     out.push(line);
 }
