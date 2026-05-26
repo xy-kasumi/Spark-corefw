@@ -37,15 +37,15 @@ use crate::drivers::serial;
 const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
-/// Threshold for counting a "late" tick: 5% past the 1 ms nominal period.
-pub(crate) const TICK_LATE_THRESHOLD_US: u32 = 1100;
+/// Consider 90%+ of 1ms budget as too slow.
+pub(crate) const SLOW_TICK_THRESHOLD_US: u32 = 900;
 
 /// Max observed interval between consecutive `tick_loop` wakeups, in microseconds.
 /// Exceeding the 1 ms period indicates some sync span on the executor stalled the tick.
 pub(crate) static TICK_MAX_DT_US: atomic::AtomicU32 = atomic::AtomicU32::new(0);
 
 /// Count of ticks whose interval exceeded `TICK_LATE_THRESHOLD_US`.
-pub(crate) static TICK_LATE_COUNT: atomic::AtomicU32 = atomic::AtomicU32::new(0);
+pub(crate) static TICK_SLOW_COUNT: atomic::AtomicU32 = atomic::AtomicU32::new(0);
 
 /// Motor index of wirefeed stepper.
 const M_WIREFEED: usize = 6;
@@ -187,21 +187,13 @@ async fn tick_loop(
     canceler: &canceler::Canceler,
 ) {
     let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1));
-    let mut prev_tick = embassy_time::Instant::now();
-
     let mut framer = linecomm::Framer::new();
     let mut tx_state = outbox::DrainState::new();
     let mut edm_ov = EdmOverrides::default();
 
     loop {
-        ticker.next().await;
-        let now = embassy_time::Instant::now();
-        let dt_us = (now - prev_tick).as_micros().min(u32::MAX as u64) as u32;
-        prev_tick = now;
-        TICK_MAX_DT_US.fetch_max(dt_us, atomic::Ordering::Relaxed);
-        if dt_us > TICK_LATE_THRESHOLD_US {
-            TICK_LATE_COUNT.fetch_add(1, atomic::Ordering::Relaxed);
-        }
+        ticker.next().await; // spent in ohter places & idling.
+        let t_begin = embassy_time::Instant::now();
 
         canceler.tick();
 
@@ -259,6 +251,14 @@ async fn tick_loop(
 
         outbox.flush(&mut out).await;
         outbox.drain(serial, &mut tx_state);
+
+        // update tick stat
+        let t_end = embassy_time::Instant::now();
+        let dt_us = (t_end - t_begin).as_micros().min(u32::MAX as u64) as u32;
+        TICK_MAX_DT_US.fetch_max(dt_us, atomic::Ordering::Relaxed);
+        if dt_us > SLOW_TICK_THRESHOLD_US {
+            TICK_SLOW_COUNT.fetch_add(1, atomic::Ordering::Relaxed);
+        }
     }
 }
 
