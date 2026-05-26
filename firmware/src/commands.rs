@@ -18,7 +18,6 @@ use crate::board;
 use crate::canceler;
 use crate::drivers::tmc2209;
 use crate::homing;
-use crate::line_tx;
 use crate::pulser;
 use crate::settings;
 use crate::SharedCore;
@@ -26,6 +25,15 @@ use crate::SharedCore;
 pub const CMD_QUEUE_CAP: usize = 64;
 
 pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
+
+/// Worst case per command: settings dump = STG_CAP(64) entries + 2 framing
+/// lines = 66. Round up for headroom. Stat (~47 lines) fits comfortably.
+pub const OUTPUT_CAP: usize = 80;
+
+/// Per-command line buffer: `exec` pushes here, `cmd_loop` drains into `LineTx`.
+/// Concentrating max-output cost in this owned buffer lets the static `LineTx`
+/// channel be sized for cross-producer pacing, not for any single command.
+pub type OutputBuf = heapless::Vec<pstate::Line, OUTPUT_CAP>;
 
 /// Set to 1 while the executor is processing a popped command, 0 otherwise.
 /// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field, which the
@@ -37,8 +45,11 @@ const RAPID_SPEED_MM_PER_S: f32 = 10.0;
 /// Probe feed.
 const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 
-/// `Err(())` indicates a hardware fault detected during execution; cancellation
-/// returns `Ok(())`.
+/// Hardware fault detected during execution. `cmd_loop` will enter fault
+/// state. Cancellation is not an error — it returns `Ok(())`.
+#[derive(Debug)]
+pub struct HwFault;
+
 #[allow(clippy::too_many_arguments)]
 pub async fn exec(
     cmd: Command,
@@ -46,11 +57,11 @@ pub async fn exec(
     core: &SharedCore,
     tmc: &settings::SharedTmc,
     homing: &mutex::Mutex<raw::NoopRawMutex, homing::Config>,
-    line_tx: &line_tx::LineTx,
     canceler: &canceler::Canceler,
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut pulser::Config,
-) -> Result<(), ()> {
+    out: &mut OutputBuf,
+) -> Result<(), HwFault> {
     // Take a cancel snapshot at exec entry. The new wait-then-dispatch shape
     // (most commands wait for motion idle before issuing) means a cancel landing
     // during the wait would otherwise resurrect motion the operator just stopped.
@@ -92,7 +103,7 @@ pub async fn exec(
                 if starting_fresh {
                     // Pulser carve-out: I²C writes hold Core across .await.
                     if c.pulser.energize(pulser_cfg).await.is_err() {
-                        return Err(());
+                        return Err(HwFault);
                     }
                 }
                 c.motion.do_edm(target);
@@ -117,7 +128,7 @@ pub async fn exec(
                 let target = c.coord.resolve_move(&spec, here);
                 // Pulser carve-out: I²C writes hold Core across .await.
                 if c.pulser.energize(pulser_cfg).await.is_err() {
-                    return Err(());
+                    return Err(HwFault);
                 }
                 c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
             }
@@ -128,7 +139,7 @@ pub async fn exec(
                 .pulser
                 .deenergize()
                 .await
-                .map_err(|_| ())?;
+                .map_err(|_| HwFault)?;
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
             settle_for_non_edm(core).await?;
@@ -191,18 +202,17 @@ pub async fn exec(
                 return Ok(());
             }
             if let Err(e) = settings::write(repo, &key, val, core, tmc, homing).await {
-                match e {
+                let line = match e {
                     settings::Error::UnknownKey => {
-                        line_tx.try_send_error(format_args!("unknown key {}", key.as_str()));
+                        pstate::error_msg(format_args!("unknown key {}", key.as_str()))
                     }
-                    settings::Error::ApplyFailed => {
-                        line_tx.try_send_error(format_args!(
-                            "failed to set {} {}",
-                            key.as_str(),
-                            val.get()
-                        ));
-                    }
-                }
+                    settings::Error::ApplyFailed => pstate::error_msg(format_args!(
+                        "failed to set {} {}",
+                        key.as_str(),
+                        val.get()
+                    )),
+                };
+                let _ = out.push(line);
             }
         }
         Command::Get => {
@@ -210,14 +220,14 @@ pub async fn exec(
             if watch.cancelled() {
                 return Ok(());
             }
-            dump_settings(line_tx, repo).await;
+            dump_settings(out, repo);
         }
         Command::Stat => {
             settle_for_non_edm(core).await?;
             if watch.cancelled() {
                 return Ok(());
             }
-            dump_stat(line_tx, core, tmc).await;
+            dump_stat(out, core, tmc).await;
         }
     }
     Ok(())
@@ -233,12 +243,12 @@ async fn wait_until_idle(core: &SharedCore) {
 /// Wait for motion idle and ensure the pulser is de-energized — the precondition
 /// for any command that is not part of an EDM chain. Deenergize is lazy so
 /// commands that don't follow an EDM chain pay no I²C cost.
-async fn settle_for_non_edm(core: &SharedCore) -> Result<(), ()> {
+async fn settle_for_non_edm(core: &SharedCore) -> Result<(), HwFault> {
     wait_until_idle(core).await;
     let mut c = core.lock().await;
     if c.pulser.energized() {
         // Pulser carve-out: I²C write holds Core across .await.
-        c.pulser.deenergize().await.map_err(|_| ())
+        c.pulser.deenergize().await.map_err(|_| HwFault)
     } else {
         Ok(())
     }
@@ -300,26 +310,18 @@ async fn exec_home(
 }
 
 /// Emit one logical `stg` p-state framed by `stg <` / `stg >`, one kv line per setting.
-async fn dump_settings(line_tx: &line_tx::LineTx, repo: &model::settings::Repo) {
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Settings).begin())
-        .await;
+fn dump_settings(out: &mut OutputBuf, repo: &model::settings::Repo) {
+    let _ = out.push(pstate::Line::new(pstate::PsType::Settings).begin());
     for (key, value) in repo.iter() {
-        line_tx
-            .send(pstate::Line::new(pstate::PsType::Settings).float(key, value))
-            .await;
+        let _ = out.push(pstate::Line::new(pstate::PsType::Settings).float(key, value));
     }
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Settings).end())
-        .await;
+    let _ = out.push(pstate::Line::new(pstate::PsType::Settings).end());
 }
 
 /// Emit one big `stat` p-state for debugging.
-/// It is slow takes several hundred ms. (esp TMC register dump)
-async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings::SharedTmc) {
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).begin())
-        .await;
+/// It is slow — takes several hundred ms (esp TMC register dump).
+async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::SharedTmc) {
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).begin());
 
     let (mode, steps) = {
         let c = core.lock().await;
@@ -331,15 +333,11 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
         motion::Mode::EdmMove => "edm",
         motion::Mode::Probing => "probe",
     };
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name))
-        .await;
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name));
     for (i, &steps_i) in steps.iter().enumerate() {
         let mut key: heapless::String<32> = heapless::String::new();
         let _ = write!(&mut key, "motor.m{}.current_steps", i);
-        line_tx
-            .send(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i))
-            .await;
+        let _ = out.push(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i));
     }
 
     const REGS: &[(&str, u8)] = &[
@@ -358,56 +356,36 @@ async fn dump_stat(line_tx: &line_tx::LineTx, core: &SharedCore, tmc: &settings:
                     Ok(v) => pstate::Line::new(pstate::PsType::Stat).hex32(&key, v),
                     Err(_) => pstate::Line::new(pstate::PsType::Stat).str_val(&key, "error"),
                 };
-                line_tx.send(line).await;
+                let _ = out.push(line);
             }
         }
     }
 
-    // Snapshot under the lock, then emit: holding Core across a `line_tx.send().await`
-    // could deadlock the tick loop (its sole TX drainer) when the TX queue is full.
     let stat = core.lock().await.pulser.read_stat();
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.fault", stat.fault))
-        .await;
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized))
-        .await;
-    line_tx
-        .send(
-            pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_write", stat.i2c_write as i32),
-        )
-        .await;
-    line_tx
-        .send(
-            pstate::Line::new(pstate::PsType::Stat)
-                .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
-        )
-        .await;
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_read", stat.i2c_read as i32))
-        .await;
-    line_tx
-        .send(
-            pstate::Line::new(pstate::PsType::Stat)
-                .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
-        )
-        .await;
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.fault", stat.fault));
+    let _ =
+        out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized));
+    let _ = out.push(
+        pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_write", stat.i2c_write as i32),
+    );
+    let _ = out.push(
+        pstate::Line::new(pstate::PsType::Stat)
+            .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
+    );
+    let _ = out
+        .push(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_read", stat.i2c_read as i32));
+    let _ = out.push(
+        pstate::Line::new(pstate::PsType::Stat)
+            .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
+    );
 
     let (feeding, pos, rate) = {
         let c = core.lock().await;
         (c.wirefeed.feeding(), c.wirefeed.pos_mm(), c.wirefeed.rate())
     };
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding))
-        .await;
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.pos", pos))
-        .await;
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate))
-        .await;
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding));
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.pos", pos));
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate));
 
-    line_tx
-        .send(pstate::Line::new(pstate::PsType::Stat).end())
-        .await;
+    let _ = out.push(pstate::Line::new(pstate::PsType::Stat).end());
 }

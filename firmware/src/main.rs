@@ -335,6 +335,7 @@ async fn cmd_loop(
 ) {
     let mut repo = model::settings::Repo::defaults();
     let mut pulser_cfg = pulser::Config::default();
+    let mut out: commands::OutputBuf = heapless::Vec::new();
 
     loop {
         // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
@@ -347,13 +348,17 @@ async fn cmd_loop(
             core,
             tmc,
             homing,
-            line_tx,
             canceler,
             &mut repo,
             &mut pulser_cfg,
+            &mut out,
         )
         .await;
+        for line in core::mem::take(&mut out) {
+            line_tx.send(line).await;
+        }
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
+        
         if result.is_err() {
             enter_fault(core, cmd_queue, canceler, line_tx).await;
         }
