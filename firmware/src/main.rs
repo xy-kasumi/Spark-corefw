@@ -37,6 +37,10 @@ use crate::drivers::serial;
 const TICK_HZ: u32 = 1000;
 const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
 
+/// Max observed interval between consecutive `tick_loop` wakeups, in microseconds.
+/// Exceeding the 1 ms period indicates some sync span on the executor stalled the tick.
+pub(crate) static TICK_MAX_DT_US: atomic::AtomicU32 = atomic::AtomicU32::new(0);
+
 /// Motor index of wirefeed stepper.
 const M_WIREFEED: usize = 6;
 
@@ -188,13 +192,18 @@ async fn tick_loop(
     let mut framer = linecomm::Framer::new();
     let mut tx_state = outbox::DrainState::new();
     let mut edm_ov = EdmOverrides::default();
-    let mut out: outbox::OutputBuf<TICK_OUT_CAP> = outbox::OutputBuf::new();
+    let mut prev_tick = embassy_time::Instant::now();
 
     loop {
-        let stats = capture_stats(core).await;
-
         ticker.next().await;
+        let now = embassy_time::Instant::now();
+        let dt_us = (now - prev_tick).as_micros().min(u32::MAX as u64) as u32;
+        prev_tick = now;
+        TICK_MAX_DT_US.fetch_max(dt_us, atomic::Ordering::Relaxed);
         canceler.tick();
+
+        let mut out: outbox::OutputBuf<TICK_OUT_CAP> = outbox::OutputBuf::new();
+        let stats = capture_stats(core).await;
 
         let tx_idle = outbox.is_idle(&tx_state);
         let rx = handle_rx(
@@ -356,9 +365,9 @@ async fn cmd_loop(
 ) {
     let mut repo = model::settings::Repo::defaults();
     let mut pulser_cfg = pulser::Config::default();
-    let mut out: commands::OutputBuf = outbox::OutputBuf::new();
 
     loop {
+        let mut out: commands::OutputBuf = outbox::OutputBuf::new();
         // OUTSTANDING is bumped only after a successful pop. Single-threaded executor +
         // `await` as the only yield point means the signal reader can't observe a torn count.
         let curr = cmd_queue.receive().await;
