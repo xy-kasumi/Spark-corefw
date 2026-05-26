@@ -351,7 +351,7 @@ async fn cmd_loop(
         // `await` as the only yield point means the signal reader can't observe a torn count.
         let curr = cmd_queue.receive().await;
         commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
-        commands::exec(
+        let result = commands::exec(
             curr,
             cmd_queue,
             core,
@@ -364,6 +364,9 @@ async fn cmd_loop(
         )
         .await;
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
+        if result.is_err() {
+            enter_fault(core, cmd_queue, canceler, line_tx).await;
+        }
     }
 }
 
