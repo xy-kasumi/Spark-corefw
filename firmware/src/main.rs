@@ -33,9 +33,27 @@ use model::pstate;
 
 use crate::drivers::serial;
 
-/// Orchestrator loop tick rate. Slower-cadence work counts ticks; nothing else schedules its own timer.
-const TICK_HZ: u32 = 1000;
-const TICK_DT_S: f32 = 1.0 / TICK_HZ as f32;
+/// Serial port baudrate.
+const SERIAL_BAUD: u32 = 115200;
+
+/// Main tick loop cadence. (technically configurable, but not at all sure non 1ms works).
+const TICK_DT_MS: f32 = 1.0;
+
+/// Max rx bytes to process per tick.
+const TICK_RX_BYTES: usize = 32;
+
+/// Max "fset" to process per tick.
+/// Must be larger than TICK_RX_BYTES / (min "fset" command size).
+const TICK_FS_CAP: usize = 8;
+
+/// Per-tick output-staging buffer (bytes). Sized for ~10 max-shape `?pos`
+/// responses, the worst-case single-tick query burst (TICK_RX_BYTES / 3 single-
+/// char queries). Overflow drops the over-budget line and latches the buf's
+/// overflow flag; signals are queryable so the next tick recovers.
+const TICK_OUT_CAP: usize = 2048;
+
+/// Wire-ring capacity (bytes) of the shared outbox.
+const OUTBOX_CAP: usize = 4000;
 
 /// Consider 90%+ of 1ms budget as too slow.
 pub(crate) const SLOW_TICK_THRESHOLD_US: u32 = 900;
@@ -72,7 +90,7 @@ pub(crate) type SharedCore = mutex::Mutex<raw::NoopRawMutex, Core>;
 
 #[embassy_executor::main]
 async fn main(spawner: embassy_executor::Spawner) {
-    let board = board::init(&spawner, 115200);
+    let board = board::init(&spawner, SERIAL_BAUD);
     let step = board.motors.step;
 
     let motors = motor::Motors::new(step);
@@ -161,7 +179,9 @@ async fn tick_loop(
     outbox: &outbox::Outbox<OUTBOX_CAP>,
     canceler: &canceler::Canceler,
 ) {
-    let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_millis(1));
+    let mut ticker = embassy_time::Ticker::every(embassy_time::Duration::from_micros(
+        (TICK_DT_MS * 1e3) as u64,
+    ));
     let mut framer = linecomm::Framer::new();
     let mut tx_state = outbox::DrainState::new();
     let mut edm_ov = EdmOverrides::default();
@@ -218,7 +238,7 @@ async fn tick_loop(
             }
             let r = c.pulser.last_ratio();
             let input = motion::MotionInputs {
-                dt: TICK_DT_S,
+                dt: TICK_DT_MS * 1e-3,
                 open_rate: r.open,
                 short_rate: r.short,
                 discharge: c.pulser.has_discharge(),
@@ -297,22 +317,6 @@ fn handle_rx<const N: usize>(
     batch
 }
 
-/// Wire-ring capacity (bytes) of the shared outbox.
-const OUTBOX_CAP: usize = 4000;
-
-/// Max rx bytes to process per tick.
-const TICK_RX_BYTES: usize = 32;
-
-/// Max "fset" to process per tick.
-/// Must be larger than TICK_RX_BYTES / (min "fset" command size).
-const TICK_FS_CAP: usize = 8;
-
-/// Per-tick output-staging buffer (bytes). Sized for ~10 max-shape `?pos`
-/// responses, the worst-case single-tick query burst (TICK_RX_BYTES / 3 single-
-/// char queries). Overflow drops the over-budget line and latches the buf's
-/// overflow flag; signals are queryable so the next tick recovers.
-const TICK_OUT_CAP: usize = 2048;
-
 /// Per-tick output of serial RX parsing.
 struct RxBatch {
     cancel_seen: bool,
@@ -339,12 +343,7 @@ impl EdmOverrides {
     }
 }
 
-/// Pops parsed [`Command`]s from the queue and runs each. `exec` is called
-/// against guaranteed-clean machine state; after each command, `drain`
-/// settles everything back to clean before popping the next. Feed segments
-/// opt out via [`commands::ExecOutcome::FeedDispatched`], using the chain
-/// bridge below to keep OUTSTANDING raised until either a follow-up command
-/// arrives or motion drains on its own.
+/// Keep executing `cmd_queue` forever.
 async fn cmd_loop(
     cmd_queue: &commands::CmdQueue,
     core: &SharedCore,
