@@ -13,7 +13,7 @@ use model::motion;
 use model::pstate;
 
 use crate::commands;
-use crate::line_tx;
+use crate::outbox;
 use crate::pulser;
 
 /// Snapshot of machine (enough to answer [`QuerySignal`])
@@ -30,7 +30,7 @@ pub fn exec_query<const N: usize>(
     sig: command::QuerySignal,
     stats: &MachineStats,
     cmd_queue: &commands::CmdQueue,
-    out: &mut line_tx::OutputBuf<N>,
+    out: &mut outbox::OutputBuf<N>,
 ) {
     match sig {
         command::QuerySignal::Queue => {

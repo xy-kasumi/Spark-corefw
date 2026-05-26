@@ -18,7 +18,7 @@ use crate::board;
 use crate::canceler;
 use crate::drivers::tmc2209;
 use crate::homing;
-use crate::line_tx;
+use crate::outbox;
 use crate::pulser;
 use crate::settings;
 use crate::SharedCore;
@@ -27,11 +27,12 @@ pub const CMD_QUEUE_CAP: usize = 64;
 
 pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
 
-/// Each command emits at most one pstate (a response, or an error).
-pub const OUTPUT_CAP: usize = 1;
+/// Each command emits at most one pstate (a response, or an error), sized to
+/// a max-shape line plus its trailing LF.
+pub const OUTPUT_CAP: usize = pstate::LINE_CAP + 1;
 
-/// Per-command line buffer: `exec` pushes here, `cmd_loop` flushes to `LineTx`.
-pub type OutputBuf = line_tx::OutputBuf<OUTPUT_CAP>;
+/// Per-command line buffer: `exec` pushes here, `cmd_loop` flushes to the [`outbox::Outbox`].
+pub type OutputBuf = outbox::OutputBuf<OUTPUT_CAP>;
 
 /// Set to 1 while the executor is processing a popped command, 0 otherwise.
 /// `cmd_queue.len() + OUTSTANDING` gives `?queue`'s "num" field, which the
