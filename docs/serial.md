@@ -30,13 +30,11 @@ Command summary
 * `fset <fs-key> <val>`: set single config quickly (not-queued)
 * `stat`: dump all debug states as p-state (queued)
 
-Response: everything is  `<pstate-tag> <pstate>`.
+Response: everything is  `<pstate-tag> <pstate>` (single line).
 * pstate-tag is finite (e.g. `queue`, `stat`). See [pstate.md](./pstate.md).
 * pstate is a dictionary where
   * key is hierachical name like "motor.0.step"
   * value is one of bool, float32 (finite), uint32 (hex), string
-
-Multiple p-state of different tags can be interleaved as multiple lines.
 
 ### Command details
 G-code, when streamed quickly connects back-and-forth.
@@ -69,15 +67,9 @@ Output is in p-state, but content is free to change.
 ### Response (P-State)
 pstate examples
 ```
-<m.1.microstep:1 m.2.microstep:2 m.3.microstep:3 m.4.microstep:3 m.4.microstep:5>
-< >
-```
-
-interleaved pstate examples on wire
-```
-stg < motor.step:1
-edm < eff_duty:0.5 >
-stg motor.thresh:0 >
+stg < m.1.microstep:1 m.2.microstep:2 m.3.microstep:3 >
+edm < eff_duty:0.5 open:0.2 short:0.3 >
+queue < cap:64 num:0 >
 ```
 
 p-state

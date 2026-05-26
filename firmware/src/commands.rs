@@ -27,13 +27,10 @@ pub const CMD_QUEUE_CAP: usize = 64;
 
 pub type CmdQueue = channel::Channel<raw::NoopRawMutex, Command, CMD_QUEUE_CAP>;
 
-/// Worst case per command: settings dump = STG_CAP(64) entries + 2 framing
-/// lines = 66. Round up for headroom. Stat (~47 lines) fits comfortably.
-pub const OUTPUT_CAP: usize = 80;
+/// Each command emits at most one pstate (a response, or an error).
+pub const OUTPUT_CAP: usize = 1;
 
 /// Per-command line buffer: `exec` pushes here, `cmd_loop` flushes to `LineTx`.
-/// Concentrating max-output cost in this owned buffer lets the static `LineTx`
-/// channel be sized for cross-producer pacing, not for any single command.
 pub type OutputBuf = line_tx::OutputBuf<OUTPUT_CAP>;
 
 /// Set to 1 while the executor is processing a popped command, 0 otherwise.
@@ -311,19 +308,19 @@ async fn exec_home(
     }
 }
 
-/// Emit one logical `stg` p-state framed by `stg <` / `stg >`, one kv line per setting.
+/// Push the `stg` p-state listing every setting.
 fn dump_settings(out: &mut OutputBuf, repo: &model::settings::Repo) {
-    out.push(pstate::Line::new(pstate::PsType::Settings).begin());
+    let mut line = pstate::Line::new(pstate::PsType::Settings).begin();
     for (key, value) in repo.iter() {
-        out.push(pstate::Line::new(pstate::PsType::Settings).float(key, value));
+        line = line.float(key, value);
     }
-    out.push(pstate::Line::new(pstate::PsType::Settings).end());
+    out.push(line.end());
 }
 
-/// Emit one big `stat` p-state for debugging.
-/// It is slow — takes several hundred ms (esp TMC register dump).
+/// Push the `stat` p-state for debugging.
+/// Slow — several hundred ms, dominated by the TMC register dump.
 async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::SharedTmc) {
-    out.push(pstate::Line::new(pstate::PsType::Stat).begin());
+    let mut line = pstate::Line::new(pstate::PsType::Stat).begin();
 
     let (mode, steps) = {
         let c = core.lock().await;
@@ -335,11 +332,11 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
         motion::Mode::EdmMove => "edm",
         motion::Mode::Probing => "probe",
     };
-    out.push(pstate::Line::new(pstate::PsType::Stat).str_val("motion.mode", mode_name));
+    line = line.str_val("motion.mode", mode_name);
     for (i, &steps_i) in steps.iter().enumerate() {
         let mut key: heapless::String<32> = heapless::String::new();
         let _ = write!(&mut key, "motor.m{}.current_steps", i);
-        out.push(pstate::Line::new(pstate::PsType::Stat).int(&key, steps_i));
+        line = line.int(&key, steps_i);
     }
 
     const REGS: &[(&str, u8)] = &[
@@ -354,38 +351,31 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
             for (name, addr) in REGS {
                 let mut key: heapless::String<32> = heapless::String::new();
                 let _ = write!(&mut key, "motor.m{}.driver.{}", i, name);
-                let line = match t[i].read_reg(*addr).await {
-                    Ok(v) => pstate::Line::new(pstate::PsType::Stat).hex32(&key, v),
-                    Err(_) => pstate::Line::new(pstate::PsType::Stat).str_val(&key, "error"),
+                line = match t[i].read_reg(*addr).await {
+                    Ok(v) => line.hex32(&key, v),
+                    Err(_) => line.str_val(&key, "error"),
                 };
-                out.push(line);
             }
         }
     }
 
     let stat = core.lock().await.pulser.read_stat();
-    out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.fault", stat.fault));
-    out.push(pstate::Line::new(pstate::PsType::Stat).bool("pulser.energized", stat.energized));
-    out.push(
-        pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_write", stat.i2c_write as i32),
-    );
-    out.push(
-        pstate::Line::new(pstate::PsType::Stat)
-            .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32),
-    );
-    out.push(pstate::Line::new(pstate::PsType::Stat).int("pulser.i2c_read", stat.i2c_read as i32));
-    out.push(
-        pstate::Line::new(pstate::PsType::Stat)
-            .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32),
-    );
+    line = line
+        .bool("pulser.fault", stat.fault)
+        .bool("pulser.energized", stat.energized)
+        .int("pulser.i2c_write", stat.i2c_write as i32)
+        .int("pulser.i2c_write_fail", stat.i2c_write_fail as i32)
+        .int("pulser.i2c_read", stat.i2c_read as i32)
+        .int("pulser.i2c_read_fail", stat.i2c_read_fail as i32);
 
     let (feeding, pos, rate) = {
         let c = core.lock().await;
         (c.wirefeed.feeding(), c.wirefeed.pos_mm(), c.wirefeed.rate())
     };
-    out.push(pstate::Line::new(pstate::PsType::Stat).bool("wirefeed.feeding", feeding));
-    out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.pos", pos));
-    out.push(pstate::Line::new(pstate::PsType::Stat).float("wirefeed.rate", rate));
+    line = line
+        .bool("wirefeed.feeding", feeding)
+        .float("wirefeed.pos", pos)
+        .float("wirefeed.rate", rate);
 
-    out.push(pstate::Line::new(pstate::PsType::Stat).end());
+    out.push(line.end());
 }

@@ -43,7 +43,7 @@ queue < cap:100 num:54 >
 
 Example
 ```
-stg m.5.microstep:32 m.6.microstep:16
+stg < m.5.microstep:32 m.6.microstep:16 ... >
 ```
 
 

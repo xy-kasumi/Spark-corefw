@@ -48,49 +48,37 @@ pub fn exec_query<const N: usize>(
             let active = stats.active;
             let off = stats.offset;
 
-            // Line 1: machine coordinates, always with the `m.` prefix.
-            let line1 = pstate::Line::new(pstate::PsType::Pos)
+            let mut line = pstate::Line::new(pstate::PsType::Pos)
                 .begin()
                 .str_val("sys", sys_name(active))
                 .float("m.x", pos.x)
                 .float("m.y", pos.y)
                 .float("m.z", pos.z)
                 .float("m.c", pos.c * 360.0);
-            if active == CoordSys::Machine {
-                out.push(line1.end());
-            } else {
-                // Leave line 1 open; line 2 carries the active-system position.
-                out.push(line1);
+            if active != CoordSys::Machine {
                 let cs = pos.with_offset_removed(off);
                 let p = pos_prefix(active);
-                out.push(
-                    pstate::Line::new(pstate::PsType::Pos)
-                        .float(&key(p, 'x'), cs.x)
-                        .float(&key(p, 'y'), cs.y)
-                        .float(&key(p, 'z'), cs.z)
-                        .float(&key(p, 'c'), cs.c * 360.0)
-                        .end(),
-                );
+                line = line
+                    .float(&key(p, 'x'), cs.x)
+                    .float(&key(p, 'y'), cs.y)
+                    .float(&key(p, 'z'), cs.z)
+                    .float(&key(p, 'c'), cs.c * 360.0);
             }
+            out.push(line.end());
         }
         command::QuerySignal::Edm => {
             // Motion and pulser fields come from the same tick snapshot.
-            out.push(pstate::Line::new(pstate::PsType::Edm).begin());
+            let mut line = pstate::Line::new(pstate::PsType::Edm).begin();
             if let Some(edm) = stats.edm {
-                out.push(
-                    pstate::Line::new(pstate::PsType::Edm)
-                        .float("eff_duty", stats.smooth_pulse_ratio.good)
-                        .float("open", stats.smooth_pulse_ratio.open)
-                        .float("short", stats.smooth_pulse_ratio.short),
-                );
-                out.push(
-                    pstate::Line::new(pstate::PsType::Edm)
-                        .float("retr_rem", edm.retract_remaining)
-                        .float("dist", edm.distance)
-                        .float("dist_max", edm.distance_max),
-                );
+                line = line
+                    .float("eff_duty", stats.smooth_pulse_ratio.good)
+                    .float("open", stats.smooth_pulse_ratio.open)
+                    .float("short", stats.smooth_pulse_ratio.short)
+                    .float("retr_rem", edm.retract_remaining)
+                    .float("dist", edm.distance)
+                    .float("dist_max", edm.distance_max);
             }
-            out.push(pstate::Line::new(pstate::PsType::Edm).end());
+            out.push(line.end());
         }
         command::QuerySignal::Unknown => {
             // Recognized signal byte, unknown verb: ignore to avoid clogging the stream.

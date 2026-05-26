@@ -9,8 +9,8 @@
 
 use core::fmt::Write;
 
-/// Spec caps the payload at 100 VCHAR; round up to a power of two.
-pub const LINE_CAP: usize = 128;
+/// Max pstate payload (no LF). Sized to fit the largest pstate.
+pub const LINE_CAP: usize = 2000;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PsType {

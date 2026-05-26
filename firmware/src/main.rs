@@ -306,11 +306,10 @@ const TICK_RX_BYTES: usize = 32;
 /// Must be larger than TICK_RX_BYTES / (min "fset" command size).
 const TICK_FS_CAP: usize = 8;
 
-/// Per-tick line-output buffer capacity. Worst case ≈ TICK_RX_BYTES / 2
-/// (alternating data-byte + LF) × max lines per dispatch (4, for `?edm`).
-/// Oversized: 32 covers heavy query bursts; over-flow drops silently and the
-/// next tick recovers (signals are queryable; errors are advisory).
-const TICK_OUT_CAP: usize = 32;
+/// Per-tick line-output buffer capacity. Bounded by TICK_RX_BYTES / 2 (data
+/// byte + LF per query, one pstate per dispatch). Overflow drops silently;
+/// signals are queryable so the next tick recovers.
+const TICK_OUT_CAP: usize = 16;
 
 /// Per-tick output of serial RX parsing.
 struct RxBatch {
