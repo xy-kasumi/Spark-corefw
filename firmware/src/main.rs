@@ -106,13 +106,14 @@ async fn main(spawner: embassy_executor::Spawner) {
                 .finish(),
         );
     }
-
     let _ = line_tx.try_send(
         pstate::Line::new(pstate::PsType::Sys)
             .str_val("ev", "boot")
             .end(),
     );
-    // TODO: Maybe discard rx until this point (might be leftover commands from previous power cycle).
+    // Discard any RX buffered before boot (likely stale bytes from previous power cycle).
+    let mut drain = [0u8; serial::RX_CAP];
+    while !board.serial.rx_get(&mut drain).is_empty() {}
 
     if core.lock().await.pulser.fault() {
         enter_fault(core, cmd_queue, canceler, line_tx).await;
