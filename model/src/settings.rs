@@ -109,7 +109,7 @@ impl Repo {
                 }
             }
             for m in 0..N_MOTORS {
-                ins(format_args!("m.{m}.current"), 30.0);
+                ins(format_args!("m.{m}.current"), 10.0); // small enough to not burn small motors
                 ins(format_args!("m.{m}.microstep"), 32.0);
                 ins(format_args!("m.{m}.thresh"), 2.0);
                 ins(format_args!("m.{m}.unitsteps"), default_unitsteps(m));
