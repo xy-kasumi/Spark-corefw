@@ -159,6 +159,10 @@ impl<B: Bus> Device<B> {
         {
             return;
         }
+
+        // Throw away stale data.
+        self.dev.read_ckp_ps().await;
+
         self.current_energized = true;
         self.smoothed_ratio = PulseRatio::ALL_OPEN;
     }
