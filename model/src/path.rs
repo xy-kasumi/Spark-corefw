@@ -4,7 +4,7 @@
 use crate::coords;
 
 /// Positional resolution of EDM control in mm. Path positions are notch-aligned.
-pub const RESOLUTION_MM: f32 = 0.005;
+pub const RESOLUTION_MM: f32 = 1.0/1024.0; // better than 0.001 (which introduces FP addition errors)
 
 /// Streamable line-segment path with retractable current position, notch-aligned at
 /// `RESOLUTION_MM`.
@@ -202,7 +202,7 @@ mod tests {
     use super::*;
 
     /// History size for the tests.
-    const N: usize = 201;
+    const N: usize = 401;
     const RETRACT_LIMIT: f32 = ((N - 1) as f32) * RESOLUTION_MM;
 
     fn p3(x: f32, y: f32, z: f32) -> coords::PosPhys {
