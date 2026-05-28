@@ -324,29 +324,29 @@ mod tests {
     }
 
     #[test]
-    fn pb_get_buffer() {
-        let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
+    fn pb_retract_remaining() {
+        let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(RETRACT_LIMIT, 0.0, 0.0));
         assert_within(pb.retract_remaining(), 0.0, RESOLUTION_MM);
-        pb.move_by(0.25);
-        assert_within(pb.retract_remaining(), 0.25, RESOLUTION_MM);
-        pb.move_by(0.75);
-        assert_within(pb.retract_remaining(), 1.0, RESOLUTION_MM);
+        pb.move_by(RETRACT_LIMIT * 0.25);
+        assert_within(pb.retract_remaining(), RETRACT_LIMIT * 0.25, RESOLUTION_MM);
+        pb.move_by(RETRACT_LIMIT * 0.75);
+        assert_within(pb.retract_remaining(), RETRACT_LIMIT * 1.0, RESOLUTION_MM);
     }
 
     #[test]
     fn pb_get_distance() {
-        let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(1.0, 0.0, 0.0));
+        let mut pb: PathBuffer<N> = PathBuffer::new(p3(0.0, 0.0, 0.0), p3(RETRACT_LIMIT, 0.0, 0.0));
         assert_within(pb.distance(), 0.0, RESOLUTION_MM);
-        pb.move_by(0.5);
-        assert_within(pb.distance(), 0.5, RESOLUTION_MM);
-        pb.move_by(-0.25);
-        assert_within(pb.distance(), 0.25, RESOLUTION_MM);
-        pb.extend(p3(1.0, 1.0, 0.0));
-        pb.move_by(1.0);
-        assert_within(pb.distance(), 1.25, RESOLUTION_MM);
-        pb.move_by(100.0); // clipped at end
-        assert_within(pb.distance(), 2.0, RESOLUTION_MM);
-        pb.move_by(-50.0); // hits retract limit
-        assert_within(pb.distance(), 2.0 - RETRACT_LIMIT, RESOLUTION_MM);
+        pb.move_by(RETRACT_LIMIT * 0.5);
+        assert_within(pb.distance(), RETRACT_LIMIT * 0.5, RESOLUTION_MM);
+        pb.move_by(RETRACT_LIMIT * -0.25);
+        assert_within(pb.distance(), RETRACT_LIMIT * 0.25, RESOLUTION_MM);
+        pb.extend(p3(RETRACT_LIMIT, RETRACT_LIMIT, 0.0));
+        pb.move_by(RETRACT_LIMIT * 1.0);
+        assert_within(pb.distance(), RETRACT_LIMIT * 1.25, RESOLUTION_MM);
+        pb.move_by(RETRACT_LIMIT * 10.0); // clipped at end
+        assert_within(pb.distance(), RETRACT_LIMIT * 2.0, RESOLUTION_MM);
+        pb.move_by(RETRACT_LIMIT * -20.0); // hits retract limit
+        assert_within(pb.distance(), RETRACT_LIMIT, RESOLUTION_MM);
     }
 }
