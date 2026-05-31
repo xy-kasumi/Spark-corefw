@@ -122,7 +122,9 @@ pub fn init(spawner: &embassy_executor::Spawner, console_baud: u32) -> Board {
         en,
     };
 
-    // Pulser board on I2C1: PB8 (SCL) / PB9 (SDA), 400 kHz fast mode.
+    // Pulser board on I2C1: PB8 (SCL) / PB9 (SDA), 400 kHz fast mode, 1ms timeout.
+    let mut i2c_config = i2c::Config::default();
+    i2c_config.timeout = embassy_time::Duration::from_millis(1);
     let i2c = i2c::I2c::new(
         p.I2C1,
         p.PB8,
@@ -131,7 +133,7 @@ pub fn init(spawner: &embassy_executor::Spawner, console_baud: u32) -> Board {
         p.DMA1_CH2,
         p.DMA1_CH3,
         time::Hertz(400_000),
-        Default::default(),
+        i2c_config,
     );
     let pulser = Pulser::new(pulser::Device::new(i2c));
 
