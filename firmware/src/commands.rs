@@ -97,7 +97,7 @@ pub async fn exec(
                 let here = c.motors.current();
                 let target = c.coord.resolve_move(&spec, here);
                 if starting_fresh {
-                    c.pulser.request_energize(pulser_cfg);
+                    c.pulser.request_cut(pulser_cfg);
                 }
                 c.motion.do_edm(target);
                 break;
@@ -108,7 +108,7 @@ pub async fn exec(
             let mut c = core.lock().await;
             let here = c.motors.current();
             let target = c.coord.resolve_move(&spec, here);
-            c.pulser.request_energize(pulser_cfg);
+            c.pulser.request_probe();
             c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {

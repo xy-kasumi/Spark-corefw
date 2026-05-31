@@ -68,7 +68,7 @@ pub fn exec_query<const N: usize>(
             let mut line = pstate::Line::new(pstate::PsType::Edm);
             if let Some(edm) = stats.edm {
                 line = line
-                    .float("eff_duty", stats.smooth_pulse_ratio.good)
+                    .float("eff_duty", stats.smooth_pulse_ratio.eff_duty)
                     .float("open", stats.smooth_pulse_ratio.open)
                     .float("short", stats.smooth_pulse_ratio.short)
                     .float("retr_rem", edm.retract_remaining)

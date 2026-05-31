@@ -191,7 +191,7 @@ async fn tick_loop(
         let t_begin = embassy_time::Instant::now();
 
         // Pulser I/O
-        core.lock().await.pulser.tick().await;
+        core.lock().await.pulser.tick(TICK_DT_MS * 1e-3).await;
 
         // Sync logic
         let mut out: outbox::OutputBuf<TICK_OUT_CAP> = outbox::OutputBuf::new();

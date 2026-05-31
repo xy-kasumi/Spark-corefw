@@ -17,13 +17,15 @@ pub trait Bus {
 // --- Device ------------------------------------------------------------------
 
 /// 7-bit I2C address of the pulser board.
-pub const I2C_ADDR: u8 = 0x3b;
+pub const I2C_ADDR: u8 = 0x3c;
 
-pub const REG_POLARITY: u8 = 0x01; // RW: 0=OFF, 1-4=energize with polarity
-pub const REG_PULSE_CURRENT: u8 = 0x02; // RW: pulse current in 100mA units (1-200)
-pub const REG_PULSE_DUR: u8 = 0x04; // RW: pulse duration in 10us units (5-100)
-pub const REG_MAX_DUTY: u8 = 0x05; // RW: max duty factor in percent (1-95)
-const REG_CKP_PS: u8 = 0x10; // R (special): packed pulse/short nibbles
+pub const REG_CTRL: u8 = 0x01; // RW: bit0 `run` (1 runs, 0 stops)
+pub const REG_MODE: u8 = 0x02; // RW: bit0 `mode` (0=probe, 1=cut). Write fails while running.
+pub const REG_CURR: u8 = 0x03; // RW: pulse current in A; auto-clamped to a supported value. Write fails while running.
+pub const REG_TIM: u8 = 0x04; // RW: `max_duty:4 | dur:4`. Write fails while running.
+pub const REG_RES0: u8 = 0x08; // R: result byte 0; reading clears the WDT & updates the result.
+pub const REG_RES1: u8 = 0x09; // R: result byte 1 (`num_good` in cut mode).
+pub const REG_FAULT: u8 = 0x10; // R + clear: bit0 `fault`, bit1 `wdt` (write 1 to clear `wdt`).
 
 pub struct Device<B: Bus> {
     bus: B,
@@ -44,15 +46,41 @@ impl<B: Bus> Device<B> {
         self.bus.write(I2C_ADDR, &[reg, val]).await
     }
 
-    /// Read pulse/short checkpoint register as `(pulse, short)` (0~15 each).
-    /// Returns `None` on bus failure or when `pulse + short > 15` (out of protocol range — treat as comm noise).
-    pub async fn read_ckp_ps(&mut self) -> Option<(u8, u8)> {
-        let v = self.read_register(REG_CKP_PS).await.ok()?;
-        let p = (v >> 4) & 0xf;
-        let s = v & 0xf;
-        if p + s > 15 {
+    /// Cut-mode result `(fault, open, short, num_good)`: `open`/`short` window
+    /// ratios in `[0, 1]`, `num_good` good pulses since the last read. Atomic
+    /// `RES0`+`RES1` read; resets the WDT. `None` on bus error or `r_open+r_short>7`.
+    pub async fn read_res_cut(&mut self) -> Option<(bool, f32, f32, u8)> {
+        let mut buf = [0u8; 2];
+        self.bus
+            .write_read(I2C_ADDR, &[REG_RES0], &mut buf)
+            .await
+            .ok()?;
+        let (res0, num_good) = (buf[0], buf[1]);
+        let fault = res0 & 0x80 != 0;
+        let r_open = (res0 >> 3) & 0x7;
+        let r_short = res0 & 0x7;
+        if r_open + r_short > 7 {
             return None;
         }
-        Some((p, s))
+        Some((fault, r_open as f32 / 7.0, r_short as f32 / 7.0, num_good))
     }
+
+    /// Probe-mode result `(fault, detected)`. Resets the WDT; `None` on bus error.
+    pub async fn read_res_probe(&mut self) -> Option<(bool, bool)> {
+        let res0 = self.read_register(REG_RES0).await.ok()?;
+        Some((res0 & 0x80 != 0, res0 & 1 != 0))
+    }
+}
+
+/// Pack `TIM` = `max_duty:4 | dur:4`: `dur`→`(dur+1)*50us`, `max_duty`→`(max_duty+1)/16`.
+/// e.g. (500us,25%)->0x39, (50us,6.25%)->0x00, (800us,100%)->0xff.
+pub fn pack_tim(pulse_us: f32, duty_pct: f32) -> u8 {
+    let dur = nibble(pulse_us / 50.0 - 1.0);
+    let max_duty = nibble(duty_pct * 16.0 / 100.0 - 1.0);
+    (max_duty << 4) | dur
+}
+
+/// Round to nearest non-negative integer and clamp into a 4-bit field `[0, 15]`.
+fn nibble(x: f32) -> u8 {
+    ((x + 0.5) as i32).clamp(0, 15) as u8
 }
