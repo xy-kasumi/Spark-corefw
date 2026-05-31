@@ -68,8 +68,8 @@ pub(crate) static TICK_SLOW_COUNT: atomic::AtomicU32 = atomic::AtomicU32::new(0)
 /// Motor index of wirefeed stepper.
 const M_WIREFEED: usize = 6;
 
-/// EDM path-buffer history capacity: 10 mm max retract at 0.001 mm resolution.
-pub(crate) const PB_CAPACITY: usize = 10001;
+/// EDM path-buffer history capacity: 2 mm max retract at 0.001 mm resolution.
+pub(crate) const PB_CAPACITY: usize = 2001;
 
 /// All state shared between tick_loop and cmd_loop. One Mutex, no lock order.
 ///

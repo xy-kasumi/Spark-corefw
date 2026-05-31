@@ -4,7 +4,7 @@
 use crate::coords;
 
 /// Positional resolution of EDM control in mm. Path positions are notch-aligned.
-pub const RESOLUTION_MM: f32 = 1.0/1024.0; // better than 0.001 (which introduces FP addition errors)
+pub const RESOLUTION_MM: f32 = 1.0 / 1024.0; // better than 0.001 (which introduces FP addition errors)
 
 /// Streamable line-segment path with retractable current position, notch-aligned at
 /// `RESOLUTION_MM`.
