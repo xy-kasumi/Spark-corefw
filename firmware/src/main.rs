@@ -256,6 +256,10 @@ async fn tick_loop(
         outbox.flush(&mut out).await;
         outbox.drain(serial, &mut tx_state);
 
+        // Yield so that other tasks (especially the serial) can run,
+        // even when tick is delayed (thus ticker not yielding).
+        embassy_futures::yield_now().await;
+
         // update tick stat
         let t_end = embassy_time::Instant::now();
         let dt_us = (t_end - t_begin).as_micros().min(u32::MAX as u64) as u32;
