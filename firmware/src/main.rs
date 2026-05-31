@@ -190,8 +190,16 @@ async fn tick_loop(
         ticker.next().await; // spent in ohter places & idling.
         let t_begin = embassy_time::Instant::now();
 
-        // Pulser I/O
-        core.lock().await.pulser.tick(TICK_DT_MS * 1e-3).await;
+        // Pulser I/O. A fault surfaced here escalates to a machine fault, which
+        // the cancel sweep below converges to a hardware safe state.
+        let pulser_faulted = {
+            let mut c = core.lock().await;
+            c.pulser.tick(TICK_DT_MS * 1e-3).await;
+            c.pulser.fault()
+        };
+        if pulser_faulted {
+            enter_fault(canceler, outbox).await;
+        }
 
         // Sync logic
         let mut out: outbox::OutputBuf<TICK_OUT_CAP> = outbox::OutputBuf::new();
