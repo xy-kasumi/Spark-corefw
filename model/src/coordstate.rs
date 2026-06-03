@@ -13,6 +13,9 @@ pub struct CoordState {
     /// Per-system XYZ origins in machine coordinates. C-axis is never offset.
     /// (CoordSys::Machine slot is wasted)
     offsets: enum_map::EnumMap<coords::CoordSys, coords::PosPhys>,
+    /// Extra work-Y origin shift from G29 calibration, added on top of
+    /// `offsets[Work].y`. Only G29 touches it; `set_offset` leaves it alone.
+    work_offset_y: f32,
 }
 
 impl CoordState {
@@ -22,6 +25,7 @@ impl CoordState {
             // Initial state: a zeroed target is already available.
             last_target: Some(coords::PosPhys::ZERO),
             offsets: enum_map::EnumMap::default(),
+            work_offset_y: 0.0,
         }
     }
 
@@ -30,8 +34,20 @@ impl CoordState {
     }
 
     /// The XYZ origin (machine coords) of `active`; `ZERO` for the machine system.
+    /// The work system folds in the G29 calibration ([`calibrate_work_y`]).
+    ///
+    /// [`calibrate_work_y`]: Self::calibrate_work_y
     pub fn offset_of(&self, active: coords::CoordSys) -> coords::PosPhys {
-        self.offsets[active]
+        let mut off = self.offsets[active];
+        if active == coords::CoordSys::Work {
+            off.y += self.work_offset_y;
+        }
+        off
+    }
+
+    /// The G29 work-Y calibration shift (`calib.work.y`).
+    pub fn work_offset_y(&self) -> f32 {
+        self.work_offset_y
     }
 
     /// Set one axis of one system's origin (from the `cs.*.pos.*` settings path).
@@ -48,6 +64,27 @@ impl CoordState {
         }
     }
 
+    /// Clear the G29 work-Y calibration (back to `offsets[Work].y` alone). G29
+    /// does this first so its probe positions are taken in the un-calibrated frame.
+    pub fn clear_work_y_calibration(&mut self) {
+        self.set_work_offset_y(0.0);
+    }
+
+    /// Set the work-Y calibration so machine-Y `center` reads work-Y 0 (G29).
+    pub fn calibrate_work_y(&mut self, center_machine_y: f32) {
+        self.set_work_offset_y(center_machine_y - self.offsets[coords::CoordSys::Work].y);
+    }
+
+    /// Update `work_offset_y`, re-anchoring `last_target` through machine
+    /// coordinates so the held target stays at the same physical point.
+    fn set_work_offset_y(&mut self, value: f32) {
+        let machine = self
+            .last_target
+            .map(|lt| lt.with_offset_added(self.offset_of(self.active)));
+        self.work_offset_y = value;
+        self.last_target = machine.map(|m| m.with_offset_removed(self.offset_of(self.active)));
+    }
+
     /// Select a new active system, re-anchoring `last_target` through
     /// machine coordinates so the held target stays at the same physical point.
     pub fn select(&mut self, new: coords::CoordSys) {
@@ -56,6 +93,14 @@ impl CoordState {
             self.last_target = Some(machine.with_offset_removed(self.offset_of(new)));
         }
         self.active = new;
+    }
+
+    /// Convert a machine-coordinate position into the active system — the offset
+    /// inverse of what [`resolve_move`] applies.
+    ///
+    /// [`resolve_move`]: Self::resolve_move
+    pub fn to_active(&self, machine: coords::PosPhys) -> coords::PosPhys {
+        machine.with_offset_removed(self.offset_of(self.active))
     }
 
     /// Resolve a move spec to a machine-coordinate target. Unspecified axes come

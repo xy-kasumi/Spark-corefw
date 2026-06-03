@@ -12,6 +12,7 @@ use model::motion;
 use model::pstate;
 
 use model::command::Command;
+use model::gcode::MoveSpec;
 
 use crate::board;
 use crate::canceler;
@@ -113,6 +114,9 @@ pub async fn exec(
         }
         Command::Gcode(gcode::Parsed::Home(target)) => {
             exec_home(target, core, homing, canceler).await;
+        }
+        Command::Gcode(gcode::Parsed::CalibrateWork { width, depth }) => {
+            exec_calibrate_work(width, depth, core, canceler).await;
         }
         Command::Gcode(gcode::Parsed::SelectCoordSys(a)) => {
             core.lock().await.coord.select(a);
@@ -233,6 +237,117 @@ async fn exec_home(
     }
 }
 
+async fn exec_calibrate_work(
+    width: f32,
+    depth: f32,
+    core: &SharedCore,
+    canceler: &canceler::Canceler,
+) {
+    let watch = canceler.watch();
+    // Switch to work coords and drop any prior calibration, then read the start
+    // Z (in work coords) for the probe/retract heights.
+    let z_safe = {
+        let mut c = core.lock().await;
+        c.coord.select(coords::CoordSys::Work);
+        c.coord.clear_work_y_calibration();
+        let here = c.motors.current();
+        c.coord.to_active(here).z
+    };
+    let z_probe = z_safe - depth;
+
+    // Single-side probe, returns machine Y of the contact.
+    #[rustfmt::skip]
+    async fn probe_single(
+        core: &SharedCore,
+        y: f32,
+        z_safe: f32,
+        z_probe: f32,
+        canc: &canceler::Canceler,
+    ) -> f32 {
+        move_to(core, MoveSpec {y: Some(y), z: Some(z_safe), ..Default::default()}, canc).await;
+        move_to(core, MoveSpec {z: Some(z_probe), ..Default::default()}, canc).await;
+        let p = probe_to(core, MoveSpec { y: Some(0.0), ..Default::default()},canc).await;
+        move_to(core, MoveSpec {y: Some(y), ..Default::default()},canc).await;
+        move_to(core, MoveSpec {z: Some(z_safe),..Default::default()}, canc).await;
+        p.y
+    }
+
+    // exec left & right probe.
+    let py_left = probe_single(core, width * 0.5, z_safe, z_probe, canceler).await;
+    let py_right = probe_single(core, -width * 0.5, z_safe, z_probe, canceler).await;
+    // return to center
+    move_to(
+        core,
+        gcode::MoveSpec {
+            y: Some(0.0),
+            z: Some(z_safe),
+            ..Default::default()
+        },
+        canceler,
+    )
+    .await;
+
+    // A cancel mid-probe leaves the contact readings bogus; don't calibrate from them.
+    if watch.cancelled() {
+        return;
+    }
+    let work_center_machine_y = (py_left + py_right) * 0.5;
+    core.lock()
+        .await
+        .coord
+        .calibrate_work_y(work_center_machine_y);
+}
+
+/// Moves to dst and wait until completion.
+async fn move_to(core: &SharedCore, dst: gcode::MoveSpec, canceler: &canceler::Canceler) {
+    let watch = canceler.watch();
+    {
+        let mut c = core.lock().await;
+        let here = c.motors.current();
+        let target = c.coord.resolve_move(&dst, here);
+        c.motion.start_rapid(target, RAPID_SPEED_MM_PER_S);
+    }
+    wait_until_idle(core, &watch).await;
+}
+
+/// Probes towards dst and wait until completion.
+/// Returns final pos in machine coord.
+async fn probe_to(
+    core: &SharedCore,
+    dst: gcode::MoveSpec,
+    canceler: &canceler::Canceler,
+) -> coords::PosPhys {
+    let watch = canceler.watch();
+    {
+        let mut c = core.lock().await;
+        let here = c.motors.current();
+        let target = c.coord.resolve_move(&dst, here);
+        c.pulser.request_probe();
+        c.motion.start_probe(target, PROBE_SPEED_MM_PER_S);
+    }
+    wait_until_idle(core, &watch).await;
+    // De-energize and wait for the pulser to settle before returning, so the
+    // caller's next rapid never moves while energized. A pulser fault also ends
+    // the wait — the trailing drain will surface it.
+    core.lock().await.pulser.request_deenergize();
+    loop {
+        let c = core.lock().await;
+        if c.pulser.settled() || c.pulser.fault() {
+            return c.motors.current();
+        }
+        drop(c);
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
+    }
+}
+
+/// Block until motion settles to idle, or a cancel forces it there (the tick
+/// loop's safe-state sweep cancels motion on its own once a cancel lands).
+async fn wait_until_idle(core: &SharedCore, watch: &canceler::Watcher<'_>) {
+    while core.lock().await.motion.mode() != motion::Mode::Idle && !watch.cancelled() {
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
+    }
+}
+
 /// Push the `stg` p-state listing every setting.
 fn dump_settings(out: &mut OutputBuf, repo: &model::settings::Repo) {
     let mut line = pstate::Line::new(pstate::PsType::Settings);
@@ -247,9 +362,13 @@ fn dump_settings(out: &mut OutputBuf, repo: &model::settings::Repo) {
 async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::SharedTmc) {
     let mut line = pstate::Line::new(pstate::PsType::Stat);
 
-    let (mode, steps) = {
+    let (mode, steps, calib_work_y) = {
         let c = core.lock().await;
-        (c.motion.mode(), c.motors.step_counts())
+        (
+            c.motion.mode(),
+            c.motors.step_counts(),
+            c.coord.work_offset_y(),
+        )
     };
     let mode_name = match mode {
         motion::Mode::Idle => "idle",
@@ -257,7 +376,9 @@ async fn dump_stat(out: &mut OutputBuf, core: &SharedCore, tmc: &settings::Share
         motion::Mode::EdmMove => "edm",
         motion::Mode::Probing => "probe",
     };
-    line = line.str_val("motion.mode", mode_name);
+    line = line
+        .str_val("motion.mode", mode_name)
+        .float("calib.work.y", calib_work_y);
     for (i, &steps_i) in steps.iter().enumerate() {
         let mut key: heapless::String<32> = heapless::String::new();
         let _ = write!(&mut key, "motor.m{}.current_steps", i);

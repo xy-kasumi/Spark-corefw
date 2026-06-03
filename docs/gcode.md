@@ -104,6 +104,30 @@ Coordinates of homed axes will be set to origin value configured by
 When all-axis homing (`G28`) is instructed, `a.{x,y,z}.home.phase` will
 be used for grouping and ordering of axes.
 
+### G29: Calibrate work coordinate
+Parameters: W, D (both required)
+
+Perform two-point calibration, and update Y-offset of work coordinates.
+W parameters specifies width of approach, D depth. (both positive)
+
+Auto-switches to work coord (G55).
+When performing G29, previous offset will be zero-ed first.
+
+For starting position p, left & right probe will be performed in order.
+
+* left probe: (p.x, W / 2, p.z - D) towards (p.x, 0, p.z - D)
+* right probe: (p.x, -W / 2, p.z - D) towards (p.x, 0, p.z - D)
+
+After probings, it returns to p, and
+work offset is updated so that it becomes Y=0.
+(resulting in final coordinates of (p.x, 0, p.z))
+
+Examples:
+```
+G29 W10 D10
+```
+
+
 ### G38.3: Probe towards target, no error
 Parameters: X, Y, Z, C (all optional, but at least one required)
 

@@ -17,6 +17,8 @@ pub enum Parsed {
     Home(HomeSpec),
     /// G38.3: probe toward target, stop on contact, no error if not reached.
     Probe(MoveSpec),
+    /// G29: two-point work-Y calibration. `width`/`depth` in mm (W/D), both positive.
+    CalibrateWork { width: f32, depth: f32 },
     /// G53-G55: select the active (modal) coordinate system.
     SelectCoordSys(coords::CoordSys),
     /// M8: start the pump.
@@ -74,6 +76,7 @@ fn parse_gcode(p: &mut Cursor, code: i32, sub: Option<i32>) -> Option<Parsed> {
         (0, None) => parse_move(p).map(Parsed::Rapid),
         (1, None) => parse_move(p).map(Parsed::Feed),
         (28, None) => parse_home(p).map(Parsed::Home),
+        (29, None) => parse_calibrate(p),
         (38, Some(3)) => parse_move(p).map(Parsed::Probe),
         (53..=56, None) => parse_select(p, code),
         _ => None,
@@ -164,6 +167,30 @@ fn parse_home(p: &mut Cursor) -> Option<HomeSpec> {
         return None;
     }
     Some(HomeSpec::One(axis))
+}
+
+/// Parse `G29`: required `W` (width) and `D` (depth) floats in any order, both
+/// positive. A missing or non-positive parameter, or an unknown letter, is rejected.
+fn parse_calibrate(p: &mut Cursor) -> Option<Parsed> {
+    let mut width = None;
+    let mut depth = None;
+    loop {
+        if p.eof_or_only_ws() {
+            break;
+        }
+        if !p.require_ws() {
+            return None;
+        }
+        let letter = p.read_letter()?;
+        let value = p.read_float()?;
+        match letter {
+            b'W' => width = Some(value),
+            b'D' => depth = Some(value),
+            _ => return None,
+        }
+    }
+    let (width, depth) = (width?, depth?);
+    (width > 0.0 && depth > 0.0).then_some(Parsed::CalibrateWork { width, depth })
 }
 
 /// Parse a coordinate-system select (G53-G55). Takes no parameters.
@@ -357,6 +384,14 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_calibrate() {
+        check(
+            "G29 W10 D5",
+            expect!["Some(CalibrateWork { width: 10.0, depth: 5.0 })"],
+        );
+    }
+
+    #[test]
     fn dispatch_coord_select() {
         check("G53", expect!["Some(SelectCoordSys(Machine))"]);
         check("G54", expect!["Some(SelectCoordSys(Grinder))"]);
@@ -473,6 +508,19 @@ mod tests {
     #[test]
     fn g28_rejects_non_homeable_axis() {
         check("G28 C", expect!["None"]);
+    }
+
+    #[test]
+    fn g29_requires_both_params() {
+        check("G29 W10", expect!["None"]); // D missing
+        check("G29 D5", expect!["None"]); // W missing
+        check("G29", expect!["None"]); // both missing
+    }
+
+    #[test]
+    fn g29_rejects_nonpositive() {
+        check("G29 W0 D5", expect!["None"]);
+        check("G29 W10 D-5", expect!["None"]);
     }
 
     #[test]
