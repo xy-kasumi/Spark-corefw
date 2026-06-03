@@ -275,6 +275,17 @@ async fn exec_calibrate_work(
     // exec left & right probe.
     let py_left = probe_single(core, width * 0.5, z_safe, z_probe, canceler).await;
     let py_right = probe_single(core, -width * 0.5, z_safe, z_probe, canceler).await;
+
+    // A cancel mid-probe leaves the contact readings bogus; don't calibrate from them.
+    if watch.cancelled() {
+        return;
+    }
+    let work_center_machine_y = (py_left + py_right) * 0.5;
+    core.lock()
+        .await
+        .coord
+        .calibrate_work_y(work_center_machine_y);
+
     // return to center
     move_to(
         core,
@@ -286,16 +297,6 @@ async fn exec_calibrate_work(
         canceler,
     )
     .await;
-
-    // A cancel mid-probe leaves the contact readings bogus; don't calibrate from them.
-    if watch.cancelled() {
-        return;
-    }
-    let work_center_machine_y = (py_left + py_right) * 0.5;
-    core.lock()
-        .await
-        .coord
-        .calibrate_work_y(work_center_machine_y);
 }
 
 /// Moves to dst and wait until completion.
