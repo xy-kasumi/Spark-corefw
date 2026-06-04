@@ -7,8 +7,10 @@
 
 use crate::drivers::pulser::{self, Bus};
 
-/// EWMA coefficient for the smoothed pulse ratio: ~1 s time constant at 1 ms polling.
-const RATIO_ALPHA: f32 = 0.001;
+/// EWMA coefficient for the control ratio: ~200 ms time constant at 1 ms polling.
+const CONTROL_RATIO_ALPHA: f32 = 0.08;
+/// EWMA coefficient for the reporting ratio: ~1 s time constant at 1 ms polling.
+const REPORT_RATIO_ALPHA: f32 = 0.001;
 
 #[derive(Clone, Copy)]
 pub struct Config {
@@ -77,10 +79,12 @@ pub struct Device<B: Bus> {
     current_energized: bool,
     /// True once a probe contact has been detected (latched until deenergize).
     probe_detected: bool,
-    /// Raw last-tick ratio. Consumed by the 1 ms control loop.
+    /// Raw last-tick ratio. Drives discharge detection.
     last_ratio: PulseRatio,
-    /// EWMA-smoothed ratio. Consumed by `?edm` reporting.
-    smoothed_ratio: PulseRatio,
+    /// ~50 ms EWMA ratio. Consumed by the motion control loop.
+    control_ratio: PulseRatio,
+    /// ~1 s EWMA ratio. Consumed by `?edm` reporting.
+    report_ratio: PulseRatio,
     num_i2c_write: u32,
     num_i2c_write_fail: u32,
     num_i2c_read: u32,
@@ -96,7 +100,8 @@ impl<B: Bus> Device<B> {
             current_energized: false,
             probe_detected: false,
             last_ratio: PulseRatio::ALL_OPEN,
-            smoothed_ratio: PulseRatio::ALL_OPEN,
+            control_ratio: PulseRatio::ALL_OPEN,
+            report_ratio: PulseRatio::ALL_OPEN,
             num_i2c_write: 0,
             num_i2c_write_fail: 0,
             num_i2c_read: 0,
@@ -176,7 +181,8 @@ impl<B: Bus> Device<B> {
         self.current_energized = true;
         self.probe_detected = false;
         self.last_ratio = PulseRatio::ALL_OPEN;
-        self.smoothed_ratio = PulseRatio::ALL_OPEN;
+        self.control_ratio = PulseRatio::ALL_OPEN;
+        self.report_ratio = PulseRatio::ALL_OPEN;
     }
 
     /// Transition Energized → Deenergized. Commits state only after the halt write
@@ -188,7 +194,8 @@ impl<B: Bus> Device<B> {
         self.current_energized = false;
         self.probe_detected = false;
         self.last_ratio = PulseRatio::ALL_OPEN;
-        self.smoothed_ratio = PulseRatio::ALL_OPEN;
+        self.control_ratio = PulseRatio::ALL_OPEN;
+        self.report_ratio = PulseRatio::ALL_OPEN;
     }
 
     /// Steady-state poll: refresh measurements and reset the watchdog.
@@ -199,7 +206,7 @@ impl<B: Bus> Device<B> {
         }
     }
 
-    /// Cut poll: refresh raw and smoothed open/short window ratios and `eff_duty`.
+    /// Cut poll: refresh raw, control, and reporting open/short window ratios and `eff_duty`.
     async fn poll_cut(&mut self, pulse_us: f32, dt_s: f32) {
         self.num_i2c_read += 1;
         let (fault, open, short, num_good) = match self.dev.read_res_cut().await {
@@ -225,11 +232,8 @@ impl<B: Bus> Device<B> {
             open,
         };
         self.last_ratio = raw;
-        self.smoothed_ratio = PulseRatio {
-            eff_duty: ema(self.smoothed_ratio.eff_duty, raw.eff_duty, RATIO_ALPHA),
-            short: ema(self.smoothed_ratio.short, raw.short, RATIO_ALPHA),
-            open: ema(self.smoothed_ratio.open, raw.open, RATIO_ALPHA),
-        };
+        self.control_ratio = ema_ratio(self.control_ratio, raw, CONTROL_RATIO_ALPHA);
+        self.report_ratio = ema_ratio(self.report_ratio, raw, REPORT_RATIO_ALPHA);
     }
 
     /// Probe poll: latch contact detection and reset the watchdog.
@@ -246,14 +250,14 @@ impl<B: Bus> Device<B> {
         }
     }
 
-    /// Raw last-tick ratio. For the 1 ms control loop. open=1 when non-energized.
-    pub fn last_ratio(&self) -> PulseRatio {
-        self.last_ratio
+    /// ~50 ms EWMA ratio. For the motion control loop. open=1 when non-energized.
+    pub fn control_ratio(&self) -> PulseRatio {
+        self.control_ratio
     }
 
-    /// EWMA-smoothed ratio. For `?edm` reporting. open=1 when non-energized.
-    pub fn smoothed_ratio(&self) -> PulseRatio {
-        self.smoothed_ratio
+    /// ~1 s EWMA ratio. For `?edm` reporting. open=1 when non-energized.
+    pub fn report_ratio(&self) -> PulseRatio {
+        self.report_ratio
     }
 
     /// Whether the gap is conducting (probe contact, or any cut pulse).
@@ -304,4 +308,13 @@ impl<B: Bus> Device<B> {
 /// Exponential moving average.
 fn ema(cum: f32, new: f32, alpha: f32) -> f32 {
     cum + alpha * (new - cum)
+}
+
+/// Field-wise [`ema`] of a [`PulseRatio`].
+fn ema_ratio(cum: PulseRatio, new: PulseRatio, alpha: f32) -> PulseRatio {
+    PulseRatio {
+        eff_duty: ema(cum.eff_duty, new.eff_duty, alpha),
+        short: ema(cum.short, new.short, alpha),
+        open: ema(cum.open, new.open, alpha),
+    }
 }

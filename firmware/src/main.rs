@@ -213,7 +213,7 @@ async fn tick_loop(
                 edm: c.motion.edm_state(),
                 active,
                 offset: c.coord.offset_of(active),
-                smooth_pulse_ratio: c.pulser.smoothed_ratio(),
+                smooth_pulse_ratio: c.pulser.report_ratio(),
             };
             let rx = handle_rx(
                 serial,
@@ -244,7 +244,7 @@ async fn tick_loop(
                 c.wirefeed.stop();
                 c.pulser.request_deenergize();
             }
-            let r = c.pulser.last_ratio();
+            let r = c.pulser.control_ratio();
             let input = motion::MotionInputs {
                 dt: TICK_DT_MS * 1e-3,
                 open_rate: r.open,

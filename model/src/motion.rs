@@ -17,10 +17,10 @@ pub struct EdmControlParams {
 }
 
 pub const DEFAULT_CONTROL_PARAMS: EdmControlParams = EdmControlParams {
-    retr_thresh: 0.5,
-    adv_thresh: 0.78,
+    retr_thresh: 0.3,
+    adv_thresh: 0.3,
     retr_speed: 5.0,
-    adv_speed: 1.0,
+    adv_speed: 5.0,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -166,9 +166,9 @@ impl<const N: usize> MotionState<N> {
             }
             Mode::EdmMove => {
                 if input.open_rate > params.adv_thresh {
-                    self.path.move_by(params.adv_speed * input.dt);
+                    self.path.move_by(params.adv_speed * input.open_rate * input.dt);
                 } else if input.short_rate > params.retr_thresh {
-                    self.path.move_by(-params.retr_speed * input.dt);
+                    self.path.move_by(-params.retr_speed * input.short_rate * input.dt);
                 }
                 if self.path.at_dst() {
                     self.mode = Mode::Idle;
