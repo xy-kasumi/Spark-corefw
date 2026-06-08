@@ -192,7 +192,7 @@ impl<const N: usize> MotionState<N> {
         self.mode
     }
 
-    /// Distance available to retract before hitting the history limit. (`?edm` retr_rem)
+    /// Distance available to retract before hitting the oldest retained point. (`?edm` retr_rem)
     pub fn retract_remaining(&self) -> f32 {
         self.path.retract_remaining()
     }
