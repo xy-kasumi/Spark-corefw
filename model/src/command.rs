@@ -53,6 +53,17 @@ pub enum Command {
     /// `stat` - dump per-module debug status as one `stat` p-state.
     Stat,
 }
+
+impl Command {
+    pub fn is_write(&self) -> bool {
+        match &self {
+            Command::Get => false,
+            Command::Stat => false,
+            _ => true,
+        }
+    }
+}
+
 pub fn parse(bytes: &[u8]) -> Parsed {
     match bytes.first() {
         Some(b'!') | Some(b'?') => match bytes {

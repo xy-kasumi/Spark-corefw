@@ -236,7 +236,7 @@ async fn tick_loop(
             // Level-triggered safe-state sweep. Subsystems' cancel/stop methods
             // are idempotent, so re-running every tick while the canceler is
             // active is a no-op after the first.
-            if canceler.active() {
+            if canceler.canceled() {
                 let here = c.motors.current();
                 c.motion.cancel(here);
                 c.coord.cancel();
@@ -302,22 +302,26 @@ fn handle_rx<const N: usize>(
             continue;
         };
         match command::parse(bytes) {
-            command::Parsed::Cancel if !canceler.faulted() => {
+            command::Parsed::Cancel => {
                 canceler.cancel();
                 batch.cancel_seen = true;
             }
             command::Parsed::Query(q) => {
                 signals::exec_query(q, stats, cmd_queue, out);
             }
-            command::Parsed::FastSet(fs) if !canceler.active() => {
+            command::Parsed::FastSet(fs) if !canceler.forbid_write() => {
                 let _ = batch.fastsets.push(fs);
             }
-            command::Parsed::Command(c) if !canceler.active() => {
-                if cmd_queue.try_send(c).is_err() {
-                    out.push_error(format_args!("queue full"));
+            command::Parsed::Command(c) if !canceler.canceled() => {
+                if canceler.faulted() && c.is_write() {
+                    out.push_error(format_args!("forbidden in fault mode"));
+                } else {
+                    if cmd_queue.try_send(c).is_err() {
+                        out.push_error(format_args!("queue full"));
+                    }
                 }
             }
-            command::Parsed::Error if !canceler.active() => {
+            command::Parsed::Error if !canceler.canceled() => {
                 out.push_error(format_args!("syntax error"));
             }
             _ => {}
@@ -369,7 +373,7 @@ async fn cmd_loop(
 
     loop {
         let curr = cmd_queue.receive().await;
-        if canceler.active() {
+        if canceler.forbid_write() {
             // discard if in cancel state
             continue;
         }

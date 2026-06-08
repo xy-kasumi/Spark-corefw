@@ -1,29 +1,17 @@
 // SPDX-FileCopyrightText: 夕月霞
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Cancel state shared by the orchestrator's RX phase and the command executor.
+//! Manages machine-wide safety status.
+//! * cancel: window where all commands should be ignored & hardware set to be safe state
+//! * fault: latching flag that forbids "write" command until power cycle
 //!
-//! A cancel (`!`) does two things: it bumps a generation counter and arms a
-//! drain window. The window lets the RX phase blackhole incoming commands for
-//! [`CANCEL_TICKS`] ticks, so a single `!` empties the queue instead of racing
-//! bytes still in flight from the host. The generation lets the executor tell a
-//! command that finished normally from one a cancel landed on, since its
-//! lookahead is already pulled out of the queue and the drain can't reach it.
-//!
-//! Fault is a sticky one-way variant of cancel. Once entered, never clears;
-//! [`active`](Canceler::active) stays true forever so the RX gate silences all
-//! writes for the rest of this power cycle.
+//! Fault is weaker than cancel, to allow "read" command for debugging.
 
 use core::sync::atomic;
 
-/// Drain window length, in orchestrator ticks (1 kHz). Long enough to outlast
-/// host-side and on-wire buffering that a single `!` can't otherwise reach; a
-/// soft e-stop has no reason to be twitchy.
+/// Drain window length, long enough to discard all in-transit commands & device traisients.
 const CANCEL_TICKS: u16 = 500;
 
-/// Shared cancel state. The RX phase arms and ages it; the executor watches it.
-/// Single-writer for the window (only the RX phase calls [`cancel`](Self::cancel)
-/// and [`tick`](Self::tick)), so the load/modify/store in `tick` needs no RMW.
 pub struct Canceler {
     gen: atomic::AtomicU32,
     ticks_left: atomic::AtomicU16,
@@ -46,9 +34,9 @@ impl Canceler {
             .store(CANCEL_TICKS, atomic::Ordering::Relaxed);
     }
 
-    /// Latch the fault flag. Returns `true` on the entering transition, `false`
-    /// if already in fault. Also bumps the generation and arms the drain window
-    /// so in-flight watchers fire one more time.
+    /// Set latching fault flag.
+    /// Returns `true` on the entering. `false` if already in fault-mode.
+    /// Upon first entry to fault, one-time cancelation window also happens.
     pub fn enter_fault(&self) -> bool {
         if self
             .fault
@@ -73,6 +61,11 @@ impl Canceler {
         self.fault.load(atomic::Ordering::Relaxed)
     }
 
+    /// True when in cancelation window.
+    pub fn canceled(&self) -> bool {
+        self.ticks_left.load(atomic::Ordering::Relaxed) > 0
+    }
+
     /// Age the drain window by one tick. Call once per orchestrator tick.
     pub fn tick(&self) {
         let left = self.ticks_left.load(atomic::Ordering::Relaxed);
@@ -81,10 +74,9 @@ impl Canceler {
         }
     }
 
-    /// True while the drain window is open or the fault latch is set:
-    /// incoming write commands should be discarded.
-    pub fn active(&self) -> bool {
-        self.faulted() || self.ticks_left.load(atomic::Ordering::Relaxed) > 0
+    /// True when "write" operation should be forbidden (either cancel or fault).
+    pub fn forbid_write(&self) -> bool {
+        self.faulted() || self.canceled()
     }
 
     /// Snapshot the cancel generation. Pair with [`Watcher::cancelled`] to
@@ -97,7 +89,7 @@ impl Canceler {
     }
 }
 
-/// A snapshot of the cancel generation taken at [`Canceler::watch`].
+/// Cancelation detector that doesn't require constant polling. Taken at [`Canceler::watch`].
 #[derive(Clone, Copy)]
 pub struct Watcher<'a> {
     canceler: &'a Canceler,

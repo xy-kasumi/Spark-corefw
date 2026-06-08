@@ -166,9 +166,11 @@ impl<const N: usize> MotionState<N> {
             }
             Mode::EdmMove => {
                 if input.open_rate > params.adv_thresh {
-                    self.path.move_by(params.adv_speed * input.open_rate * input.dt);
+                    self.path
+                        .move_by(params.adv_speed * input.open_rate * input.dt);
                 } else if input.short_rate > params.retr_thresh {
-                    self.path.move_by(-params.retr_speed * input.short_rate * input.dt);
+                    self.path
+                        .move_by(-params.retr_speed * input.short_rate * input.dt);
                 }
                 if self.path.at_dst() {
                     self.mode = Mode::Idle;
