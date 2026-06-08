@@ -378,39 +378,55 @@ async fn cmd_loop(
             continue;
         }
 
+        let feed = curr.is_feed();
         commands::OUTSTANDING.fetch_add(1, atomic::Ordering::Relaxed);
-        let mut out: commands::OutputBuf = outbox::OutputBuf::new();
-        let result = commands::exec(
-            curr,
-            core,
-            tmc,
-            &mut homing,
-            canceler,
-            &mut repo,
-            &mut pulser_cfg,
-            &mut out,
-        )
-        .await;
-        outbox.flush(&mut out).await;
 
-        let settle = match result {
-            Ok(commands::ExecOutcome::Done) => commands::drain(core).await,
-            Ok(commands::ExecOutcome::FeedDispatched) => {
-                // While motion is ongoing, don't give up chaining.
-                while cmd_queue.is_empty() && core.lock().await.motion.mode() != motion::Mode::Idle
-                {
-                    embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
-                }
+        // A non-feed command runs on settled motion: drain any EDM chain it
+        // would otherwise preempt. `curr` is the command in hand, not a queue
+        // lookahead. Feeds extend the chain instead, so they pass through.
+        let preempt = if !feed && core.lock().await.motion.mode() == motion::Mode::EdmMove {
+            commands::drain(core).await
+        } else {
+            Ok(())
+        };
 
-                if core.lock().await.motion.mode() == motion::Mode::Idle {
-                    // Chain was not possible.
-                    commands::drain(core).await
-                } else {
-                    // Chained.
-                    Ok(())
+        let settle = match preempt {
+            Err(e) => Err(e),
+            Ok(()) => {
+                let mut out: commands::OutputBuf = outbox::OutputBuf::new();
+                let result = commands::exec(
+                    curr,
+                    core,
+                    tmc,
+                    &mut homing,
+                    canceler,
+                    &mut repo,
+                    &mut pulser_cfg,
+                    &mut out,
+                )
+                .await;
+                outbox.flush(&mut out).await;
+
+                match result {
+                    Err(e) => Err(e),
+                    Ok(()) if feed => {
+                        // Let the next feed extend the chain; settle only when
+                        // it ends naturally with nothing queued behind it.
+                        while cmd_queue.is_empty()
+                            && core.lock().await.motion.mode() != motion::Mode::Idle
+                        {
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(1))
+                                .await;
+                        }
+                        if core.lock().await.motion.mode() == motion::Mode::Idle {
+                            commands::drain(core).await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    Ok(()) => commands::drain(core).await,
                 }
             }
-            Err(e) => Err(e),
         };
         commands::OUTSTANDING.fetch_sub(1, atomic::Ordering::Relaxed);
 

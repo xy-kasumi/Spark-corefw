@@ -62,6 +62,12 @@ impl Command {
             _ => true,
         }
     }
+
+    /// True only for an EDM feed segment — the one command that extends a
+    /// running EDM chain rather than running on settled motion.
+    pub fn is_feed(&self) -> bool {
+        matches!(self, Command::Gcode(gcode::Parsed::Feed(_)))
+    }
 }
 
 pub fn parse(bytes: &[u8]) -> Parsed {

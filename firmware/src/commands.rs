@@ -49,17 +49,10 @@ const PROBE_SPEED_MM_PER_S: f32 = 1.0;
 #[derive(Debug)]
 pub struct HwFault;
 
-/// Result of one successful `exec`.
-pub enum ExecOutcome {
-    /// Command is self-contained. Caller of `exec` should [`drain`] after exec. `drain` marks the command completion.
-    Done,
-    /// Feed was dispatched (expecting chaining).
-    /// Caller should check for chain opportunity before calling [`drain`] or declaring command completion.
-    FeedDispatched,
-}
-
 /// Run one command.
 /// Caller must guarantee clean machine state before calling, by using [`drain`].
+/// A feed ([`Command::is_feed`]) extends a running EDM chain instead, so the
+/// caller skips the pre-`drain` for those.
 /// `canceler` is only checked in long-running commands.
 pub async fn exec(
     cmd: Command,
@@ -70,7 +63,7 @@ pub async fn exec(
     repo: &mut model::settings::Repo,
     pulser_cfg: &mut pulser::Config,
     out: &mut OutputBuf,
-) -> Result<ExecOutcome, HwFault> {
+) -> Result<(), HwFault> {
     match cmd {
         Command::Gcode(gcode::Parsed::Rapid(spec)) => {
             let mut c = core.lock().await;
@@ -87,7 +80,7 @@ pub async fn exec(
             loop {
                 let mut c = core.lock().await;
                 if watch.cancelled() {
-                    return Ok(ExecOutcome::Done);
+                    return Ok(());
                 }
                 if !c.motion.ready_for_edm() {
                     drop(c);
@@ -103,7 +96,7 @@ pub async fn exec(
                 c.motion.do_edm(target);
                 break;
             }
-            return Ok(ExecOutcome::FeedDispatched);
+            return Ok(());
         }
         Command::Gcode(gcode::Parsed::Probe(spec)) => {
             let mut c = core.lock().await;
@@ -165,14 +158,15 @@ pub async fn exec(
             dump_stat(out, core, tmc).await;
         }
     }
-    Ok(ExecOutcome::Done)
+    Ok(())
 }
 
 /// Universal post-command settle: drain motion to idle, ensure the pulser is
 /// deenergized, and wait pump/wirefeed countdowns. Called by `cmd_loop` after
-/// every [`ExecOutcome::Done`]; also called after a Feed chain ends naturally.
-/// Cheap when the machine is already clean — each `settled()` returns
-/// immediately. Pulser fault during the wait surfaces as [`HwFault`].
+/// every non-feed command, before a non-feed preempts a running chain, and
+/// after a feed chain ends naturally. Cheap when the machine is already clean —
+/// each `settled()` returns immediately. Pulser fault during the wait surfaces
+/// as [`HwFault`].
 pub async fn drain(core: &SharedCore) -> Result<(), HwFault> {
     while core.lock().await.motion.mode() != motion::Mode::Idle {
         embassy_time::Timer::after(embassy_time::Duration::from_millis(1)).await;
