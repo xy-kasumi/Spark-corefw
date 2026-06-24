@@ -164,14 +164,17 @@ impl<B: Bus> Device<B> {
     async fn energize(&mut self, req: Request) {
         let ok = match req {
             Request::Cut(cfg) => {
-                let tim = pulser::pack_tim(cfg.pulse_us, cfg.duty_pct);
+                let dur = pulser::pack_dur(cfg.pulse_us);
+                let duty = pulser::pack_duty(cfg.duty_pct);
                 // No polarity register: `cfg.tool_negative` ignored. Device clamps current.
+                // Order CURR->DUR->DUTY matches the device's clamp dependency chain.
                 self.write_reg_counted(pulser::REG_MODE, 1).await.is_ok() // cut
                     && self
                         .write_reg_counted(pulser::REG_CURR, cfg.current_a as u8)
                         .await
                         .is_ok()
-                    && self.write_reg_counted(pulser::REG_TIM, tim).await.is_ok()
+                    && self.write_reg_counted(pulser::REG_DUR, dur).await.is_ok()
+                    && self.write_reg_counted(pulser::REG_DUTY, duty).await.is_ok()
             }
             Request::Probe => self.write_reg_counted(pulser::REG_MODE, 0).await.is_ok(), // probe
         };

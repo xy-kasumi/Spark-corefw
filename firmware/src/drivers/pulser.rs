@@ -22,7 +22,8 @@ pub const I2C_ADDR: u8 = 0x3c;
 pub const REG_CTRL: u8 = 0x01; // RW: bit0 `run` (1 runs, 0 stops)
 pub const REG_MODE: u8 = 0x02; // RW: bit0 `mode` (0=probe, 1=cut). Write fails while running.
 pub const REG_CURR: u8 = 0x03; // RW: pulse current in A; auto-clamped to a supported value. Write fails while running.
-pub const REG_TIM: u8 = 0x04; // RW: `max_duty:4 | dur:4`. Write fails while running.
+pub const REG_DUR: u8 = 0x04; // RW: `reserved:1 | exp:2 | frac:5` pulse duration. Auto-clamped per CURR. Write fails while running.
+pub const REG_DUTY: u8 = 0x05; // RW: max duty = `(byte+1)/256`. Auto-clamped per CURR & DUR. Write fails while running.
 pub const REG_RES0: u8 = 0x08; // R: result byte 0; reading clears the WDT & updates the result.
 pub const REG_RES1: u8 = 0x09; // R: result byte 1 (`num_good` in cut mode).
 pub const REG_FAULT: u8 = 0x10; // R + clear: bit0 `fault`, bit1 `wdt` (write 1 to clear `wdt`).
@@ -72,15 +73,24 @@ impl<B: Bus> Device<B> {
     }
 }
 
-/// Pack `TIM` = `max_duty:4 | dur:4`: `dur`→`(dur+1)*50us`, `max_duty`→`(max_duty+1)/16`.
-/// e.g. (500us,25%)->0x39, (50us,6.25%)->0x00, (800us,100%)->0xff.
-pub fn pack_tim(pulse_us: f32, duty_pct: f32) -> u8 {
-    let dur = nibble(pulse_us / 50.0 - 1.0);
-    let max_duty = nibble(duty_pct * 16.0 / 100.0 - 1.0);
-    (max_duty << 4) | dur
+/// Pack `DUR` = `reserved:1 | exp:2 | frac:5`, where duration = `mul(exp) * frac/20`
+/// with `mul` 10/100/1000us and `frac` in `1..=19`. Picks the finest exponent that
+/// covers `pulse_us`; the device re-clamps to the active current's range.
+/// e.g. 0.5us->0x01, 100us->0x42, 950us->0x53.
+pub fn pack_dur(pulse_us: f32) -> u8 {
+    const MUL: [f32; 3] = [10.0, 100.0, 1000.0];
+    for exp in 0u8..=2 {
+        let frac = ((pulse_us * 20.0 / MUL[exp as usize]) + 0.5) as i32;
+        if frac <= 19 {
+            return (exp << 5) | frac.clamp(1, 19) as u8;
+        }
+    }
+    (2 << 5) | 19 // 950us, the maximum.
 }
 
-/// Round to nearest non-negative integer and clamp into a 4-bit field `[0, 15]`.
-fn nibble(x: f32) -> u8 {
-    ((x + 0.5) as i32).clamp(0, 15) as u8
+/// Pack `DUTY`: max duty = `(byte+1)/256`. Floors so the cap never exceeds `duty_pct`;
+/// the device re-clamps to the active current & duration band.
+/// e.g. 9%->0x16, 25%->0x3f, 49%->0x7c.
+pub fn pack_duty(duty_pct: f32) -> u8 {
+    ((duty_pct / 100.0 * 256.0) as i32 - 1).clamp(0, 255) as u8
 }
