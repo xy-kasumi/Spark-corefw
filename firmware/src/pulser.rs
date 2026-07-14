@@ -112,7 +112,7 @@ impl<B: Bus> Device<B> {
     /// Probe comm; on success clears `fault` unless the device latched a fault.
     /// Inspect [`Self::fault`] afterward.
     pub async fn init(&mut self) {
-        // Check comm. Wait up to 500ms (pulser power bring up might take time).
+        // Check comm. Wait up to 1s (pulser power bring up might take time).
         for _ in 0..5 {
             // Liveness via a side-effect-free CTRL read.
             if self.read_reg_counted(pulser::REG_CTRL).await.is_ok() {
@@ -123,7 +123,7 @@ impl<B: Bus> Device<B> {
                     return;
                 }
             }
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(200)).await;
         }
     }
 
