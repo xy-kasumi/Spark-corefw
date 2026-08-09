@@ -74,11 +74,6 @@ impl Canceler {
         }
     }
 
-    /// True when "write" operation should be forbidden (either cancel or fault).
-    pub fn forbid_write(&self) -> bool {
-        self.faulted() || self.canceled()
-    }
-
     /// Snapshot the cancel generation. Pair with [`Watcher::cancelled`] to
     /// detect a cancel that landed while a command was running.
     pub fn watch(&self) -> Watcher<'_> {

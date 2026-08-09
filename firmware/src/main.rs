@@ -157,8 +157,8 @@ async fn main(spawner: embassy_executor::Spawner) {
 
 /// Latch the fault state and emit `sys ev:"fault"`. Idempotent: re-entries
 /// are no-ops after the first. Hardware safe-state is driven by [`tick_loop`]'s
-/// cancel sweep: the sticky fault latch keeps `canceler.active()` true forever,
-/// so each subsequent tick re-runs the level-triggered cancel block.
+/// cancel sweep, over the one-time cancelation window that entering fault arms.
+/// After the window, the latch keeps the machine safe by rejecting writes.
 pub(crate) async fn enter_fault(
     canceler: &canceler::Canceler,
     outbox: &outbox::Outbox<OUTBOX_CAP>,
@@ -309,7 +309,7 @@ fn handle_rx<const N: usize>(
             command::Parsed::Query(q) => {
                 signals::exec_query(q, stats, cmd_queue, out);
             }
-            command::Parsed::FastSet(fs) if !canceler.forbid_write() => {
+            command::Parsed::FastSet(fs) if !(canceler.canceled() || canceler.faulted()) => {
                 let _ = batch.fastsets.push(fs);
             }
             command::Parsed::Command(c) if !canceler.canceled() => {
@@ -373,8 +373,8 @@ async fn cmd_loop(
 
     loop {
         let curr = cmd_queue.receive().await;
-        if canceler.forbid_write() {
-            // discard if in cancel state
+        if canceler.canceled() || (canceler.faulted() && curr.is_write()) {
+            // discard writes in fault mode; discard everything while canceling
             continue;
         }
 
